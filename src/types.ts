@@ -1,4 +1,7 @@
-export type Topic = 'Vật lí nhiệt' | 'Khí lí tưởng' | 'Từ trường' | 'Vật lí hạt nhân';
+// Topic mở rộng: AI tự nhận diện và gán chủ đề phù hợp
+// Các topic gợi ý (không giới hạn): 'Vật lí nhiệt', 'Khí lí tưởng', 'Từ trường', 'Vật lí hạt nhân',
+// 'Dao động cơ', 'Sóng cơ', 'Điện xoay chiều', 'Sóng điện từ', 'Quang học', 'Lượng tử ánh sáng', ...
+export type Topic = string;
 export type QuestionLevel = 'Nhận biết' | 'Thông hiểu' | 'Vận dụng' | 'Vận dụng cao';
 export type Part = 1 | 2 | 3;
 export type Role = 'student' | 'admin';

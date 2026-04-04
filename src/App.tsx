@@ -25,7 +25,7 @@ import {
   OperationType
 } from './firebase';
 import { UserProfile, Question, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification } from './types';
-import { analyzeAnswer } from './services/geminiService';
+import { analyzeAnswer, digitizeDocument, digitizeFromPDF } from './services/geminiService';
 import { 
   LogOut, 
   User as UserIcon, 
@@ -58,8 +58,10 @@ import { cn } from './lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { InlineMath, BlockMath } from 'react-katex';
 import * as mammoth from 'mammoth';
-import { digitizeDocument } from './services/geminiService';
-import { parseByRules } from './services/parserService';
+
+import { parseAzotaExam, ParseError } from './services/AzotaParser';
+import { processDocxFile } from './services/DocxReader';
+import QuestionReviewBoard from './components/QuestionReviewBoard';
 
 import { 
   BarChart, 
@@ -129,95 +131,134 @@ const MathRenderer = ({ content }: { content: string }) => {
 
 const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Question[]) => void }) => {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [previewQuestions, setPreviewQuestions] = useState<Question[]>([]);
-  const [topicHint, setTopicHint] = useState<Topic>('Vật lí nhiệt');
+  const [reviewQuestions, setReviewQuestions] = useState<Question[] | null>(null);
+  const [parseErrors, setParseErrors] = useState<ParseError[]>([]);
+  const [topicHint, setTopicHint] = useState<Topic>('');
   const [digitizeMode, setDigitizeMode] = useState<'AI' | 'Standard'>('AI');
+  const [imageProgress, setImageProgress] = useState<string | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    console.log("File selected:", file.name, "Mode:", digitizeMode);
+    const isPDF = file.name.toLowerCase().endsWith('.pdf');
+    const isDOCX = file.name.toLowerCase().endsWith('.docx');
+
+    if (!isPDF && !isDOCX) {
+      alert('Vui lòng chọn file .pdf hoặc .docx');
+      return;
+    }
 
     // Check if API key is selected (if platform supports it)
-    if (digitizeMode === 'AI') {
+    if (digitizeMode === 'AI' || isPDF) {
       try {
         if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
-          console.log("API Key not selected, opening selector...");
           await window.aistudio.openSelectKey();
         }
       } catch (err) {
-        console.warn("Error checking API key status:", err);
+        console.warn('Error checking API key status:', err);
       }
     }
 
     setIsProcessing(true);
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      
-      if (digitizeMode === 'AI') {
-        // AI Mode: Use mammoth HTML conversion
+      if (isPDF) {
+        // ===== PDF MODE: Gemini Vision đọc trực tiếp =====
+        const questions = await digitizeFromPDF(
+          file,
+          topicHint,
+          (status) => setImageProgress(status)
+        );
+        setImageProgress(null);
+        if (questions.length === 0) {
+          alert('AI không tìm thấy câu hỏi nào trong PDF. Thầy kiểm tra lại file.');
+          return;
+        }
+        setParseErrors([]);
+        setReviewQuestions(questions);
+      } else if (digitizeMode === 'AI') {
+        // ===== AI Mode: mammoth → HTML → Gemini =====
+        const arrayBuffer = await file.arrayBuffer();
         const options = {
-          convertImage: mammoth.images.imgElement(() => {
-            return Promise.resolve({ src: "[HÌNH MINH HỌA]" });
-          })
+          convertImage: mammoth.images.imgElement(() =>
+            Promise.resolve({ src: '[HÌNH MINH HỌA]' })
+          ),
         };
         const result = await mammoth.convertToHtml({ arrayBuffer }, options);
         const html = result.value;
-        if (!html || html.trim().length === 0) throw new Error("File Word không có nội dung văn bản.");
+        if (!html || html.trim().length === 0)
+          throw new Error('File Word không có nội dung văn bản.');
         const questions = await digitizeDocument(html, topicHint);
-        setPreviewQuestions(questions);
+        setParseErrors([]);
+        setReviewQuestions(questions);
       } else {
-        // Standard Mode: Use mammoth plain text conversion
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        const text = result.value;
-        if (!text || text.trim().length === 0) throw new Error("File Word không có nội dung văn bản.");
-        const questions = parseByRules(text, topicHint);
-        setPreviewQuestions(questions);
-        if (questions.length === 0) {
-          alert("Không tìm thấy câu hỏi theo định dạng chuẩn. Thầy hãy kiểm tra lại file hoặc dùng chế độ AI.");
+        // ===== Standard Mode: DocxReader + AzotaParser =====
+        setImageProgress('Đang đọc file và xử lý hình ảnh...');
+        const docxResult = await processDocxFile(
+          file,
+          'exam_images',
+          (uploaded, total) => setImageProgress(`Đã upload ${uploaded}/${total} hình lên Storage...`)
+        );
+        setImageProgress(null);
+        if (docxResult.warnings.length > 0)
+          console.warn('[DocxReader] Cảnh báo:', docxResult.warnings);
+        if (!docxResult.html || docxResult.html.trim().length === 0)
+          throw new Error('File Word không có nội dung văn bản.');
+        const parseResult = parseAzotaExam(docxResult.html, topicHint);
+        if (parseResult.questions.length === 0) {
+          alert('Không tìm thấy câu hỏi theo định dạng chuẩn Azota. Thầy hãy kiểm tra lại file.');
+          return;
         }
+        setParseErrors(parseResult.errors);
+        setReviewQuestions(parseResult.questions);
       }
     } catch (error: any) {
-      console.error("File processing error:", error);
+      console.error('File processing error:', error);
       const errorMsg = error.message || String(error);
-      
-      if (errorMsg.includes("Requested entity was not found") && window.aistudio) {
-        alert("API Key hiện tại không hợp lệ hoặc đã hết hạn. Vui lòng chọn lại trong phần Cài đặt.");
+      if (errorMsg.includes('Requested entity was not found') && window.aistudio) {
+        alert('API Key hiện tại không hợp lệ hoặc đã hết hạn.');
         await window.aistudio.openSelectKey();
-      } else if (errorMsg.includes("GEMINI_API_KEY is not defined")) {
-        alert("Chưa cấu hình API Key. Thầy hãy vào phần Cài đặt để thiết lập.");
+      } else if (errorMsg.includes('GEMINI_API_KEY is not defined')) {
+        alert('Chưa cấu hình API Key.');
       } else {
         alert(`Có lỗi khi xử lý file: ${errorMsg}`);
       }
     } finally {
       setIsProcessing(false);
+      setImageProgress(null);
       e.target.value = '';
     }
   };
 
-  const saveToDatabase = async () => {
-    setIsProcessing(true);
-    try {
-      for (const q of previewQuestions) {
-        await addDoc(collection(db, 'questions'), q);
-      }
-      onQuestionsAdded(previewQuestions);
-      setPreviewQuestions([]);
-      alert(`Đã số hóa thành công ${previewQuestions.length} câu hỏi!`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'questions');
-    } finally {
-      setIsProcessing(false);
+  // Sync từ Review Board → Firestore
+  const handleSync = async (questions: Question[]) => {
+    for (const q of questions) {
+      await addDoc(collection(db, 'questions'), q);
     }
+    onQuestionsAdded(questions);
+    setReviewQuestions(null);
+    setParseErrors([]);
   };
+
+  // Nếu đang ở bước Review Board
+  if (reviewQuestions !== null) {
+    return (
+      <QuestionReviewBoard
+        initialQuestions={reviewQuestions}
+        parseErrors={parseErrors}
+        topic={topicHint}
+        onSync={handleSync}
+        onCancel={() => setReviewQuestions(null)}
+      />
+    );
+  }
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-8">
       <div className="flex justify-between items-center">
         <div>
-          <h3 className="text-2xl font-black text-white">SỐ HÓA KHO ĐỀ AI</h3>
-          <p className="text-slate-400 text-sm">Học tập Azota: Tự động bóc tách LaTeX, Hình ảnh và Gắn nhãn.</p>
+          <h3 className="text-2xl font-black text-white">SỐ HÓA ĐỀ THI AI</h3>
+          <p className="text-slate-400 text-sm">Upload bất kỳ đề nào — AI tự nhận diện, phân loại, gắn thẻ và sắp xếp.</p>
         </div>
         <div className="bg-red-600/10 p-3 rounded-2xl">
           <BrainCircuit className="text-red-600 w-8 h-8" />
@@ -250,14 +291,23 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
         </div>
 
         <div className="space-y-3">
-          <p className="text-xs font-bold text-slate-500 uppercase">2. Chuyên đề chính</p>
-          <div className="grid grid-cols-2 gap-2">
-            {(['Vật lí nhiệt', 'Khí lí tưởng', 'Từ trường', 'Vật lí hạt nhân'] as Topic[]).map(t => (
+          <p className="text-xs font-bold text-slate-500 uppercase">2. Gợi ý chủ đề (tùy chọn)</p>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setTopicHint('')}
+              className={cn(
+                "py-1.5 px-3 rounded-lg text-[10px] font-bold border transition-all",
+                topicHint === '' ? "bg-emerald-600 border-emerald-600 text-white" : "bg-slate-800 border-slate-700 text-slate-400"
+              )}
+            >
+              🤖 AI tự nhận diện
+            </button>
+            {(['Dao động cơ', 'Sóng cơ', 'Điện xoay chiều', 'Từ trường', 'Quang học', 'Vật lí nhiệt', 'Khí lí tưởng', 'Vật lí hạt nhân', 'Lượng tử ánh sáng', 'Động lực học', 'Năng lượng'] as Topic[]).map(t => (
               <button
                 key={t}
                 onClick={() => setTopicHint(t)}
                 className={cn(
-                  "py-2 px-3 rounded-xl text-[10px] font-bold border transition-all",
+                  "py-1.5 px-2.5 rounded-lg text-[10px] font-bold border transition-all",
                   topicHint === t ? (digitizeMode === 'AI' ? "bg-red-600 border-red-600 text-white" : "bg-blue-600 border-blue-600 text-white") : "bg-slate-800 border-slate-700 text-slate-400"
                 )}
               >
@@ -268,14 +318,14 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
         </div>
 
         <div className="space-y-3">
-          <p className="text-xs font-bold text-slate-500 uppercase">3. Tải lên file Word</p>
+          <p className="text-xs font-bold text-slate-500 uppercase">3. Tải lên file đề thi</p>
           <div className={cn(
             "border-2 border-dashed rounded-2xl p-6 text-center transition-all group relative",
             digitizeMode === 'AI' ? "border-slate-800 hover:border-red-600/50" : "border-slate-800 hover:border-blue-600/50"
           )}>
             <input 
               type="file" 
-              accept=".docx" 
+              accept=".pdf,.docx" 
               onChange={handleFileUpload}
               className="absolute inset-0 opacity-0 cursor-pointer"
               disabled={isProcessing}
@@ -286,7 +336,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
               </div>
               <div className="text-left">
                 <p className="text-sm font-bold text-white">Chọn file đề thi</p>
-                <p className="text-[10px] text-slate-500">Hỗ trợ .docx, MathType</p>
+                <p className="text-[10px] text-slate-500">📄 PDF (khuyên dùng) · 📝 .docx</p>
               </div>
             </div>
           </div>
@@ -294,125 +344,17 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
       </div>
 
       {isProcessing && (
-        <div className="flex items-center justify-center gap-3 text-red-500 font-bold animate-pulse">
-          <BrainCircuit className="animate-spin" />
-          AI ĐANG BÓC TÁCH DỮ LIỆU & CÔNG THỨC...
+        <div className="flex flex-col items-center justify-center gap-2">
+          <div className="flex items-center gap-3 text-red-500 font-bold animate-pulse">
+            <BrainCircuit className="animate-spin" />
+            {imageProgress || 'AI ĐANG BÓC TÁCH DỮ LIỆU & CÔNG THỨC...'}
+          </div>
+          {imageProgress && (
+            <p className="text-[10px] text-slate-500">Quá trình này có thể mất 30-60 giây với PDF dài</p>
+          )}
         </div>
       )}
 
-      {previewQuestions.length > 0 && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h4 className="font-bold text-white">Bản xem trước ({previewQuestions.length} câu)</h4>
-            <button 
-              onClick={saveToDatabase}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-xl font-bold transition-all flex items-center gap-2"
-            >
-              <CheckCircle2 className="w-4 h-4" /> Lưu vào hệ thống
-            </button>
-          </div>
-          <div className="max-h-[600px] overflow-y-auto space-y-6 pr-2 custom-scrollbar">
-            {previewQuestions.map((q, i) => (
-              <div key={i} className="bg-slate-950 border border-slate-800 p-6 rounded-2xl space-y-4 relative group/item">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest bg-red-600 text-white px-2 py-1 rounded">
-                      Phần {q.part}
-                    </span>
-                    <span className="text-[10px] font-black uppercase tracking-widest bg-slate-800 px-2 py-1 rounded text-slate-400">
-                      {q.topic} - {q.level}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 justify-end max-w-[200px]">
-                    {q.tags?.map(tag => (
-                      <span key={tag} className="text-[9px] bg-red-600/10 text-red-500 px-2 py-0.5 rounded-full font-bold">#{tag}</span>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="text-slate-200 text-base leading-relaxed font-medium">
-                  <MathRenderer content={q.content} />
-                </div>
-
-                {q.part === 1 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {q.options?.map((opt, idx) => (
-                      <div key={idx} className={cn(
-                        "text-sm p-3 rounded-xl border flex items-center gap-3",
-                        q.correctAnswer === idx 
-                          ? "bg-green-600/10 border-green-600/50 text-green-400" 
-                          : "bg-slate-900 border-slate-800 text-slate-500"
-                      )}>
-                        <span className="font-bold">{String.fromCharCode(65 + idx)}.</span>
-                        <MathRenderer content={opt} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {q.part === 2 && (
-                  <div className="space-y-2">
-                    {q.options?.map((opt, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl text-sm">
-                        <div className="flex gap-3 items-center">
-                          <span className="font-bold text-slate-500">{String.fromCharCode(97 + idx)})</span>
-                          <MathRenderer content={opt} />
-                        </div>
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase px-2 py-1 rounded",
-                          (q.correctAnswer as boolean[])[idx] ? "bg-green-600/20 text-green-500" : "bg-red-600/20 text-red-500"
-                        )}>
-                          {(q.correctAnswer as boolean[])[idx] ? 'Đúng' : 'Sai'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {q.part === 3 && (
-                  <div className="p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl flex items-center justify-between">
-                    <span className="text-sm font-bold text-blue-400 uppercase tracking-wider">Đáp án ngắn:</span>
-                    <span className="text-xl font-black text-white">{q.correctAnswer as number}</span>
-                  </div>
-                )}
-
-                <div className="pt-4 border-t border-slate-800 space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                      <BrainCircuit className="w-3 h-3" /> Hướng dẫn giải chi tiết
-                    </p>
-                    <div className="text-sm text-slate-400 italic leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
-                      <MathRenderer content={q.explanation} />
-                    </div>
-                  </div>
-
-                  {(q.resources?.length || q.simulationUrl) && (
-                    <div className="space-y-3">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                        <Info className="w-3 h-3" /> Học liệu & Mô phỏng đề xuất
-                      </p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {q.simulationUrl && (
-                          <div className="flex items-center gap-3 p-3 bg-red-600/5 border border-red-600/20 rounded-xl">
-                            <FlaskConical className="w-4 h-4 text-red-500" />
-                            <span className="text-[10px] text-slate-300 font-bold truncate">{q.simulationUrl}</span>
-                          </div>
-                        )}
-                        {q.resources?.map((res, idx) => (
-                          <div key={idx} className="flex items-center gap-3 p-3 bg-slate-900 border border-slate-800 rounded-xl">
-                            {res.type === 'video' ? <Video className="w-4 h-4 text-red-500" /> : <BookOpen className="w-4 h-4 text-blue-500" />}
-                            <span className="text-[10px] text-slate-400 font-bold truncate">{res.title}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -1090,7 +1032,7 @@ const SimulationModal = ({ isOpen, onClose, title, description, simulationUrl }:
   </AnimatePresence>
 );
 
-const Navbar = ({ user, onSignOut, onReset }: { user: UserProfile | null, onSignOut: () => void, onReset: () => void }) => {
+const Navbar = ({ user, onSignOut, onReset, onSignIn }: { user: UserProfile | null, onSignOut: () => void, onReset: () => void, onSignIn: () => void }) => {
   const scrollTo = (id: string) => {
     onReset();
     setTimeout(() => {
@@ -1145,7 +1087,7 @@ const Navbar = ({ user, onSignOut, onReset }: { user: UserProfile | null, onSign
           </div>
         ) : (
           <button 
-            onClick={signInWithGoogle}
+            onClick={onSignIn}
             className="bg-red-600 hover:bg-red-700 text-white px-8 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-red-600/20 flex items-center gap-2"
           >
             Đăng nhập <ChevronRight className="w-4 h-4" />
@@ -1925,6 +1867,26 @@ export default function App() {
 
   const [showVirtualLab, setShowVirtualLab] = useState(false);
   const [activeSimulation, setActiveSimulation] = useState<{ title: string, description: string, url: string } | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Safe sign-in handler with error feedback
+  const handleSignIn = async () => {
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/unauthorized-domain') {
+        setAuthError('Tên miền localhost chưa được cấp phép trong Firebase Console. Thầy vào Authentication → Settings → Authorized domains và thêm "localhost" để đăng nhập.');
+      } else if (code === 'auth/popup-blocked') {
+        setAuthError('Trình duyệt đã chặn cửa sổ đăng nhập. Vui lòng cho phép popup từ trang này và thử lại.');
+      } else if (code === 'auth/popup-closed-by-user') {
+        // User closed popup intentionally - not an error
+      } else {
+        setAuthError(`Đăng nhập thất bại: ${err?.message || 'Lỗi không xác định'}`);
+      }
+    }
+  };
 
   // Auth Listener
   useEffect(() => {
@@ -1933,7 +1895,8 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const isAdmin = firebaseUser.email === 'haunn.vietanhschool@gmail.com';
+        const ADMIN_EMAILS = ['haunn.vietanhschool@gmail.com', 'thayhauvatly@gmail.com'];
+        const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email ?? '');
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         
         let currentUserData: UserProfile;
@@ -2308,7 +2271,8 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-red-500/30">
       <Navbar 
         user={user} 
-        onSignOut={signOut} 
+        onSignOut={signOut}
+        onSignIn={handleSignIn}
         onReset={() => {
           setActiveTest(null);
           setResults(null);
@@ -2343,13 +2307,20 @@ export default function App() {
                 </p>
                 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-                  <button 
-                    onClick={signInWithGoogle}
-                    className="group relative bg-red-600 hover:bg-red-700 text-white px-12 py-5 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-2xl shadow-red-600/40 flex items-center gap-3 overflow-hidden"
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-                    <Play className="w-6 h-6 fill-current" /> Bắt đầu ngay
-                  </button>
+                  <div className="flex flex-col items-center gap-3">
+                    <button 
+                      onClick={handleSignIn}
+                      className="group relative bg-red-600 hover:bg-red-700 text-white px-12 py-5 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-2xl shadow-red-600/40 flex items-center gap-3 overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                      <Play className="w-6 h-6 fill-current" /> Bắt đầu ngay
+                    </button>
+                    {authError && (
+                      <div className="max-w-md text-center px-4 py-3 bg-red-600/10 border border-red-600/40 rounded-xl text-xs text-red-400 font-medium leading-relaxed">
+                        ⚠️ {authError}
+                      </div>
+                    )}
+                  </div>
                   
                   <div className="flex -space-x-3">
                     {[1, 2, 3, 4].map(i => (
