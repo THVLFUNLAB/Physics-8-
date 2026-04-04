@@ -41,8 +41,9 @@ const MAMMOTH_STYLE_MAP = [
   "p[style-name='Question'] => p.question:fresh",
   // Math object placeholder (nếu có custom style)
   "p[style-name='Math'] => p.math:fresh",
-  // Table headers
+  // Giữ nguyên in đậm, gạch chân
   "r[style-name='Strong'] => strong",
+  "u => u"
 ].join('\n');
 
 // ─── Hàm chính ────────────────────────────────────────────────────────────
