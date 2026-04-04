@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-200 antialiased;
+  }
+
+  /* Math Styles */
+  .katex-display {
+    @apply my-4 overflow-x-auto overflow-y-hidden py-2;
+  }
+  .katex {
+    @apply text-inherit;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-950;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+  }
+}
+
+@layer components {
+  .prose {
+    @apply text-slate-300 leading-relaxed;
+  }
+  .prose strong {
+    @apply text-white font-bold;
+  }
+  .prose h1, .prose h2, .prose h3 {
+    @apply text-white font-black tracking-tight mt-6 mb-4;
+  }
+  .prose p {
+    @apply mb-4;
+  }
+  .prose ul {
+    @apply list-disc pl-6 mb-4 space-y-2;
+  }
+}

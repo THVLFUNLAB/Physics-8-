@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: userId (auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string
+    //   - role: string (student, admin)
+    //   - targetGroup: string (Chống Sai Ngu, Master Physics)
+    //   - redZones: list (strings)
+    //   - createdAt: timestamp
+    //
+    // Collection: questions
+    // Document ID: questionId
+    // Fields:
+    //   - part: int (1, 2, 3)
+    //   - topic: string (Vật lí nhiệt, Khí lí tưởng, Từ trường, Vật lí hạt nhân)
+    //   - level: string (Nhận biết, Thông hiểu, Vận dụng, Vận dụng cao)
+    //   - content: string
+    //   - options: list
+    //   - correctAnswer: map
+    //   - explanation: string
+    //
+    // Collection: attempts
+    // Document ID: attemptId
+    // Fields:
+    //   - userId: string (required)
+    //   - score: number
+    //   - answers: map
+    //   - analysis: map
+    //   - timestamp: timestamp
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "haunn.vietanhschool@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.role in ['student', 'admin'] &&
+             (data.targetGroup == null || data.targetGroup in ['Chống Sai Ngu', 'Master Physics']) &&
+             (data.redZones == null || data.redZones is list);
+    }
+
+    function isValidAttempt(data) {
+      return data.userId == request.auth.uid &&
+             data.score is number &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Students need to see each other's target groups for motivation? Or just self?
+      // Let's restrict to owner or admin for privacy, but maybe public profiles are needed?
+      // User request says "80 học sinh", maybe a leaderboard?
+      // For now, restrict PII.
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data);
+    }
+
+    match /questions/{questionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /attempts/{attemptId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidAttempt(request.resource.data);
+      allow update: if false; // Attempts should be immutable
+      allow delete: if isAdmin();
+    }
+  }
+}

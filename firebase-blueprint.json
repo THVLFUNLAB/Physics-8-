@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Thông tin người dùng (học sinh/giáo viên)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "targetGroup": { "type": "string", "enum": ["Chống Sai Ngu", "Master Physics"] },
+        "redZones": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Câu hỏi ôn tập theo cấu trúc Bộ GD&ĐT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "part": { "type": "integer", "enum": [1, 2, 3] },
+        "topic": { "type": "string", "enum": ["Vật lí nhiệt", "Khí lí tưởng", "Từ trường", "Vật lí hạt nhân"] },
+        "level": { "type": "string", "enum": ["Nhận biết", "Thông hiểu", "Vận dụng", "Vận dụng cao"] },
+        "content": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "correctAnswer": { "type": "object" },
+        "explanation": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["part", "topic", "content", "correctAnswer"]
+    },
+    "Attempt": {
+      "title": "Attempt",
+      "description": "Lượt làm bài của học sinh",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "testId": { "type": "string" },
+        "answers": { "type": "object" },
+        "score": { "type": "number" },
+        "analysis": {
+          "type": "object",
+          "properties": {
+            "errorTracking": { "type": "object" },
+            "feedback": { "type": "string" }
+          }
+        },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "score", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Thông tin cá nhân học sinh"
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Ngân hàng câu hỏi"
+    },
+    "/attempts/{attemptId}": {
+      "schema": "Attempt",
+      "description": "Lịch sử làm bài"
+    }
+  }
+}
