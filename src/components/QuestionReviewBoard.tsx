@@ -38,16 +38,6 @@ import {
 import { Question, Topic, QuestionLevel, Part } from '../types';
 import { ParseError } from '../services/AzotaParser';
 
-// ─── Helper: Chuyển đổi File sang Base64 ngay tại trình duyệt ──────────────
-const getBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = error => reject(error);
-  });
-};
-
 // ─── Helper: phát hiện placeholder trong nội dung ─────────────────────────
 const hasImagePlaceholder = (text: string) =>
   /\[HÌNH MINH HỌA/i.test(text);
@@ -88,8 +78,134 @@ const PREVIEW_OPTIONS = {
   remarkPlugins: [[remarkMath]] as any,
 };
 
+// ─── Sub-component: MathToolbar ───────────────────────────────────────────
+// Thanh công cụ chèn nhanh ký hiệu toán học / LaTeX vào nội dung
+
+interface ToolbarItem {
+  label: string;
+  insert: string;
+  title: string;
+}
+
+interface ToolbarGroup {
+  groupName: string;
+  items: ToolbarItem[];
+}
+
+const MATH_TOOLBAR_GROUPS: ToolbarGroup[] = [
+  {
+    groupName: 'Công thức',
+    items: [
+      { label: '$…$', insert: '$  $', title: 'Công thức cùng dòng (inline)' },
+      { label: '$$…$$', insert: '$$  $$', title: 'Công thức tách dòng (display)' },
+      { label: 'a/b', insert: '\\frac{a}{b}', title: 'Phân số' },
+      { label: '√x', insert: '\\sqrt{x}', title: 'Căn bậc hai' },
+      { label: 'ⁿ√', insert: '\\sqrt[n]{x}', title: 'Căn bậc n' },
+      { label: 'xⁿ', insert: 'x^{n}', title: 'Lũy thừa / Chỉ số trên' },
+      { label: 'xₙ', insert: 'x_{n}', title: 'Chỉ số dưới' },
+    ],
+  },
+  {
+    groupName: 'Hy Lạp',
+    items: [
+      { label: 'Δ', insert: '\\Delta ', title: 'Delta (Δ)' },
+      { label: 'ω', insert: '\\omega ', title: 'Omega (ω)' },
+      { label: 'π', insert: '\\pi ', title: 'Pi (π)' },
+      { label: 'α', insert: '\\alpha ', title: 'Alpha (α)' },
+      { label: 'β', insert: '\\beta ', title: 'Beta (β)' },
+      { label: 'λ', insert: '\\lambda ', title: 'Lambda (λ)' },
+      { label: 'μ', insert: '\\mu ', title: 'Mu (μ)' },
+      { label: 'φ', insert: '\\varphi ', title: 'Phi (φ)' },
+      { label: 'θ', insert: '\\theta ', title: 'Theta (θ)' },
+      { label: 'ε', insert: '\\varepsilon ', title: 'Epsilon (ε)' },
+      { label: 'γ', insert: '\\gamma ', title: 'Gamma (γ)' },
+      { label: 'Ω', insert: '\\Omega ', title: 'Omega hoa (Ω)' },
+    ],
+  },
+  {
+    groupName: 'Vật lý',
+    items: [
+      { label: 'vec', insert: '\\vec{F}', title: 'Vector (F)' },
+      { label: '→AB', insert: '\\overrightarrow{AB}', title: 'Vector AB' },
+      { label: '≈', insert: '\\approx ', title: 'Xấp xỉ' },
+      { label: '≤', insert: '\\leq ', title: 'Nhỏ hơn hoặc bằng' },
+      { label: '≥', insert: '\\geq ', title: 'Lớn hơn hoặc bằng' },
+      { label: '≠', insert: '\\neq ', title: 'Khác' },
+      { label: '±', insert: '\\pm ', title: 'Cộng trừ' },
+      { label: '·', insert: '\\cdot ', title: 'Phép nhân (dấu chấm)' },
+      { label: '×', insert: '\\times ', title: 'Phép nhân (dấu x)' },
+      { label: '∞', insert: '\\infty ', title: 'Vô cùng' },
+      { label: '°', insert: '^{\\circ}', title: 'Độ (°)' },
+    ],
+  },
+  {
+    groupName: 'Nâng cao',
+    items: [
+      { label: '∫', insert: '\\int_{a}^{b}', title: 'Tích phân' },
+      { label: 'Σ', insert: '\\sum_{i=1}^{n}', title: 'Tổng (Sigma)' },
+      { label: 'lim', insert: '\\lim_{x \\to a}', title: 'Giới hạn' },
+      { label: 'sin', insert: '\\sin ', title: 'Sin' },
+      { label: 'cos', insert: '\\cos ', title: 'Cos' },
+      { label: 'tan', insert: '\\tan ', title: 'Tan' },
+      { label: 'log', insert: '\\log ', title: 'Logarit' },
+      { label: 'ln', insert: '\\ln ', title: 'Logarit tự nhiên' },
+      { label: 'text', insert: '\\text{nội dung}', title: 'Chữ thường trong công thức' },
+    ],
+  },
+];
+
+interface MathToolbarProps {
+  onInsert: (text: string) => void;
+}
+
+const MathToolbar: React.FC<MathToolbarProps> = ({ onInsert }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="bg-slate-800/80 border border-slate-700 rounded-xl overflow-hidden">
+      {/* Toggle bar */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-white hover:bg-slate-700/50 transition-all"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="text-red-500 text-sm">∑</span> Thanh công cụ Toán học
+        </span>
+        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+      </button>
+
+      {expanded && (
+        <div className="p-3 pt-0 space-y-2.5 border-t border-slate-700/50">
+          {MATH_TOOLBAR_GROUPS.map((group) => (
+            <div key={group.groupName}>
+              <p className="text-[8px] font-black text-slate-600 uppercase tracking-[0.15em] mb-1.5 mt-2">
+                {group.groupName}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {group.items.map((item) => (
+                  <button
+                    key={item.insert}
+                    onClick={() => onInsert(item.insert)}
+                    title={item.title}
+                    className="px-2 py-1 bg-slate-900 hover:bg-red-600/20 border border-slate-700 hover:border-red-600/50 rounded-lg text-xs text-slate-300 hover:text-red-400 font-mono font-bold transition-all duration-150 active:scale-90"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-[9px] text-slate-600 italic pt-1">
+            💡 Click nút → chèn mã LaTeX vào cuối nội dung. Sau đó thầy sửa trực tiếp trong trình soạn thảo.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Sub-component: MathField ─────────────────────────────────────────────
-// Rich dual-pane editor cho một trường văn bản/LaTeX
+// Rich dual-pane editor cho một trường văn bản/LaTeX + Equation Toolbar
 
 interface MathFieldProps {
   value: string;
@@ -100,6 +216,11 @@ interface MathFieldProps {
 
 const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight = 80 }) => {
   const [mode, setMode] = useState<'edit' | 'preview'>('preview');
+
+  const handleToolbarInsert = (text: string) => {
+    // Chèn ký hiệu vào cuối nội dung hiện tại
+    onChange((value || '') + text);
+  };
 
   return (
     <div className="space-y-1">
@@ -127,6 +248,11 @@ const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight
             </button>
           </div>
         </div>
+      )}
+
+      {/* Math Toolbar — chỉ hiện khi đang chỉnh sửa */}
+      {mode === 'edit' && (
+        <MathToolbar onInsert={handleToolbarInsert} />
       )}
 
       <div
@@ -181,42 +307,64 @@ interface ImageInserterProps {
 
 const ImageInserter: React.FC<ImageInserterProps> = ({ content, onContentChange }) => {
   const [uploading, setUploading] = useState(false);
-  const [lastUrl, setLastUrl] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Nén ảnh bằng Canvas → JPEG nhẹ, lưu thẳng Firestore (miễn phí)
+  const compressToJpeg = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        const MAX_W = 600; // Max width px
+        const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.4); // Quality 40%
+        URL.revokeObjectURL(url);
+        resolve(dataUrl);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Không đọc được ảnh'));
+      };
+      img.src = url;
+    });
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadStatus('idle');
     try {
-      // Thay đổi cốt lõi: Chuyển ảnh thành Base64 để hiển thị & lưu ngay lập tức
-      // Khắc phục triệt để lỗi "Đang upload miết" do kết nối Storage bị treo
-      const base64Url = await getBase64(file);
-      setLastUrl(base64Url);
+      // Nén ảnh offline → JPEG nhẹ (5-20KB), KHÔNG cần Firebase Storage
+      const compressedUrl = await compressToJpeg(file);
 
-      // Thay thế placeholder đầu tiên tìm thấy bằng thẻ <img>
-      const imgTag = `![Hình minh họa](${base64Url})`;
+      const imgTag = `![Hình minh họa](${compressedUrl})`;
       let newContent = content;
 
-      // Ưu tiên thay [HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây]
       if (/\[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây\]/i.test(newContent)) {
         newContent = newContent.replace(
           /\*\*\[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây\]\*\*/i,
           imgTag
         );
       } else if (/\[HÌNH MINH HỌA\]/i.test(newContent)) {
-        // Thay placeholder đơn giản
         newContent = newContent.replace(/\*\*\[HÌNH MINH HỌA\]\*\*/i, imgTag)
                                .replace(/\[HÌNH MINH HỌA\]/i, imgTag);
       } else {
-        // Không có placeholder → chèn vào cuối content
         newContent = newContent + `\n\n${imgTag}`;
       }
 
       onContentChange(newContent);
+      setUploadStatus('success');
     } catch (err) {
-      console.error('[ImageInserter] Upload failed:', err);
-      alert('Upload ảnh thất bại. Kiểm tra kết nối Firebase.');
+      console.error('[ImageInserter] Nén ảnh thất bại:', err);
+      alert('Không thể xử lý ảnh. Kiểm tra file.');
+      setUploadStatus('error');
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -244,14 +392,14 @@ const ImageInserter: React.FC<ImageInserterProps> = ({ content, onContentChange 
         )}
       >
         {uploading ? (
-          <><BrainCircuit className="w-3.5 h-3.5 animate-spin" /> Đang upload...</>
+          <><BrainCircuit className="w-3.5 h-3.5 animate-spin" /> Đang nén ảnh...</>
         ) : (
           <><ImagePlus className="w-3.5 h-3.5" /> Chèn ảnh vào câu</>  
         )}
       </button>
-      {lastUrl && (
+      {uploadStatus === 'success' && (
         <span className="text-[9px] text-green-500 font-bold flex items-center gap-1">
-          <CheckCircle2 className="w-3 h-3" /> Đã chèn!
+          <CheckCircle2 className="w-3 h-3" /> ✅ Đã nén & chèn!
         </span>
       )}
     </div>
@@ -275,9 +423,13 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
   };
 
   const updateP2Answer = (subIdx: number, val: boolean) => {
-    const arr = [...((question.correctAnswer as boolean[]) ?? [false, false, false, false])];
-    arr[subIdx] = val;
-    updateField('correctAnswer', arr);
+    // Deep copy mảng boolean hiện tại (tránh stale closure từ useCallback)
+    const currentAnswers = Array.isArray(question.correctAnswer)
+      ? [...(question.correctAnswer as boolean[])]
+      : [false, false, false, false];
+    currentAnswers[subIdx] = val;
+    // Gọi onChange trực tiếp, bypass updateField memoized
+    onChange({ ...question, correctAnswer: currentAnswers });
   };
 
   const updateOptionText = (optIdx: number, val: string) => {

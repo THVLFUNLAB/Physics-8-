@@ -98,16 +98,59 @@ declare global {
 }
 
 const MathRenderer = ({ content }: { content: string }) => {
-  // First, strip any raw HTML tags that might have been included as text by AI
-  let cleanContent = content.replace(/<[^>]*>?/gm, '');
-  
-  // Handle [HÌNH MINH HỌA] placeholder
-  const parts = cleanContent.split(/(\[HÌNH MINH HỌA\]|\$\$[\s\S]+?\$\$|\$[\s\S]+?\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\))/g);
+  // Step 1: Tách các thẻ <img> ra khỏi nội dung trước khi xóa HTML  
+  // để không mất ảnh Base64 / URL đã chèn
+  const imgTagMap: Record<string, string> = {};
+  let imgCounter = 0;
+  let processedContent = content.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*\/?>/gi, (match, src) => {
+    const placeholder = `__IMG_PLACEHOLDER_${imgCounter}__`;
+    imgTagMap[placeholder] = src;
+    imgCounter++;
+    return placeholder;
+  });
+
+  // Step 2: Xóa các HTML tag còn lại (do AI sinh ra) — nhưng giữ nguyên placeholder ảnh
+  processedContent = processedContent.replace(/<[^>]*>?/gm, '');
+
+  // Step 3: Tách nội dung thành các phần (ảnh Markdown, placeholder ảnh, LaTeX, text thường)
+  const parts = processedContent.split(
+    /(!\[[^\]]*\]\([^)]+\)|__IMG_PLACEHOLDER_\d+__|\[HÌNH MINH HỌA[^\]]*\]|\$\$[\s\S]+?\$\$|\$[\s\S]+?\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\))/g
+  );
   
   return (
     <span>
       {parts.map((part, i) => {
-        if (part === '[HÌNH MINH HỌA]') {
+        if (!part) return null;
+
+        // Ảnh dạng Markdown: ![alt](url)
+        const mdImgMatch = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+        if (mdImgMatch) {
+          return (
+            <img
+              key={i}
+              src={mdImgMatch[2]}
+              alt={mdImgMatch[1] || 'Hình minh họa'}
+              className="inline-block max-w-full max-h-64 rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
+              loading="lazy"
+            />
+          );
+        }
+
+        // Ảnh dạng <img> tag đã trích ra trước đó
+        if (part.startsWith('__IMG_PLACEHOLDER_') && imgTagMap[part]) {
+          return (
+            <img
+              key={i}
+              src={imgTagMap[part]}
+              alt="Hình minh họa"
+              className="inline-block max-w-full max-h-64 rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
+              loading="lazy"
+            />
+          );
+        }
+
+        // Placeholder [HÌNH MINH HỌA]
+        if (/^\[HÌNH MINH HỌA/.test(part)) {
           return (
             <span key={i} className="inline-flex items-center gap-2 bg-slate-800/50 border border-slate-700 px-3 py-1.5 rounded-lg my-2 mx-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               <FlaskConical className="w-3 h-3 text-red-500" />
@@ -177,18 +220,94 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
         setParseErrors([]);
         setReviewQuestions(questions);
       } else if (digitizeMode === 'AI') {
-        // ===== AI Mode: mammoth → HTML → Gemini =====
+        // ===== AI Mode: mammoth → Nén ảnh JPEG → HTML (compact data URLs) → Gemini Flash =====
+        setImageProgress('Đang đọc file Word và nén ảnh...');
         const arrayBuffer = await file.arrayBuffer();
-        const options = {
-          convertImage: mammoth.images.imgElement(() =>
-            Promise.resolve({ src: '[HÌNH MINH HỌA]' })
-          ),
+        let imgCount = 0;
+
+        // Hàm nén ảnh bằng Canvas (browser-native, 0 thư viện)
+        // PNG 2-5MB → JPEG Q40 max 600px = 5-20KB
+        const compressImage = (buffer: ArrayBuffer, mimeType: string): Promise<string> => {
+          return new Promise((resolve) => {
+            const blob = new Blob([buffer], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const img = new window.Image();
+            img.onload = () => {
+              const MAX_W = 600;
+              const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(img.width * scale);
+              canvas.height = Math.round(img.height * scale);
+              const ctx = canvas.getContext('2d')!;
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              // JPEG quality 0.4 = nén cực mạnh, đủ rõ cho đề thi
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+              URL.revokeObjectURL(url);
+              resolve(dataUrl);
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve(''); // Fallback nếu ảnh bị lỗi
+            };
+            img.src = url;
+          });
         };
-        const result = await mammoth.convertToHtml({ arrayBuffer }, options);
-        const html = result.value;
-        if (!html || html.trim().length === 0)
+
+        const convertImage = mammoth.images.imgElement(async (image) => {
+          try {
+            const rawBuffer = await image.read();
+            // mammoth trả Buffer → copy sang ArrayBuffer chuẩn
+            const arrayBuf = new Uint8Array(rawBuffer).buffer.slice(0) as ArrayBuffer;
+            const mimeType = image.contentType ?? 'image/png';
+            const compressedUrl = await compressImage(arrayBuf, mimeType);
+            imgCount++;
+            setImageProgress(`Đã nén ${imgCount} ảnh (JPEG nhẹ)...`);
+
+            if (compressedUrl) {
+              return { src: compressedUrl, alt: 'Hình minh họa đề thi' };
+            }
+            return { src: '', alt: '[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây]' };
+          } catch (err) {
+            console.error('[AI Mode] Lỗi nén ảnh:', err);
+            return { src: '', alt: '[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây]' };
+          }
+        });
+
+        const result = await mammoth.convertToHtml({ arrayBuffer }, { convertImage });
+        setImageProgress(`Nén xong ${imgCount} ảnh. AI đang phân tích...`);
+
+        // Trước khi gửi AI: loại bỏ data URL khỏi HTML (giảm token)
+        // Chỉ giữ placeholder cho AI, ảnh sẽ được giữ lại trong HTML gốc
+        const htmlForAI = result.value.replace(
+          /<img\s+[^>]*src=["']data:image\/[^"']+["'][^>]*\/?>/gi,
+          '[HÌNH MINH HỌA]'
+        );
+        const htmlWithImages = result.value; // Giữ bản có ảnh nén
+
+        if (!htmlForAI || htmlForAI.trim().length === 0)
           throw new Error('File Word không có nội dung văn bản.');
-        const questions = await digitizeDocument(html, topicHint);
+
+        // Gửi text sạch (không có data URL) cho Gemini Flash → tiết kiệm token
+        const questions = await digitizeDocument(htmlForAI, topicHint, (s) => setImageProgress(s));
+        
+        // Sau khi AI trả kết quả: ghép ảnh nén vào content câu hỏi
+        // Tìm ảnh từ HTML gốc và map vào câu hỏi tương ứng
+        const imgMatches = [...htmlWithImages.matchAll(/<img\s+[^>]*src=["'](data:image\/jpeg;base64,[^"']+)["'][^>]*\/?>/gi)];
+        if (imgMatches.length > 0 && questions.length > 0) {
+          // Phân bổ ảnh vào câu hỏi có placeholder
+          let imgIdx = 0;
+          for (const q of questions) {
+            if (/\[HÌNH MINH HỌA/i.test(q.content) && imgIdx < imgMatches.length) {
+              q.content = q.content.replace(
+                /\*?\*?\[HÌNH MINH HỌA[^\]]*\]\*?\*?/i,
+                `![Hình minh họa](${imgMatches[imgIdx][1]})`
+              );
+              imgIdx++;
+            }
+          }
+        }
+
+        setImageProgress(null);
         setParseErrors([]);
         setReviewQuestions(questions);
       } else {
@@ -230,12 +349,80 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs: Qu
     }
   };
 
-  // Sync từ Review Board → Firestore
-  const handleSync = async (questions: Question[]) => {
-    for (const q of questions) {
-      await addDoc(collection(db, 'questions'), q);
+  // ── Sanitizer: Strip undefined + chỉ xóa ảnh Base64 QUÁ LỚN (>100KB) ──
+  // Ảnh nén JPEG (5-20KB) nằm gọn trong giới hạn 1MB Firestore → giữ lại
+  const stripLargeBase64 = (str: string): string => {
+    // Chỉ xóa ảnh base64 > ~100KB (tức > 136,000 ký tự sau mã hóa)
+    return str.replace(
+      /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[^)]{136000,})\)/g,
+      '**[HÌNH MINH HỌA — Ảnh quá lớn, thầy cần chèn lại]**'
+    ).replace(
+      /<img\s+[^>]*src=["'](data:image\/[^"']{136000,})["'][^>]*\/?>/gi,
+      '**[HÌNH MINH HỌA — Ảnh quá lớn, thầy cần chèn lại]**'
+    );
+  };
+
+  // Loại bỏ tất cả key có giá trị undefined (Firestore reject undefined)
+  const stripUndefined = (obj: any): any => {
+    if (obj === null || obj === undefined) return null;
+    if (Array.isArray(obj)) return obj.map(item => stripUndefined(item));
+    if (typeof obj === 'object' && !(obj instanceof Date)) {
+      const clean: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (value !== undefined) {
+          clean[key] = stripUndefined(value);
+        }
+      }
+      return clean;
     }
-    onQuestionsAdded(questions);
+    return obj;
+  };
+
+  const sanitizeQuestion = (q: Question): Record<string, any> => {
+    const cleaned = {
+      ...q,
+      content: stripLargeBase64(q.content || ''),
+      explanation: stripLargeBase64(q.explanation || ''),
+      options: q.options?.map(opt => stripLargeBase64(opt ?? '')),
+      tags: q.tags ?? [],
+      resources: q.resources ?? [],
+    };
+    return stripUndefined(cleaned);
+  };
+
+  // Sync từ Review Board → Firestore (sạch bóng Base64 + undefined)
+  const handleSync = async (questions: Question[]) => {
+    const results = await Promise.allSettled(
+      questions.map(async (q, idx) => {
+        try {
+          const clean = sanitizeQuestion(q);
+          await addDoc(collection(db, 'questions'), clean);
+        } catch (err: any) {
+          console.error(`[handleSync] Lỗi lưu câu ${idx + 1}:`, {
+            error: err?.message || err,
+            code: err?.code,
+            questionPart: q.part,
+            contentSize: q.content?.length,
+          });
+          throw err; // Ném lại để Promise.allSettled đánh dấu rejected
+        }
+      })
+    );
+
+    const failed = results.filter(r => r.status === 'rejected');
+    const succeeded = results.filter(r => r.status === 'fulfilled');
+
+    if (failed.length > 0) {
+      alert(
+        `⚠️ Đã lưu ${succeeded.length}/${questions.length} câu thành công.\n` +
+        `${failed.length} câu bị lỗi — kiểm tra Console (F12) để xem chi tiết.`
+      );
+    }
+
+    // Vẫn cập nhật UI cho các câu đã lưu thành công
+    if (succeeded.length > 0) {
+      onQuestionsAdded(questions);
+    }
     setReviewQuestions(null);
     setParseErrors([]);
   };
@@ -1725,6 +1912,23 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
         </div>
       </div>
 
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 mb-8 relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-red-600 to-transparent opacity-50" />
+        <h3 className="text-2xl font-black text-white flex items-center gap-3 mb-8">
+          <BrainCircuit className="text-red-500 w-8 h-8" />
+          CHẨN ĐOÁN & KIỂM TRA CHUYÊN MÔN
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <TopicCard topic="Vật lí nhiệt" displayName="Chương 1: Vật Lý Nhiệt" isLocked={false} onClick={() => onStartPrescription('Vật lí nhiệt', '')} color="#f97316" />
+          <TopicCard topic="Khí lí tưởng" displayName="Chương 2: Khí Lý Tưởng" isLocked={false} onClick={() => onStartPrescription('Khí lí tưởng', '')} color="#3b82f6" />
+          <TopicCard topic="Từ trường" displayName="Chương 3: Từ Trường" isLocked={false} onClick={() => onStartPrescription('Từ trường', '')} color="#8b5cf6" />
+          <TopicCard topic="Vật lí hạt nhân" displayName="Chương 4: VL Hạt Nhân" isLocked={false} onClick={() => onStartPrescription('Vật lí hạt nhân', '')} color="#10b981" />
+          <div className="lg:col-span-4">
+            <TopicCard topic="THPT" displayName="🔴 THI THỬ THPT QG MÔ PHỎNG" isLocked={false} onClick={() => onStartPrescription('THPT', '')} color="#e11d48" />
+          </div>
+        </div>
+      </div>
+
       <div id="treatment" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Prescription History */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6">
@@ -1804,7 +2008,7 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
   );
 };
 
-const TopicCard = ({ topic, isLocked, onClick }: { topic: Topic, isLocked: boolean, onClick: () => void }) => (
+const TopicCard = ({ topic, displayName, isLocked, onClick, color }: { topic: Topic, displayName?: string, isLocked: boolean, onClick: () => void, color?: string }) => (
   <motion.div 
     whileHover={!isLocked ? { y: -5 } : {}}
     whileTap={!isLocked ? { scale: 0.98 } : {}}
@@ -1813,17 +2017,17 @@ const TopicCard = ({ topic, isLocked, onClick }: { topic: Topic, isLocked: boole
       "relative p-8 rounded-[2rem] border transition-all cursor-pointer group overflow-hidden",
       isLocked 
         ? "bg-slate-900 border-slate-800 grayscale opacity-60 cursor-not-allowed" 
-        : "bg-slate-900 border-slate-800 hover:border-red-600/50 hover:bg-slate-800/50"
+        : `bg-slate-900 border-slate-800 hover:border-[${color || '#dc2626'}]/50 hover:bg-slate-800/50`
     )}
   >
-    <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 blur-3xl -z-10 group-hover:bg-red-600/10 transition-colors" />
+    <div className={cn("absolute top-0 right-0 w-32 h-32 blur-3xl -z-10 transition-colors", `bg-[${color || '#dc2626'}]/5 group-hover:bg-[${color || '#dc2626'}]/10`)} />
     
     <div className="flex justify-between items-start mb-6">
       <div className={cn(
         "p-4 rounded-2xl transition-all duration-500",
-        isLocked ? "bg-slate-800" : "bg-red-600/10 text-red-600 group-hover:bg-red-600 group-hover:text-white group-hover:shadow-lg group-hover:shadow-red-600/40"
+        isLocked ? "bg-slate-800" : `bg-[${color || '#dc2626'}]/10 text-white group-hover:bg-[${color || '#dc2626'}] group-hover:shadow-lg`
       )}>
-        <BookOpen className="w-6 h-6" />
+        {topic === 'THPT' ? <Settings className="w-6 h-6" /> : <BookOpen className="w-6 h-6" />}
       </div>
       {isLocked && (
         <div className="flex items-center gap-1 text-amber-500 text-[10px] font-bold uppercase bg-amber-500/10 px-2 py-1 rounded-full animate-pulse">
@@ -1833,20 +2037,24 @@ const TopicCard = ({ topic, isLocked, onClick }: { topic: Topic, isLocked: boole
       )}
     </div>
 
-    <h4 className="text-xl font-black text-white mb-2 tracking-tight group-hover:text-red-500 transition-colors">{topic}</h4>
+    <h4 className={cn("text-xl font-black text-white mb-2 tracking-tight transition-colors", `group-hover:text-[${color || '#dc2626'}]`)}>
+      {displayName || topic}
+    </h4>
     <p className="text-xs text-slate-500 font-medium leading-relaxed mb-6">
       {isLocked 
         ? "Đang trong vùng đỏ. Cần hoàn thành phác đồ điều trị để mở khóa." 
-        : "Luyện tập cấu trúc 3 phần: Trắc nghiệm, Đúng/Sai, Trả lời ngắn."}
+        : topic === 'THPT' 
+          ? "Kiểm tra tổng hợp 4 chương chuẩn theo cấu trúc Bộ GD&ĐT 2025" 
+          : "Luyện tập cấu trúc 3 phần: Trắc nghiệm, Đúng/Sai, Trả lời ngắn."}
     </p>
 
     <div className="space-y-2">
       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-600">
-        <span>Tiến độ</span>
-        <span className="text-slate-400">0%</span>
+        <span>Cấu trúc</span>
+        <span className="text-slate-400">18 - 4 - 6</span>
       </div>
       <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-        <div className="h-full bg-red-600 w-0 group-hover:w-[10%] transition-all duration-1000" />
+        <div className={cn("h-full w-0 group-hover:w-full transition-all duration-1000", `bg-[${color || '#dc2626'}]`)} />
       </div>
     </div>
   </motion.div>
@@ -2063,14 +2271,74 @@ export default function App() {
       }
 
       const qRef = collection(db, 'questions');
-      const qQuery = query(qRef, where('topic', '==', topic));
-      const snapshot = await getDocs(qQuery);
+      let snapshot;
+      if (topic === 'THPT') {
+        const qQuery = query(qRef, where('topic', 'in', ['Vật lí nhiệt', 'Khí lí tưởng', 'Từ trường', 'Vật lí hạt nhân']));
+        snapshot = await getDocs(qQuery);
+      } else {
+        const qQuery = query(qRef, where('topic', '==', topic));
+        snapshot = await getDocs(qQuery);
+      }
       
-      let questions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+      let allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+
+      // --- DYNAMIC TEST GENERATOR ---
+      // Cấu trúc: 18 - 4 - 6. Cấp độ: NB(~40%), TH(~30%), VD/VDC(~30%)
+      const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
+      
+      const categorize = (qs: Question[]) => {
+        const buckets: Record<number, { NB: Question[], TH: Question[], VD: Question[] }> = {
+          1: { NB: [], TH: [], VD: [] },
+          2: { NB: [], TH: [], VD: [] },
+          3: { NB: [], TH: [], VD: [] },
+        };
+        qs.forEach(q => {
+          if (!buckets[q.part]) return;
+          const lvl = q.level || 'Nhận biết';
+          let cat: 'NB' | 'TH' | 'VD' = 'VD';
+          if (lvl.includes('Nhận biết')) cat = 'NB';
+          else if (lvl.includes('Thông hiểu')) cat = 'TH';
+          buckets[q.part][cat].push(q);
+        });
+        return buckets;
+      };
+
+      const buckets = categorize(shuffle(allQuestions));
+
+      const pick = (part: 1|2|3, expectedNb: number, expectedTh: number, expectedVd: number, total: number) => {
+        const result: Question[] = [];
+        
+        const take = (cat: 'NB'|'TH'|'VD', count: number) => {
+          const taken = buckets[part][cat].splice(0, count);
+          result.push(...taken);
+        };
+        
+        take('NB', expectedNb);
+        take('TH', expectedTh);
+        take('VD', expectedVd);
+        
+        // Fill shortfalls with whatever is left in that part
+        const remainingInPart = [...buckets[part].NB, ...buckets[part].TH, ...buckets[part].VD];
+        shuffle(remainingInPart);
+        
+        const needed = total - result.length;
+        if (needed > 0 && remainingInPart.length > 0) {
+          result.push(...remainingInPart.splice(0, Math.min(needed, remainingInPart.length)));
+        }
+        
+        return result;
+      };
+
+      // Target quotas
+      const p1 = pick(1, 7, 6, 5, 18);
+      const p2 = pick(2, 2, 1, 1, 4);
+      const p3 = pick(3, 2, 1, 3, 6);
+
+      let finalQuestions = [...p1, ...p2, ...p3];
       
       // If no questions in DB, use fallback mock
-      if (questions.length === 0) {
-        questions = [
+      if (finalQuestions.length === 0) {
+        finalQuestions = [
           {
             id: 'q1',
             part: 1,
@@ -2108,7 +2376,7 @@ export default function App() {
         ];
       }
 
-      setActiveTest({ topic, questions });
+      setActiveTest({ topic, questions: finalQuestions });
       setCurrentQuestionIndex(0);
       setAnswers({});
       setResults(null);

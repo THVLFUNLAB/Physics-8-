@@ -21,6 +21,21 @@ export const signOut = () => auth.signOut();
  * @param mimeType  MIME type (vd: 'image/png')
  * @param folder  Thư mục đích (mặc định: 'exam_images')
  * @returns Download URL công khai
+ * 
+ * Firebase Storage Rules khuyến nghị (dán vào Firebase Console):
+ * ```
+ * rules_version = '2';
+ * service firebase.storage {
+ *   match /b/{bucket}/o {
+ *     match /exam_images/{allPaths=**} {
+ *       allow read: if true;
+ *       allow write: if request.auth != null
+ *                    && request.resource.size < 10 * 1024 * 1024
+ *                    && request.resource.contentType.matches('image/.*');
+ *     }
+ *   }
+ * }
+ * ```
  */
 export async function uploadExamImage(
   buffer: ArrayBuffer,
@@ -31,8 +46,62 @@ export async function uploadExamImage(
   const filename = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
   const storageRef = ref(storage, filename);
   const blob = new Blob([buffer], { type: mimeType });
-  await uploadBytes(storageRef, blob, { contentType: mimeType });
-  return getDownloadURL(storageRef);
+
+  // Retry tối đa 2 lần nếu lỗi network tạm thời
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await uploadBytes(storageRef, blob, { contentType: mimeType });
+      return await getDownloadURL(storageRef);
+    } catch (error: any) {
+      const code = error?.code || '';
+      const msg = error?.message || String(error);
+
+      // Log chi tiết để debug
+      console.error(`[uploadExamImage] Attempt ${attempt + 1}/${MAX_RETRIES + 1} FAILED`, {
+        filename,
+        mimeType,
+        bufferSize: buffer.byteLength,
+        errorCode: code,
+        errorMessage: msg,
+        authUser: auth.currentUser?.email || 'NOT LOGGED IN',
+      });
+
+      // Lỗi quyền → không retry, báo ngay
+      if (code === 'storage/unauthorized' || code === 'storage/unauthenticated') {
+        throw new Error(
+          `Firebase Storage: Không có quyền upload (${code}). ` +
+          `Kiểm tra Storage Rules trong Firebase Console. ` +
+          `User: ${auth.currentUser?.email || 'chưa đăng nhập'}`
+        );
+      }
+
+      // Lỗi quota → không retry
+      if (code === 'storage/quota-exceeded') {
+        throw new Error('Firebase Storage: Đã hết dung lượng miễn phí. Nâng cấp plan.');
+      }
+
+      // Lỗi CORS → hướng dẫn fix
+      if (msg.includes('CORS') || msg.includes('NetworkError') || msg.includes('Failed to fetch')) {
+        if (attempt === MAX_RETRIES) {
+          throw new Error(
+            `Firebase Storage: Lỗi CORS/Network. Chạy lệnh sau trong terminal:\n` +
+            `gsutil cors set cors.json gs://YOUR_BUCKET_NAME\n` +
+            `Với cors.json: [{"origin":["*"],"method":["GET","PUT","POST"],"maxAgeSeconds":3600}]`
+          );
+        }
+        // Retry sau 1 giây
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      // Các lỗi khác: retry nếu còn lượt
+      if (attempt === MAX_RETRIES) throw error;
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+
+  throw new Error('Upload thất bại sau tất cả retry.');
 }
 
 // Error Handling Spec for Firestore Operations

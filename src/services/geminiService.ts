@@ -1,14 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { PDFDocument } from "pdf-lib";
 import { Question, ErrorAnalysis } from "../types";
 
 // ============================================================
 // MODEL CONFIGURATION
-// - gemini-2.5-pro  : Số hóa đề (cần reasoning sâu, độ chính xác cao)
-// - gemini-2.0-flash: Phân tích câu trả lời / fallback khi Pro bị 429
+// - gemini-2.5-pro  : Số hóa đề từ PDF (cần Vision + reasoning sâu)
+// - gemini-2.5-flash: Số hóa DOCX (text input) / Phân tích câu trả lời
 // ============================================================
 const MODELS = {
   DIGITIZE: "gemini-2.5-pro",
-  ANALYZE:  "gemini-2.0-flash",
+  ANALYZE:  "gemini-2.5-flash",
 } as const;
 
 const MAX_CHUNK_SIZE = 60_000;
@@ -149,26 +150,106 @@ ${PHYSICS_KNOWLEDGE_TREE}
 
 ## QUY TẮC SỐ HÓA
 
-【1】 TỰ NHẬN DIỆN CẤU TRÚC ĐỀ:
-  Đề có thể có nhiều format khác nhau. Hãy TỰ PHÁT HIỆN:
-  • Câu trắc nghiệm 4 lựa chọn (A/B/C/D) → part = 1
-  • Câu đúng/sai 4 ý (a/b/c/d với Đ/S) → part = 2
-  • Câu trả lời ngắn (điền số) → part = 3
-  • Nếu đề không chia phần rõ ràng → dựa vào dạng câu hỏi để phân loại
+【1】 TỰ NHẬN DIỆN CẤU TRÚC ĐỀ (CỰC KỲ QUAN TRỌNG — PHẢI TUÂN THỦ TUYỆT ĐỐI):
+  Đề có thể có nhiều format khác nhau. Hãy dùng CÂY QUYẾT ĐỊNH sau:
 
-【2】 CORRECTANSWER (BẮT BUỘC, KHÔNG được null):
-  TÌM ĐÁP ÁN DỰA VÀO ĐẶC ĐIỂM THỊ GIÁC VÀ KÝ HIỆU TRONG FILE:
-  • Part 1 (Trắc nghiệm 4 lựa chọn):
-    - correctAnswer = index số nguyên (0=A, 1=B, 2=C, 3=D)
-    - AI hãy nhìn kỹ: Phương án nào có chữ A, B, C hoặc D **được gạch chân** (underline) thì đó là đáp án đúng.
-    - VD: Nếu thấy <u>A</u> thì correctAnswer = 0.
-  • Part 2 (Đúng/Sai 4 ý):
-    - correctAnswer = mảng boolean [bool, bool, bool, bool] (tương ứng a, b, c, d)
-    - AI hãy nhìn kỹ: Ý nào có **dấu sao (*)** nằm trước chữ cái (VD: *a) hoặc *a.) thì ý đó ĐÚNG (true). Không có dấu sao là SAI (false).
-  • Part 3 (Trả lời ngắn):
-    - correctAnswer = số thực (ghi nhớ: đáp án phần này tối đa 4 kí tự số)
-    - AI hãy tìm con số nằm ngay sau chữ **"Đáp án:"**.
-  *(Nếu trong đề không có những dấu hiệu trên, hãy đọc kỹ bảng đáp án ở phần "HẾT" hoặc cuối đề để thiết lập đúng).*
+  ▸ BƯỚC 1: Kiểm tra câu hỏi có các ý con dạng chữ thường a), b), c), d) không?
+    → CÓ: Đây là Part 2 (Đúng/Sai). KHÔNG BAO GIỜ phân loại thành Part 1.
+    → KHÔNG: Tiếp tục Bước 2.
+
+  ▸ BƯỚC 2: Câu hỏi có các phương án lựa chọn dạng chữ HOA A., B., C., D. không?
+    → CÓ: Đây là Part 1 (Trắc nghiệm nhiều lựa chọn).
+    → KHÔNG: Tiếp tục Bước 3.
+
+  ▸ BƯỚC 3: Câu hỏi yêu cầu điền số / tính toán kết quả?
+    → CÓ: Đây là Part 3 (Trả lời ngắn).
+
+  ⚠️ QUY TẮC SẮT ĐÁ — PHẢI GHI NHỚ:
+  • Nếu thấy ý con viết bằng chữ cái THƯỜNG: a), b), c), d) → BẮT BUỘC part = 2 (Đúng/Sai).
+  • Nếu thấy phương án viết bằng chữ cái HOA: A., B., C., D. → BẮT BUỘC part = 1 (Trắc nghiệm).
+  • KHÔNG ĐƯỢC nhầm lẫn hai dạng này, dù nội dung câu hỏi có giống nhau.
+
+  📌 VÍ DỤ CỤ THỂ:
+
+  VÍ DỤ PART 1 (Trắc nghiệm — chữ HOA):
+  "Câu 5: Đơn vị đo cường độ dòng điện là:
+   A. Vôn (V)     B. Ampe (A)     C. Oát (W)     D. Ôm (Ω)"
+  → part = 1, options = ["Vôn (V)", "Ampe (A)", "Oát (W)", "Ôm (Ω)"]
+
+  VÍ DỤ PART 2 (Đúng/Sai — chữ thường):
+  "Câu 19: Một dây dẫn mang dòng điện đặt trong từ trường đều. Hãy xác định mệnh đề đúng/sai:
+   a) Lực từ tác dụng lên dây dẫn luôn vuông góc với dây.
+   b) Khi đổi chiều dòng điện, lực từ đổi chiều.
+   c) Lực từ tỉ lệ nghịch với cường độ dòng điện.
+   d) Lực từ không phụ thuộc vào chiều dài dây dẫn."
+  → part = 2, options = ["a) Lực từ tác dụng lên...", "b) Khi đổi chiều...", ...], correctAnswer = [true, true, false, false]
+
+  VÍ DỤ PART 2 (dạng KHÔNG có tiêu đề "Đúng/Sai" nhưng VẪN LÀ PART 2):
+  "Câu 20: Cho mạch điện RLC nối tiếp. Xét các phát biểu sau:
+   a) Khi xảy ra cộng hưởng, cường độ dòng điện cực đại.
+   b) Hệ số công suất luôn bằng 1 khi có cộng hưởng.
+   c) Điện áp hai đầu tụ điện luôn trễ pha π/2 so với dòng điện.
+   d) Tần số cộng hưởng phụ thuộc vào điện trở R."
+  → part = 2 (vì có a/b/c/d chữ thường), KHÔNG PHẢI part = 1
+
+【2】 CORRECTANSWER — TỰ ĐỘNG NHẬN DIỆN ĐÁP ÁN (RẤT QUAN TRỌNG, BẮT BUỘC):
+  ⚠️ QUY TẮC SẮT ĐÁ: correctAnswer KHÔNG BAO GIỜ được null/undefined. Phải luôn có giá trị.
+
+  ━━━ PART 1 (Trắc nghiệm) → correctAnswer = index số nguyên (0=A, 1=B, 2=C, 3=D) ━━━
+  Tìm đáp án đúng bằng cách quét TẤT CẢ dấu hiệu sau (theo thứ tự ưu tiên):
+  
+  ✅ Ưu tiên 1: Chữ cái A/B/C/D được **gạch chân** (<u>A</u>, <u>B</u>...) → đó là đáp án đúng
+  ✅ Ưu tiên 2: Chữ cái A/B/C/D hoặc nội dung phương án được **in đậm** (<strong>B</strong>, <b>C. 2m/s</b>...)
+  ✅ Ưu tiên 3: Có dấu sao (*) hoặc dấu tích (✓, ✔) nằm trước/sau chữ cái (VD: *A, A✓)
+  ✅ Ưu tiên 4: Phương án có highlight/màu khác biệt (<span style="color:red">C</span>)
+  ✅ Ưu tiên 5: Tìm BẢNG ĐÁP ÁN ở cuối đề/cuối mỗi phần. Bảng thường có format:
+     - "Câu | 1 | 2 | 3 | ..." dòng 1, "ĐA | A | C | B | ..." dòng 2
+     - Hoặc: "1.A  2.C  3.B  4.D ..."
+     - Hoặc: "1-A, 2-C, 3-B..."
+  ✅ Ưu tiên 6: Nếu đang trong phần "Lời giải", tìm kết luận cuối: "→ Chọn B", "Đáp án: C"
+  
+  ⛔ Nếu KHÔNG tìm thấy bất kỳ dấu hiệu nào → Dùng kiến thức Vật lý để GIẢI câu hỏi → chọn đáp án đúng.
+  
+  VÍ DỤ:
+  - Thấy <u>B</u> → correctAnswer = 1
+  - Thấy <strong>C</strong>. 340 m/s → correctAnswer = 2
+  - Bảng đáp án: "Câu 5: D" → correctAnswer = 3
+  - Không có dấu hiệu → AI giải bài → xác định A đúng → correctAnswer = 0
+
+  ━━━ PART 2 (Đúng/Sai 4 ý) → correctAnswer = [bool, bool, bool, bool] ━━━
+  Mỗi ý a), b), c), d) cần xác định Đúng (true) hoặc Sai (false):
+  
+  ✅ Ưu tiên 1: Dấu sao (*) trước chữ cái → ĐÚNG (true). VD: *a), *b) → true
+  ✅ Ưu tiên 2: Ký hiệu Đ/S ghi kèm: "a) Đ", "b) S" hoặc "a) ✓", "b) ✗"
+  ✅ Ưu tiên 3: Ý nào được **gạch chân** hoặc **in đậm** → ĐÚNG
+  ✅ Ưu tiên 4: Tìm BẢNG ĐÁP ÁN cuối đề. Format phổ biến:
+     - "Câu 19: a-Đ, b-Đ, c-S, d-S" → [true, true, false, false]
+     - "19: Đ Đ S Đ" → [true, true, false, true]
+     - "19: a)* b)* c) d)" → [true, true, false, false]
+  ✅ Ưu tiên 5: Nếu ý có lời giải → đọc lời giải để xác nhận
+  
+  ⛔ Nếu KHÔNG tìm thấy → Dùng kiến thức Vật lý: đọc từng mệnh đề, xác nhận đúng/sai bằng lý thuyết.
+  
+  VÍ DỤ:
+  - *a) Đúng, *b) Đúng, c) Sai, *d) Đúng → [true, true, false, true]
+  - Không dấu hiệu → AI tự phân tích: a) đúng theo ĐL Newton, b) sai vì...  → [true, false, ...]
+
+  ━━━ PART 3 (Trả lời ngắn) → correctAnswer = số thực (number) ━━━
+  Tìm đáp số bằng cách quét:
+  
+  ✅ Ưu tiên 1: Tìm cụm "Đáp án:", "KQ:", "Kết quả:", "Đ/A:" → lấy con số ngay sau đó
+  ✅ Ưu tiên 2: Tìm BẢNG ĐÁP ÁN cuối đề: "Câu 25: 1.25", "25. 2,5"
+  ✅ Ưu tiên 3: Nếu có lời giải → tìm con số cuối cùng trong lời giải (thường là đáp số)
+  ✅ Ưu tiên 4: Tìm số được **in đậm** hoặc **gạch chân** hoặc **đóng khung** trong câu hỏi
+  
+  ⛔ Nếu KHÔNG tìm thấy → Dùng kiến thức Vật lý: GIẢI BÀI TOÁN → ghi đáp số.
+  
+  ⚠️ Lưu ý format số: "1,25" (phẩy) = 1.25 (chấm). Luôn trả về dạng chấm thập phân.
+  
+  VÍ DỤ:
+  - "Đáp án: 2,45" → correctAnswer = 2.45
+  - Bảng: "Câu 27: 0.75" → correctAnswer = 0.75
+  - Không có đáp án → AI giải: F = ma = 2×3 = 6 → correctAnswer = 6
 
 【3】 TỰ NHẬN DIỆN CHỦ ĐỀ (topic):
   • Đọc nội dung → xác định thuộc chương/bài nào trong CÂY KIẾN THỨC ở trên
@@ -206,8 +287,16 @@ ${PHYSICS_KNOWLEDGE_TREE}
   • Kết thúc: "→ **Đáp án: [kết quả]**"
   • Nếu đề KHÔNG có lời giải → "Chưa có lời giải chi tiết."
 
-【10】 KIỂM TRA TRƯỚC KHI OUTPUT:
-  ✓ correctAnswer hợp lệ? ✓ topic cụ thể? ✓ tags >= 2? ✓ LaTeX đủ? ✓ Placeholder đúng?
+【10】 KIỂM TRA TRƯỚC KHI OUTPUT (BẮT BUỘC):
+  ✓ correctAnswer hợp lệ cho MỌI câu?
+    - Part 1: phải là số 0, 1, 2, hoặc 3 (KHÔNG PHẢI null, KHÔNG PHẢI -1)
+    - Part 2: phải là mảng 4 phần tử boolean [true/false, ...]
+    - Part 3: phải là số thực (number), KHÔNG PHẢI chuỗi
+  ✓ Nếu không tìm thấy đáp án trong đề → AI PHẢI TỰ GIẢI để xác định đáp án đúng
+  ✓ topic cụ thể (không chung chung)?
+  ✓ tags >= 2?
+  ✓ LaTeX đầy đủ?
+  ✓ Placeholder đúng?
   `.trim();
 }
 
@@ -245,8 +334,7 @@ const DIGITIZE_SCHEMA = {
 // ============================================================
 // Tiện ích
 // ============================================================
-async function fileToBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
@@ -255,13 +343,47 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  return arrayBufferToBase64(buffer);
+}
+
 function isRateLimitError(error: any): boolean {
   const msg = String(error?.message || error || '');
   return msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
 }
 
+/**
+ * Cắt PDF thành các nhóm trang (mỗi nhóm tối đa groupSize trang)
+ * Trả về mảng base64 PDF nhỏ để xử lý song song
+ */
+async function splitPdfToPageGroups(
+  pdfBuffer: ArrayBuffer,
+  groupSize = 2
+): Promise<string[]> {
+  const srcDoc = await PDFDocument.load(pdfBuffer);
+  const totalPages = srcDoc.getPageCount();
+
+  if (totalPages <= groupSize) {
+    // PDF nhỏ → không cần cắt
+    return [arrayBufferToBase64(pdfBuffer)];
+  }
+
+  const groups: string[] = [];
+  for (let start = 0; start < totalPages; start += groupSize) {
+    const end = Math.min(start + groupSize, totalPages);
+    const newDoc = await PDFDocument.create();
+    const pages = await newDoc.copyPages(srcDoc, Array.from({ length: end - start }, (_, i) => start + i));
+    pages.forEach(p => newDoc.addPage(p));
+    const pdfBytes = await newDoc.save();
+    groups.push(arrayBufferToBase64(pdfBytes.buffer as ArrayBuffer));
+  }
+
+  return groups;
+}
+
 // ============================================================
-// DIGITIZE FROM PDF — Gemini Vision + Fallback 429
+// DIGITIZE FROM PDF — Gemini Vision + Song song từng nhóm trang
 // ============================================================
 export async function digitizeFromPDF(
   pdfFile: File,
@@ -270,57 +392,77 @@ export async function digitizeFromPDF(
 ): Promise<Question[]> {
   const ai = getAI();
 
-  onProgress?.("Đang đọc file PDF...");
-  const base64Data = await fileToBase64(pdfFile);
+  onProgress?.("Đang đọc và cắt trang PDF...");
+  const pdfBuffer = await pdfFile.arrayBuffer();
+  const pageGroups = await splitPdfToPageGroups(pdfBuffer, 2);
 
   const prompt = buildDigitizePrompt(
     "nội dung đề thi Vật lý trong file PDF đính kèm",
     topicHint
   );
 
-  const pdfPart = {
-    inlineData: {
-      mimeType: "application/pdf" as const,
-      data: base64Data,
-    }
-  };
+  onProgress?.(`PDF có ${pageGroups.length} phần. Đang xử lý song song...`);
 
-  // Thử Pro trước, fallback Flash nếu 429
-  for (const model of [MODELS.DIGITIZE, MODELS.ANALYZE]) {
-    onProgress?.(
-      model === MODELS.DIGITIZE
-        ? "AI Gemini 2.5 Pro đang phân tích PDF..."
-        : "⚠️ Pro hết quota, đang dùng Flash..."
+  // Xử lý từng nhóm trang — chạy song song tối đa 3 nhóm cùng lúc
+  const CONCURRENCY = 3;
+  const allQuestions: Question[] = [];
+
+  for (let batch = 0; batch < pageGroups.length; batch += CONCURRENCY) {
+    const batchGroups = pageGroups.slice(batch, batch + CONCURRENCY);
+
+    const batchResults = await Promise.all(
+      batchGroups.map(async (base64Data, batchIdx) => {
+        const groupIdx = batch + batchIdx;
+        const pdfPart = {
+          inlineData: {
+            mimeType: "application/pdf" as const,
+            data: base64Data,
+          }
+        };
+
+        // Pro trước, Flash fallback
+        for (const model of [MODELS.DIGITIZE, MODELS.ANALYZE]) {
+          onProgress?.(
+            model === MODELS.DIGITIZE
+              ? `⚡ Pro đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`
+              : `🔄 Dùng Flash cho phần ${groupIdx + 1}...`
+          );
+
+          try {
+            const response = await ai.models.generateContent({
+              model,
+              contents: [{ role: "user", parts: [pdfPart, { text: prompt }] }],
+              config: {
+                ...(model === MODELS.DIGITIZE ? { thinkingConfig: { thinkingBudget: 10000 } } : {}),
+                responseMimeType: "application/json",
+                responseSchema: DIGITIZE_SCHEMA,
+              }
+            });
+
+            return JSON.parse(response.text || "[]") as Question[];
+          } catch (error) {
+            if (isRateLimitError(error) && model === MODELS.DIGITIZE) {
+              console.warn(`Pro bị 429 ở phần ${groupIdx + 1}, thử Flash...`);
+              continue;
+            }
+            console.error(`PDF Error phần ${groupIdx + 1}:`, error);
+            throw error;
+          }
+        }
+        throw new Error(`Phần ${groupIdx + 1}: Tất cả model đều thất bại.`);
+      })
     );
 
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: [{ role: "user", parts: [pdfPart, { text: prompt }] }],
-        config: {
-          ...(model === MODELS.DIGITIZE ? { thinkingConfig: { thinkingBudget: 10000 } } : {}),
-          responseMimeType: "application/json",
-          responseSchema: DIGITIZE_SCHEMA,
-        }
-      });
-
-      onProgress?.("Đang xử lý kết quả...");
-      return JSON.parse(response.text || "[]") as Question[];
-    } catch (error) {
-      if (isRateLimitError(error) && model === MODELS.DIGITIZE) {
-        console.warn("Gemini 2.5 Pro bị rate limit, fallback sang Flash...");
-        continue;
-      }
-      console.error("PDF Digitization Error:", error);
-      throw error;
-    }
+    allQuestions.push(...batchResults.flat());
   }
 
-  throw new Error("Tất cả model đều thất bại. Vui lòng thử lại sau.");
+  onProgress?.("Đang ghép kết quả...");
+  return allQuestions;
 }
 
 // ============================================================
-// DIGITIZE DOCUMENT (HTML) — Word/mammoth + Fallback 429
+// DIGITIZE DOCUMENT (HTML) — Flash ưu tiên + Parallel chunks
+// Input đã sạch (text + Firebase URLs), Flash xử lý cực nhanh
 // ============================================================
 export async function digitizeDocument(
   htmlContent: string,
@@ -329,6 +471,7 @@ export async function digitizeDocument(
 ): Promise<Question[]> {
   const ai = getAI();
 
+  // Tách thành chunks nếu quá dài
   const chunks: string[] = [];
   if (htmlContent.length > MAX_CHUNK_SIZE) {
     const splitParts = htmlContent.split(/(?=Câu\s+\d+)/i);
@@ -346,19 +489,22 @@ export async function digitizeDocument(
     chunks.push(htmlContent);
   }
 
-  const allQuestions: Question[] = [];
+  onProgress?.(`Gemini Flash đang phân tích ${chunks.length} phần...`);
 
-  for (const chunk of chunks) {
+  // Hàm xử lý 1 chunk — Flash trước, Pro fallback
+  const processChunk = async (chunk: string, idx: number): Promise<Question[]> => {
     const prompt = buildDigitizePrompt(
-      "nội dung HTML từ file Word",
+      "nội dung HTML từ file Word (ảnh đã được thay bằng URL Firebase Storage)",
       topicHint
     ) + `\n\n=== NỘI DUNG HTML ĐẦU VÀO ===\n${chunk}`;
 
-    let success = false;
-    for (const model of [MODELS.DIGITIZE, MODELS.ANALYZE]) {
-      if (model !== MODELS.DIGITIZE) {
-        onProgress?.("⚠️ Pro hết quota, đang dùng Flash...");
-      }
+    // Ưu tiên Flash (nhanh, rẻ) vì input là text thuần
+    for (const model of [MODELS.ANALYZE, MODELS.DIGITIZE]) {
+      onProgress?.(
+        model === MODELS.ANALYZE
+          ? `⚡ Flash đang xử lý phần ${idx + 1}/${chunks.length}...`
+          : `🔄 Flash thất bại, dùng Pro cho phần ${idx + 1}...`
+      );
       try {
         const response = await ai.models.generateContent({
           model,
@@ -370,19 +516,24 @@ export async function digitizeDocument(
           }
         });
 
-        allQuestions.push(...JSON.parse(response.text || "[]"));
-        success = true;
-        break;
+        return JSON.parse(response.text || "[]") as Question[];
       } catch (error) {
-        if (isRateLimitError(error) && model === MODELS.DIGITIZE) {
-          console.warn("Pro bị rate limit, thử Flash...");
+        if (isRateLimitError(error) && model === MODELS.ANALYZE) {
+          console.warn(`Flash bị rate limit ở chunk ${idx + 1}, thử Pro...`);
           continue;
         }
         throw error;
       }
     }
-    if (!success) throw new Error("Tất cả model đều thất bại.");
-  }
+    throw new Error(`Chunk ${idx + 1}: Tất cả model đều thất bại.`);
+  };
 
-  return allQuestions;
+  // Xử lý song song tất cả chunks bằng Promise.all()
+  const results = await Promise.all(
+    chunks.map((chunk, idx) => processChunk(chunk, idx))
+  );
+
+  onProgress?.("Đang ghép kết quả...");
+  return results.flat();
 }
+
