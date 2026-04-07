@@ -180,3 +180,42 @@ export interface ReportedQuestion {
   timestamp: any;
   resolvedAt?: any;
 }
+
+// ═══ Module 4: Phòng Thi Tập Trung (Live Class Exam) ═══
+
+export interface ClassRoom {
+  id?: string;
+  code: string;          // Mã lớp 6 ký tự (VD: "K12A1X")
+  name: string;          // "Lớp 12A1"
+  teacherId: string;     // UID admin tạo lớp
+  studentIds: string[];  // Danh sách UID học sinh đã join
+  createdAt: any;
+}
+
+export interface ClassExam {
+  id?: string;
+  classId: string;       // Ref → classes collection
+  examId: string;        // Ref → exams collection
+  title: string;         // Tên phiên thi
+  startTime: any;        // Server Timestamp — mốc bắt đầu
+  duration: number;      // phút (VD: 50)
+  status: 'scheduled' | 'live' | 'ended';
+  autoSubmit: boolean;
+  createdAt: any;
+}
+
+export interface ClassAttempt {
+  id?: string;
+  classExamId: string;   // Ref → classExams
+  studentId: string;     // UID học sinh
+  studentName: string;
+  studentEmail: string;  // Để phát hiện duplicate
+  answers: Record<string, any>;
+  score: number;
+  totalAnswered: number; // Số câu đã trả lời (tracking realtime)
+  startedAt: any;
+  submittedAt?: any;
+  status: 'in_progress' | 'submitted';
+  deviceId: string;      // fingerprint thiết bị → phát hiện multi-device
+  lastPing: any;         // Heartbeat timestamp → đếm online chính xác
+}

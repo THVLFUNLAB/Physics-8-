@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -168,6 +168,40 @@ async function testConnection() {
 }
 testConnection();
 
+
+export function sanitizePayload<T extends Record<string, any>>(obj: T): T {
+  if (obj === null || obj === undefined || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(item => {
+      if (item !== null && typeof item === 'object') return sanitizePayload(item);
+      return item;
+    }).filter(item => item !== undefined) as unknown as T;
+  }
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    if (value !== null && typeof value === 'object' && !(value instanceof Timestamp) && !ArrayBuffer.isView(value)) {
+      cleaned[key] = sanitizePayload(value);
+    } else {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned as T;
+}
+
+// Wrapper for operations to auto clean undefined
+export const setDoc = (ref: any, data: any, options?: any) => {
+  return originalSetDoc(ref, sanitizePayload(data), options);
+};
+
+export const addDoc = (ref: any, data: any) => {
+  return originalAddDoc(ref, sanitizePayload(data));
+};
+
+export const updateDoc = (ref: any, data: any) => {
+  return originalUpdateDoc(ref, sanitizePayload(data));
+};
+
 export { 
-  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged 
+  collection, doc, getDoc, getDocs, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit 
 };

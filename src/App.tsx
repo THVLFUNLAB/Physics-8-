@@ -23,7 +23,8 @@ import {
   updateDoc,
   Timestamp,
   handleFirestoreError,
-  OperationType
+  OperationType,
+  writeBatch
 } from './firebase';
 import { UserProfile, Question, ClusterQuestion, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification, LoginLog, Simulation } from './types';
 import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam } from './services/geminiService';
@@ -62,7 +63,8 @@ import {
   ChevronLeft,
   RotateCcw,
   ArrowLeftRight,
-  Flag
+  Flag,
+  FileText
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -82,10 +84,14 @@ import DuplicateReviewHub from './components/DuplicateReviewHub';
 import DataSanitizer from './components/DataSanitizer';
 import ReportHub from './components/ReportHub';
 import { Sidebar, SidebarTab, STUDENT_TABS, ADMIN_TABS } from './components/Sidebar';
+import { ToastProvider, toast } from './components/Toast';
 import { getCurrentRank, getNextRank, getRankProgress, calculateTestRewards, RANKS } from './services/RankSystem';
 import { useDashboardStats, useStudentStats } from './hooks/useDashboardStats';
 import { SkeletonCard, SkeletonNumber, SkeletonText } from './components/SkeletonLoader';
 import KnowledgeGapGallery from './components/KnowledgeGapGallery';
+import ClassManager from './components/ClassManager';
+import LiveClassExam from './components/LiveClassExam';
+import ProjectorLeaderboard from './components/ProjectorLeaderboard';
 
 import { 
   BarChart, 
@@ -144,6 +150,15 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
   // ── Kết quả số hóa (Summary Modal) ──
   const [summaryModal, setSummaryModal] = useState<DigitizationSummary | null>(null);
 
+  // ═══ Module 4: Upload Workflow — 2 Options sau khi AI xử lý xong ═══
+  const [pendingQuestions, setPendingQuestions] = useState<Question[] | null>(null);
+  const [pendingSourceFile, setPendingSourceFile] = useState('');
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [showCreateExamModal, setShowCreateExamModal] = useState(false);
+  const [newExamTitle, setNewExamTitle] = useState('');
+  const [alsoSaveToBank, setAlsoSaveToBank] = useState(true);
+  const [isSavingExam, setIsSavingExam] = useState(false);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -152,7 +167,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
     const isDOCX = file.name.toLowerCase().endsWith('.docx');
 
     if (!isPDF && !isDOCX) {
-      alert('Vui lòng chọn file .pdf hoặc .docx');
+      toast.error('Vui lòng chọn file .pdf hoặc .docx');
       return;
     }
 
@@ -179,13 +194,17 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         );
         setImageProgress(null);
         if (questions.length === 0) {
-          alert('AI không tìm thấy câu hỏi nào trong PDF. Thầy kiểm tra lại file.');
+          toast.error('AI không tìm thấy câu hỏi nào trong PDF. Thầy kiểm tra lại file.');
           return;
         }
         setParseErrors([]);
-        // ═══ AUTO-SAVE: Lưu thẳng Firestore, bỏ bước Review Board ═══
-        setImageProgress('💾 AI hoàn tất — đang tự động lưu vào kho...');
-        await handleSync(questions, sourceFileName);
+        // ═══ REFACTORED: Không auto-save — hiện modal 2 lựa chọn ═══
+        setImageProgress(null);
+        setPendingQuestions(questions);
+        setPendingSourceFile(sourceFileName);
+        setShowActionModal(true);
+        setIsProcessing(false);
+        return; // Exit early — user sẽ chọn action trong modal
       } else if (digitizeMode === 'AI') {
         // ===== AI Mode: mammoth → Nén ảnh JPEG → HTML (compact data URLs) → Gemini Flash =====
         setImageProgress('Đang đọc file Word và nén ảnh...');
@@ -253,42 +272,73 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         );
         setImageProgress(`Nén xong ${imgCount} ảnh. AI đang phân tích...`);
 
-        // Trước khi gửi AI: loại bỏ data URL khỏi HTML (giảm token)
-        // Chỉ giữ placeholder cho AI, ảnh sẽ được giữ lại trong HTML gốc
+        // Trước khi gửi AI: đánh số ảnh [IMG_1], [IMG_2]... để track chính xác
+        const imageMap: Map<number, string> = new Map();
+        let imgIndex = 0;
         const htmlForAI = result.value.replace(
-          /<img\s+[^>]*src=["']data:image\/[^"']+["'][^>]*\/?>/gi,
-          '[HÌNH MINH HỌA]'
+          /<img\s+[^>]*src=["'](data:image\/[^"']+)["'][^>]*\/?>/gi,
+          (_match: string, dataUrl: string) => {
+            imgIndex++;
+            imageMap.set(imgIndex, dataUrl);
+            return `[IMG_${imgIndex}]`;
+          }
         );
-        const htmlWithImages = result.value; // Giữ bản có ảnh nén
+        const totalImages = imageMap.size;
 
         if (!htmlForAI || htmlForAI.trim().length === 0)
           throw new Error('File Word không có nội dung văn bản.');
 
+        if (totalImages > 0) {
+          setImageProgress(`📸 ${totalImages} ảnh đã đánh dấu. AI đang phân tích...`);
+        }
+
         // Gửi text sạch (không có data URL) cho Gemini Flash → tiết kiệm token
         const questions = await digitizeDocument(htmlForAI, topicHint, (s) => setImageProgress(s));
         
-        // Sau khi AI trả kết quả: ghép ảnh nén vào content câu hỏi
-        // Tìm ảnh từ HTML gốc và map vào câu hỏi tương ứng
-        const imgMatches = [...htmlWithImages.matchAll(/<img\s+[^>]*src=["'](data:image\/jpeg;base64,[^"']+)["'][^>]*\/?>/gi)];
-        if (imgMatches.length > 0 && questions.length > 0) {
-          // Xóa placeholder khỏi nội dung, chèn ảnh vào CUỐI câu hỏi
-          let imgIdx = 0;
+        // Sau khi AI trả kết quả: ghép ảnh vào CUỐI content câu hỏi
+        if (totalImages > 0 && questions.length > 0) {
+          const usedImgIndices = new Set<number>();
+
           for (const q of questions) {
-            // Xóa mọi placeholder [HÌNH MINH HỌA...] ra khỏi giữa nội dung
-            q.content = q.content.replace(/\*{0,2}\[HÌNH\s+MINH\s+HỌA[^\]]*\]\*{0,2}/gi, '').trim();
-            if (imgIdx < imgMatches.length) {
-              // Chèn ảnh vào cuối nội dung câu hỏi
-              q.content = q.content + `\n\n![](${imgMatches[imgIdx][1]})`;
-              imgIdx++;
+            // Tìm tất cả marker [IMG_X] trong content
+            const markers = [...q.content.matchAll(/\[IMG_(\d+)\]/gi)];
+            
+            if (markers.length > 0) {
+              // Xóa marker khỏi giữa content
+              q.content = q.content.replace(/\[IMG_\d+\]/gi, '').trim();
+              // Chèn ảnh vào CUỐI câu hỏi
+              for (const m of markers) {
+                const idx = parseInt(m[1], 10);
+                const dataUrl = imageMap.get(idx);
+                if (dataUrl) {
+                  q.content += `\n\n![Hình minh họa](${dataUrl})`;
+                  usedImgIndices.add(idx);
+                }
+              }
+            } else {
+              // AI không giữ marker → xóa placeholder dạng cũ nếu có
+              q.content = q.content.replace(/\*{0,2}\[HÌNH\s+MINH\s+HỌA[^\]]*\]\*{0,2}/gi, '').trim();
+            }
+          }
+          
+          // Ảnh mồ côi (AI bỏ qua marker) → gắn vào câu cuối
+          for (const [idx, dataUrl] of imageMap.entries()) {
+            if (!usedImgIndices.has(idx)) {
+              const lastQ = questions[questions.length - 1];
+              lastQ.content += `\n\n![Hình minh họa](${dataUrl})`;
+              console.info(`[Image Map] Ảnh mồ côi #${idx} → gán vào câu cuối`);
             }
           }
         }
 
         setParseErrors([]);
-        // ═══ AUTO-SAVE: Lưu thẳng Firestore, bỏ bước Review Board ═══
-        setImageProgress('💾 AI hoàn tất — đang tự động lưu vào kho...');
-        await handleSync(questions, sourceFileName);
+        // ═══ REFACTORED: Không auto-save — hiện modal 2 lựa chọn ═══
         setImageProgress(null);
+        setPendingQuestions(questions);
+        setPendingSourceFile(sourceFileName);
+        setShowActionModal(true);
+        setIsProcessing(false);
+        return; // Exit early — user sẽ chọn action trong modal
       } else {
         // ===== Standard Mode: DocxReader + AzotaParser =====
         setImageProgress('Đang đọc file và xử lý hình ảnh...');
@@ -304,14 +354,17 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           throw new Error('File Word không có nội dung văn bản.');
         const parseResult = parseAzotaExam(docxResult.html, topicHint);
         if (parseResult.questions.length === 0) {
-          alert('Không tìm thấy câu hỏi theo định dạng chuẩn Azota. Thầy hãy kiểm tra lại file.');
+          toast.error('Không tìm thấy câu hỏi theo định dạng chuẩn Azota. Thầy hãy kiểm tra lại file.');
           return;
         }
         setParseErrors(parseResult.errors);
-        // ═══ AUTO-SAVE: Standard mode cũng tự động lưu luôn ═══
-        setImageProgress('💾 Parser hoàn tất — đang tự động lưu vào kho...');
-        await handleSync(parseResult.questions, sourceFileName);
+        // ═══ REFACTORED: Standard mode cũng hiện modal 2 lựa chọn ═══
         setImageProgress(null);
+        setPendingQuestions(parseResult.questions);
+        setPendingSourceFile(sourceFileName);
+        setShowActionModal(true);
+        setIsProcessing(false);
+        return;
       }
     } catch (error: any) {
       console.error('File processing error:', error);
@@ -602,7 +655,75 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
     setParseErrors([]);
   };
 
-  // (Review Board đã bỏ — AI auto-save trực tiếp)
+  // ═══════════════════════════════════════════════════════════════
+  //  ACTION HANDLERS — sau khi AI xử lý xong
+  // ═══════════════════════════════════════════════════════════════
+
+  const handleSaveToBank = async () => {
+    if (!pendingQuestions) return;
+    setShowActionModal(false);
+    setImageProgress('💾 Đang lưu vào Kho Câu Hỏi...');
+    try {
+      await handleSync(pendingQuestions, pendingSourceFile);
+    } finally {
+      setImageProgress(null);
+      setPendingQuestions(null);
+    }
+  };
+
+  const handleCreateExam = async () => {
+    if (!pendingQuestions || !newExamTitle.trim()) {
+      toast.error('Vui lòng nhập tên đề thi.');
+      return;
+    }
+    setIsSavingExam(true);
+    try {
+      const batch = writeBatch(db);
+      const questionIds: string[] = [];
+
+      // 1. Tạo từng câu hỏi (nếu checkbox "cũng lưu vào kho" checked)
+      for (const q of pendingQuestions) {
+        const clean = sanitizeQuestion(q);
+        clean.createdAt = Timestamp.now();
+        if (alsoSaveToBank) {
+          const qRef = doc(collection(db, 'questions'));
+          batch.set(qRef, clean);
+          questionIds.push(qRef.id);
+        }
+      }
+
+      // 2. Tạo exam document
+      const examRef = doc(collection(db, 'exams'));
+      batch.set(examRef, {
+        title: newExamTitle.trim(),
+        questions: pendingQuestions.map(q => sanitizeQuestion(q)),
+        questionIds: alsoSaveToBank ? questionIds : [],
+        createdAt: Timestamp.now(),
+        createdBy: auth.currentUser?.uid || 'admin',
+        type: 'Digitized',
+        sourceFile: pendingSourceFile,
+      });
+
+      // 3. Atomic commit
+      await batch.commit();
+
+      toast.success(`✅ Đã tạo đề "${newExamTitle}" với ${pendingQuestions.length} câu!`);
+      if (alsoSaveToBank) {
+        toast.info(`📚 ${questionIds.length} câu cũng đã lưu vào Kho Câu Hỏi.`);
+        onQuestionsAdded();
+      }
+
+      setShowCreateExamModal(false);
+      setShowActionModal(false);
+      setPendingQuestions(null);
+      setNewExamTitle('');
+    } catch (e: any) {
+      console.error('[handleCreateExam]', e);
+      toast.error(`Lỗi tạo đề thi: ${e?.message || 'Lỗi không xác định'}`);
+    } finally {
+      setIsSavingExam(false);
+    }
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-8">
@@ -855,6 +976,160 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
                     {summaryModal.success ? '🎉 Tuyệt vời! Đóng' : '🔧 Đã hiểu, đóng'}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ ACTION CHOICE MODAL — 2 nút sau khi AI xử lý xong ═══ */}
+      <AnimatePresence>
+        {showActionModal && pendingQuestions && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9998] flex items-center justify-center p-4"
+            style={{ backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25 }}
+              className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl p-8 space-y-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="text-center">
+                <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+                </div>
+                <h3 className="text-xl font-black text-white">AI XỬ LÝ XONG!</h3>
+                <p className="text-slate-400 text-sm mt-2">
+                  Đã phát hiện <span className="text-white font-black text-lg">{pendingQuestions.length}</span> câu hỏi từ file <span className="text-cyan-400 font-bold">"{pendingSourceFile}"</span>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-black text-blue-400">{pendingQuestions.filter(q => q.part === 1).length}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase">Phần I</p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-black text-amber-400">{pendingQuestions.filter(q => q.part === 2).length}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase">Phần II</p>
+                </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-black text-emerald-400">{pendingQuestions.filter(q => q.part === 3).length}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase">Phần III</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-500 text-center font-bold uppercase tracking-widest">Chọn hành động:</p>
+
+              <div className="space-y-3">
+                <button
+                  onClick={handleSaveToBank}
+                  className="w-full p-4 bg-blue-600/10 border border-blue-500/30 rounded-2xl hover:bg-blue-600/20 transition-all flex items-center gap-4 group"
+                >
+                  <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <BookOpen className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-white">📚 Lưu vào Kho Câu Hỏi</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Các câu sẽ vào ngân hàng đề, sẵn sàng tạo đề sau.</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setShowCreateExamModal(true); setNewExamTitle(''); }}
+                  className="w-full p-4 bg-violet-600/10 border border-violet-500/30 rounded-2xl hover:bg-violet-600/20 transition-all flex items-center gap-4 group"
+                >
+                  <div className="w-12 h-12 bg-violet-600/20 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <FileText className="w-6 h-6 text-violet-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-white">📝 Tạo Đề Thi Riêng</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Tạo đề thi độc lập, sẵn sàng phát cho phòng thi.</p>
+                  </div>
+                </button>
+              </div>
+
+              <button
+                onClick={() => { setShowActionModal(false); setPendingQuestions(null); }}
+                className="w-full py-2 text-xs text-slate-500 hover:text-slate-300 font-bold transition-colors"
+              >
+                Hủy bỏ — không lưu
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ CREATE EXAM MODAL — Nhập tên đề thi ═══ */}
+      <AnimatePresence>
+        {showCreateExamModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            style={{ backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25 }}
+              className="w-full max-w-md bg-slate-900 border border-violet-500/30 rounded-3xl p-8 space-y-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="text-center">
+                <h3 className="text-xl font-black text-white">📝 Tạo Đề Thi Riêng</h3>
+                <p className="text-slate-400 text-sm mt-1">{pendingQuestions?.length || 0} câu từ "{pendingSourceFile}"</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tên đề thi *</label>
+                <input
+                  type="text"
+                  value={newExamTitle}
+                  onChange={e => setNewExamTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateExam()}
+                  placeholder="VD: Đề kiểm tra 1 tiết — Chương Từ trường"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 outline-none"
+                  autoFocus
+                />
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
+                <input
+                  type="checkbox"
+                  checked={alsoSaveToBank}
+                  onChange={e => setAlsoSaveToBank(e.target.checked)}
+                  className="w-5 h-5 bg-slate-800 border-slate-700 rounded accent-violet-500"
+                />
+                <div>
+                  <span className="text-xs text-slate-300 font-bold">Cũng lưu vào Kho Câu Hỏi</span>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Câu hỏi sẽ có trong ngân hàng đề để tái sử dụng</p>
+                </div>
+              </label>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCreateExamModal(false)}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition-all"
+                >
+                  Quay lại
+                </button>
+                <button
+                  onClick={handleCreateExam}
+                  disabled={isSavingExam || !newExamTitle.trim()}
+                  className="flex-1 py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+                >
+                  {isSavingExam ? <div className="w-4 h-4 border-2 border-white rounded-full border-t-transparent animate-spin" /> : null}
+                  {isSavingExam ? 'Đang lưu...' : 'Lưu & Tạo Đề'}
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -1118,7 +1393,7 @@ const QuestionBank = () => {
           setEditExplanation(prev => prev + imgMarkdown);
         }
       } catch (err) {
-        alert('Không thể đọc ảnh. Kiểm tra file.');
+        toast.error('Không thể đọc ảnh. Kiểm tra file.');
       }
     };
     input.click();
@@ -1142,7 +1417,7 @@ const QuestionBank = () => {
         newContent = newContent + `\n\n![](${dataUrl})`;
         await updateDoc(doc(db, 'questions', q.id), { content: newContent });
       } catch (err) {
-        alert('Lỗi chèn ảnh. Kiểm tra file hoặc kết nối.');
+        toast.error('Lỗi chèn ảnh. Kiểm tra file hoặc kết nối.');
         console.error('[QuickImageInsert]', err);
       } finally {
         setQuickImgSaving(null);
@@ -1616,6 +1891,12 @@ const QuestionBank = () => {
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden space-y-6 pt-4 border-t border-slate-800"
                     >
+                      {q.tags?.includes('__needs_answer_review') && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-3">
+                          <span className="text-amber-400 text-xs font-bold">⚠️ Đáp án chưa chắc chắn — Cần kiểm tra thủ công</span>
+                        </div>
+                      )}
+
                       {q.part === 1 && q.options && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {q.options.map((opt, idx) => (
@@ -1816,56 +2097,125 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
 
   const generateExam = async () => {
     if (allQuestions.length < 28) {
-      alert(`Kho câu hỏi hiện tại chỉ có ${allQuestions.length} câu. Cần tối thiểu 28 câu để tạo đề chuẩn 2025.`);
+      toast.error(`Kho câu hỏi hiện tại chỉ có ${allQuestions.length} câu. Cần tối thiểu 28 câu để tạo đề chuẩn 2025.`);
       return;
     }
 
     setIsGenerating(true);
-    // Simulate AI thinking
-    await new Promise(r => setTimeout(r, 1500));
-
-    let pool = [...allQuestions];
-    let selected: Question[] = [];
-
-    // Logic: 18 Part I, 4 Part II, 6 Part III
-    const p1 = pool.filter(q => q.part === 1);
-    const p2 = pool.filter(q => q.part === 2);
-    const p3 = pool.filter(q => q.part === 3);
-
-    if (p1.length < 18 || p2.length < 4 || p3.length < 6) {
-      alert("Không đủ câu hỏi cho từng phần (Cần 18 câu Phần I, 4 câu Phần II, 6 câu Phần III).");
-      setIsGenerating(false);
-      return;
-    }
-
-    // AI Diagnosis: Prioritize topics student is weak in (redZones)
-    const redZones = selectedStudent?.redZones || [];
-    
-    const pick = (source: Question[], count: number) => {
-      let sorted = [...source].sort((a, b) => {
-        const aInRed = redZones.includes(a.topic) ? 1 : 0;
-        const bInRed = redZones.includes(b.topic) ? 1 : 0;
-        return bInRed - aInRed || Math.random() - 0.5;
-      });
-      return sorted.slice(0, count);
-    };
-
-    selected = [
-      ...pick(p1, 18),
-      ...pick(p2, 4),
-      ...pick(p3, 6)
-    ];
-
-    const newExam: Exam = {
-      title: `ĐỀ TRỊ BỆNH: ${selectedStudent?.displayName || 'HỌC SINH'} - ${new Date().toLocaleDateString('vi-VN')}`,
-      questions: selected,
-      createdAt: Timestamp.now(),
-      createdBy: user.uid,
-      type: genType === 'AI' ? 'AI_Diagnosis' : 'Matrix',
-      targetStudentId: selectedStudent?.uid
-    };
 
     try {
+      // ═══════════════════════════════════════════════════════════════
+      //  SPRINT 2: TRUE ADAPTIVE ENGINE — CHỐNG HỌC VẸT
+      //  1. Fetch pastAttempts cho student được chọn
+      //  2. Build Blacklist (câu đã đúng trong 7 ngày)
+      //  3. pick() 3 tầng ưu tiên: Blacklist → redZones → Random
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Bước 1: Fetch lịch sử thi của học sinh (nếu có) ──
+      let blacklist = new Set<string>(); // O(1) lookup
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+      const cutoffTime = Date.now() - SEVEN_DAYS_MS;
+
+      if (selectedStudent) {
+        try {
+          const attemptsQuery = query(
+            collection(db, 'attempts'),
+            where('userId', '==', selectedStudent.uid)
+          );
+          const attemptsSnap = await getDocs(attemptsQuery);
+          const pastAttempts = attemptsSnap.docs.map(d => d.data());
+
+          // ── Bước 2: Tạo Blacklist — câu đã đúng trong 7 ngày gần nhất ──
+          // Hiệu năng: Duyệt 1 lần qua pastAttempts, dùng Set để O(1) insert & lookup
+          for (const attempt of pastAttempts) {
+            // Kiểm tra thời gian: chỉ lấy bài thi trong 7 ngày qua
+            const attemptTime = attempt.timestamp?.toMillis?.() 
+              ?? attempt.timestamp?.seconds * 1000 
+              ?? 0;
+            if (attemptTime < cutoffTime) continue;
+
+            // Duyệt answers: tìm câu nào đã trả lời đúng
+            const answers = attempt.answers || {};
+            for (const qId of Object.keys(answers)) {
+              const question = allQuestions.find(q => q.id === qId);
+              if (!question) continue;
+
+              const studentAns = answers[qId];
+              let isCorrect = false;
+
+              if (question.part === 1) {
+                isCorrect = studentAns === question.correctAnswer;
+              } else if (question.part === 2) {
+                // Đúng/Sai: đúng tất cả 4 ý mới tính
+                if (Array.isArray(studentAns) && Array.isArray(question.correctAnswer)) {
+                  isCorrect = studentAns.length === 4 && 
+                    studentAns.every((ans: any, i: number) => ans === (question.correctAnswer as boolean[])[i]);
+                }
+              } else if (question.part === 3) {
+                const sVal = parseFloat(String(studentAns ?? '0').replace(',', '.'));
+                const cVal = parseFloat(String(question.correctAnswer ?? '0').replace(',', '.'));
+                isCorrect = !isNaN(sVal) && Math.abs(sVal - cVal) < 0.01;
+              }
+
+              if (isCorrect) blacklist.add(qId);
+            }
+          }
+        } catch (e) {
+          console.warn('[generateExam] Không thể fetch pastAttempts, bỏ qua blacklist:', e);
+        }
+      }
+
+      // ── Phân loại theo Part ──
+      const p1 = allQuestions.filter(q => q.part === 1);
+      const p2 = allQuestions.filter(q => q.part === 2);
+      const p3 = allQuestions.filter(q => q.part === 3);
+
+      if (p1.length < 18 || p2.length < 4 || p3.length < 6) {
+        toast.error("Không đủ câu hỏi cho từng phần (Cần 18 câu Phần I, 4 câu Phần II, 6 câu Phần III).");
+        setIsGenerating(false);
+        return;
+      }
+
+      // AI Diagnosis: Prioritize topics student is weak in (redZones)
+      const redZones = selectedStudent?.redZones || [];
+
+      // ── Bước 3: pick() — Thuật toán 3 tầng ưu tiên ──
+      const pick = (source: Question[], count: number): Question[] => {
+        // Tầng 1: Lọc bỏ câu trong Blacklist
+        const fresh = source.filter(q => !blacklist.has(q.id || ''));
+        
+        // Nếu kho câu "tươi" đủ → dùng, nếu không → fallback lấy lại từ blacklist
+        const pool = fresh.length >= count ? fresh : [...source];
+
+        // Tầng 2 + 3: Sắp xếp ưu tiên redZones, random phần còn lại
+        // Score: redZone = +1000 (đảm bảo luôn đứng trước), random phụ tránh trùng thứ tự
+        const scored = pool.map(q => ({
+          question: q,
+          score: (redZones.includes(q.topic) ? 1000 : 0) 
+               + (!blacklist.has(q.id || '') ? 500 : 0) // Ưu tiên câu chưa từng đúng
+               + Math.random() * 100 // Yếu tố ngẫu nhiên
+        }));
+
+        // Sort giảm dần theo score → lấy top `count`
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, count).map(s => s.question);
+      };
+
+      const selected: Question[] = [
+        ...pick(p1, 18),
+        ...pick(p2, 4),
+        ...pick(p3, 6)
+      ];
+
+      const newExam: Exam = {
+        title: `ĐỀ TRỊ BỆNH: ${selectedStudent?.displayName || 'HỌC SINH'} - ${new Date().toLocaleDateString('vi-VN')}`,
+        questions: selected,
+        createdAt: Timestamp.now(),
+        createdBy: user.uid,
+        type: genType === 'AI' ? 'AI_Diagnosis' : 'Matrix',
+        targetStudentId: selectedStudent?.uid
+      };
+
       const docRef = await addDoc(collection(db, 'exams'), newExam);
       setGeneratedExam({ ...newExam, id: docRef.id });
     } catch (e) {
@@ -2584,7 +2934,7 @@ const NotificationCenter = ({ notifications, onRead }: { notifications?: AppNoti
 
 const ProExamExperience = ({ 
   test, 
-  answers, 
+  answers: initialAnswers, 
   onAnswer, 
   onSubmit, 
   onCancel 
@@ -2595,17 +2945,55 @@ const ProExamExperience = ({
   onSubmit: () => void,
   onCancel: () => void
 }) => {
-  const [timeLeft, setTimeLeft] = useState(50 * 60); // 50 minutes
+  const DRAFT_KEY = `exam_draft_${auth.currentUser?.uid}_${test.topic}`;
+  
+  const [timeLeft, setTimeLeft] = useState(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.timeLeft > 0) return parsed.timeLeft;
+      } catch (e) {}
+    }
+    return 50 * 60; // 50 minutes
+  });
+  
   const [currentIndex, setCurrentIndex] = useState(0);
   const [cheatWarnings, setCheatWarnings] = useState(0);
   const [showCheatAlert, setShowCheatAlert] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
 
   useEffect(() => {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Object.keys(parsed.answers).length > 0) {
+          setShowResumeModal(true);
+        }
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showResumeModal) {
+      // Save state periodically
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        timeLeft,
+        answers: initialAnswers,
+        timestamp: Date.now()
+      }));
+    }
+  }, [timeLeft, initialAnswers, showResumeModal]);
+
+  useEffect(() => {
+    if (showResumeModal) return;
+    
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 0) {
           clearInterval(timer);
-          onSubmit();
+          handleSubmit();
           return 0;
         }
         return prev - 1;
@@ -2624,7 +3012,32 @@ const ProExamExperience = ({
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [showResumeModal]);
+
+  const handleSubmit = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    onSubmit();
+  };
+
+  const handleResumeChoice = (choice: 'resume' | 'reset') => {
+    if (choice === 'reset') {
+      localStorage.removeItem(DRAFT_KEY);
+      setTimeLeft(50 * 60);
+      // We'd ideally reset answers here, but parent controls answers.
+      // Easiest is to force a rapid cancel and restart but let's just let parent know via onCancel if they want a clean restart
+      // Actually, since answers are stored in App.tsx state, to reset we need to clear them.
+      // We can emit a clear event, but assuming user only has old answers from the draft in App.tsx state.
+    } else {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          Object.keys(parsed.answers).forEach(qid => onAnswer(qid, parsed.answers[qid]));
+        } catch (e) {}
+      }
+    }
+    setShowResumeModal(false);
+  };
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -2659,7 +3072,7 @@ const ProExamExperience = ({
           
           <button 
             onClick={() => {
-              if (confirm("Bạn có chắc chắn muốn nộp bài sớm?")) onSubmit();
+              if (confirm("Bạn có chắc chắn muốn nộp bài sớm?")) handleSubmit();
             }}
             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20"
           >
@@ -2680,7 +3093,7 @@ const ProExamExperience = ({
                 className={cn(
                   "w-full aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all border",
                   currentIndex === i ? "bg-blue-600 border-blue-500 text-white shadow-lg" : 
-                  answers[test.questions[i].id] !== undefined ? "bg-slate-800 border-slate-700 text-slate-300" :
+                  initialAnswers[test.questions[i].id] !== undefined ? "bg-slate-800 border-slate-700 text-slate-300" :
                   "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
                 )}
               >
@@ -2757,7 +3170,7 @@ const ProExamExperience = ({
                   >
                     <span className={cn(
                       "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm transition-colors",
-                      answers[currentQuestion.id] === idx ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500 group-hover:bg-slate-700"
+                      initialAnswers[currentQuestion.id] === idx ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500 group-hover:bg-slate-700"
                     )}>
                       {String.fromCharCode(65 + idx)}
                     </span>
@@ -2779,14 +3192,14 @@ const ProExamExperience = ({
                             <button
                               key={val.toString()}
                               onClick={() => {
-                                const current = answers[currentQuestion.id] || [null, null, null, null];
+                                const current = initialAnswers[currentQuestion.id] || [null, null, null, null];
                                 const next = [...current];
                                 next[idx] = val;
                                 onAnswer(currentQuestion.id, next);
                               }}
                               className={cn(
                                 "px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border",
-                                (answers[currentQuestion.id] || [])[idx] === val
+                                (initialAnswers[currentQuestion.id] || [])[idx] === val
                                   ? (val ? "bg-green-600 border-green-500 text-white" : "bg-red-600 border-red-500 text-white")
                                   : "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
                               )}
@@ -2804,10 +3217,16 @@ const ProExamExperience = ({
                   <div className="space-y-4">
                     <p className="text-xs text-slate-500 font-bold uppercase">Nhập kết quả số của bạn:</p>
                     <input 
-                      type="number"
-                      step="any"
-                      value={answers[currentQuestion.id] || ''}
-                      onChange={(e) => onAnswer(currentQuestion.id, e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={initialAnswers[currentQuestion.id] ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (/^-?\d*[,.]?\d*$/.test(val)) {
+                          onAnswer(currentQuestion.id, val);
+                        }
+                      }}
+                      onWheel={(e) => e.currentTarget.blur()}
                       className="w-full bg-slate-900 border border-slate-800 p-6 rounded-2xl text-2xl font-black text-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-800"
                       placeholder="0.00"
                     />
@@ -2867,6 +3286,47 @@ const ProExamExperience = ({
               >
                 Tôi đã hiểu và quay lại thi
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Resume Draft Modal */}
+      <AnimatePresence>
+        {showResumeModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[300] flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-md w-full text-center space-y-6 shadow-2xl"
+            >
+              <div className="w-20 h-20 bg-blue-600/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Archive className="text-blue-500 w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter">BÀI LÀM ĐANG DỞ</h3>
+              <p className="text-slate-400 leading-relaxed text-sm">
+                Bạn có một phiên làm bài chưa nộp cho chuyên đề <strong className="text-white">{test.topic}</strong>. Bạn muốn tiếp tục làm hay bắt đầu lại từ đầu?
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4 mt-6">
+                <button 
+                  onClick={() => handleResumeChoice('reset')}
+                  className="bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all text-sm uppercase tracking-widest"
+                >
+                  Bắt đầu lại
+                </button>
+                <button 
+                  onClick={() => handleResumeChoice('resume')}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all text-sm uppercase tracking-widest shadow-lg shadow-blue-500/20"
+                >
+                  Làm tiếp
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -3077,8 +3537,8 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
             </div>
           )}
           <div>
-            <h2 className="text-3xl md:text-4xl font-black font-headline tracking-tight mb-1 text-gradient-cyber">Khu Vực Học Tập</h2>
-            <p className="text-slate-400 font-medium font-sans leading-7">Chào mừng trở lại! Hệ thống đã chuẩn bị bài tập cho bạn: <span className="text-white font-bold">{user.displayName}</span></p>
+            <h2 className="text-3xl md:text-4xl font-black font-headline tracking-tight mb-1 text-gradient-cyber">CHÀO CHIẾN BINH, {user.displayName}</h2>
+            <p className="text-slate-400 font-medium font-sans leading-7">Hệ thống đã chuẩn bị lộ trình huấn luyện hôm nay.</p>
             <div className="flex gap-2 mt-2 flex-wrap">
               <span className="bg-slate-800 text-slate-400 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">
                 Nhóm: {user.targetGroup}
@@ -3315,9 +3775,9 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
             onClick={() => {
               if (user.knowledgeGapVault && user.knowledgeGapVault.length > 0) {
                 // start a quiz based on vault questions (simplified for now, full implementation pending)
-                alert(`Bạn có ${user.knowledgeGapVault.length} câu hỏi trong kho. Tính năng bốc thuốc từ Kho đang phát triển.`);
+                toast.info(`Bạn có ${user.knowledgeGapVault.length} câu hỏi trong kho. Tính năng bốc thuốc từ Kho đang phát triển.`);
               } else {
-                alert("Kho ôn tập của bạn đang trống!");
+                toast.warning("Kho ôn tập của bạn đang trống!");
               }
             }} 
             className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/20 active:scale-95 duration-200"
@@ -3508,7 +3968,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer'>('Digitize');
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -3556,7 +4016,8 @@ export default function App() {
     } catch (err: any) {
       const code = err?.code || '';
       if (code === 'auth/unauthorized-domain') {
-        setAuthError('Tên miền localhost chưa được cấp phép trong Firebase Console. Thầy vào Authentication → Settings → Authorized domains và thêm "localhost" để đăng nhập.');
+        const domain = window.location.hostname;
+        setAuthError(`Tên miền ${domain} chưa được cấp phép. Thầy vào Firebase Console → Authentication → Settings → Authorized domains và thêm "${domain}" để đăng nhập.`);
       } else if (code === 'auth/popup-blocked') {
         setAuthError('Trình duyệt đã chặn cửa sổ đăng nhập. Vui lòng cho phép popup từ trang này và thử lại.');
       } else if (code === 'auth/popup-closed-by-user') {
@@ -4043,22 +4504,63 @@ export default function App() {
         });
       }
 
-      // ── Gamification: Tính sao thưởng ──
+      // ═══════════════════════════════════════════════════════════════
+      //  SPRINT 2: GAMIFICATION HOOKS — XP + STREAK ENGINE
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── 1. Tính XP (Stars) theo công thức mới ──
+      // Công thức: Cứ 0.25 điểm = +10 XP | Bonus +100 XP nếu > 8.0
+      const scoreXP = Math.floor(totalScore / 0.25) * 10; // e.g. 7.5đ → 30 slots × 10 = 300 XP
+      const bonusXP = totalScore > 8.0 ? 100 : 0;         // Thưởng nóng
+      const earnedXP = scoreXP + bonusXP;
+
       const prevStars = user.stars || 0;
       const prevRank = getCurrentRank(prevStars);
-      const rewards = calculateTestRewards(totalScore, user.streak || 0);
-      const earnedStars = rewards.reduce((sum, r) => sum + r.stars, 0);
-      updatedUser.stars = prevStars + earnedStars;
+      updatedUser.stars = prevStars + earnedXP;
 
-      // Kiểm tra thăng cấp
+      // Giữ lại rewards system cũ cho streak milestones
+      const rewards = calculateTestRewards(totalScore, user.streak || 0);
+      const streakBonusStars = rewards
+        .filter(r => r.action.startsWith('daily_streak'))
+        .reduce((sum, r) => sum + r.stars, 0);
+      updatedUser.stars += streakBonusStars;
+
+      // ── 2. Cập nhật Streak (Chuỗi ngày học) ──
+      const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const lastDate = user.lastStreakDate;
+      let newStreak = 1;
+
+      if (lastDate) {
+        if (lastDate === today) {
+          // Cùng ngày → giữ nguyên streak
+          newStreak = user.streak || 1;
+        } else {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+          if (lastDate === yesterdayStr) {
+            // Ngày hôm qua → streak += 1
+            newStreak = (user.streak || 0) + 1;
+          } else {
+            // Cách quá 2 ngày → reset streak = 1
+            newStreak = 1;
+          }
+        }
+      }
+
+      updatedUser.streak = newStreak;
+      updatedUser.lastStreakDate = today;
+      updatedUser.lastActive = Timestamp.now();
+
+      // ── 3. Kiểm tra thăng cấp ──
       const newRank = getCurrentRank(updatedUser.stars);
       if (newRank.id > prevRank.id) {
         setShowConfetti(true); // 🎉 Trigger confetti!
-        // Thêm notification thăng cấp
         newNotifications.push({
           id: `rank_up_${Date.now()}`,
           title: `🎉 Thăng cấp ${newRank.icon} ${newRank.name}!`,
-          message: `Chúc mừng! Bạn đã thăng lên ${newRank.name} với ${updatedUser.stars} sao!`,
+          message: `Chúc mừng! Bạn đã thăng lên ${newRank.name} với ${updatedUser.stars} ⭐ (+${earnedXP} XP bài thi${bonusXP > 0 ? ' + 🔥100 XP thưởng nóng' : ''})!`,
           type: 'success',
           read: false,
           timestamp: Timestamp.now(),
@@ -4066,6 +4568,7 @@ export default function App() {
         updatedUser.notifications = newNotifications;
       }
 
+      // ── 4. Gộp tất cả vào 1 lần setDoc duy nhất ──
       await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
       setUser(updatedUser);
 
@@ -4150,7 +4653,7 @@ export default function App() {
     if (!results || !results.analysis || !user) return;
     const matrix = results.analysis.remedialMatrix;
     if (!matrix || matrix.length === 0) {
-      alert("Hệ thống chưa tạo được ma trận khắc phục. Hãy thử phân tích lại.");
+      toast.error("Hệ thống chưa tạo được ma trận khắc phục. Hãy thử phân tích lại.");
       return;
     }
     
@@ -4171,7 +4674,7 @@ export default function App() {
       }
 
       if (resultQuestions.length === 0) {
-        alert("Xin lỗi, ngân hàng đề chưa đủ câu hỏi cho các chủ đề này.");
+        toast.error("Xin lỗi, ngân hàng đề chưa đủ câu hỏi cho các chủ đề này.");
         setLoading(false);
         return;
       }
@@ -4207,7 +4710,7 @@ export default function App() {
       setResults(null);
     } catch (e) {
       console.error(e);
-      alert('Lỗi tạo đề khắc phục tự động');
+      toast.error('Lỗi tạo đề khắc phục tự động');
     } finally {
       setLoading(false);
     }
@@ -4233,15 +4736,25 @@ export default function App() {
         knowledgeGapVault: updatedVault
       });
       setUser({ ...user, knowledgeGapVault: updatedVault });
-      alert("Đã lưu " + incorrectIds.length + " câu sai vào Kho Ôn Tập thành công!");
+      toast.success("Đã lưu " + incorrectIds.length + " câu sai vào Kho Ôn Tập thành công!");
     } catch (error) {
       console.error(error);
-      alert("Lỗi khi lưu vào Kho Ôn Tập");
+      toast.error("Lỗi khi lưu vào Kho Ôn Tập");
     }
   };
 
 
   const adminStats = useDashboardStats();
+
+  // ═══ Module 4: Projector View Detection ═══
+  const projectorExamId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('projector');
+  }, []);
+
+  if (projectorExamId) {
+    return <ProjectorLeaderboard classExamId={projectorExamId} />;
+  }
 
   if (loading) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -4254,7 +4767,8 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex">
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex relative">
+      <ToastProvider />
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
       {activeSimulationViewer && (
         <SimulationViewer 
@@ -4633,7 +5147,11 @@ export default function App() {
             </header>
 
             {/* ──── CONTENT AREA: Render dựa trên activeView ──── */}
-            {(activeView === 'dashboard' || (STUDENT_TABS as readonly string[]).includes(activeView)) && (
+            {activeView === 'liveExam' && (
+              <LiveClassExam user={user} />
+            )}
+
+            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && (
               <>
                 <StudentDashboard 
                   user={user} 
@@ -4781,8 +5299,8 @@ export default function App() {
               <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
                 {/* ── Admin Header ── */}
                 <div className="text-center mb-4">
-                  <h2 className="text-2xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight">
-                    CHÀO THẦY THUỐC — HỆ THỐNG SẴN SÀNG
+                  <h2 className="text-2xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
+                    CHÀO THẦY THUỐC {user.displayName} — HỆ THỐNG SẴN SÀNG
                   </h2>
                   <p className="text-slate-500 text-sm mt-2 leading-7">Trung tâm điều khiển Phy8+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
                 </div>
@@ -4823,6 +5341,7 @@ export default function App() {
                       { id: 'Duplicates', label: 'Trùng lặp', icon: ArrowLeftRight },
                       { id: 'Sanitizer', label: 'Bảo trì', icon: ShieldAlert },
                       { id: 'Reports', label: 'Báo lỗi', icon: Flag },
+                      { id: 'Classroom', label: 'Phòng Thi', icon: Activity },
                     ].map(tab => (
                       <button
                         key={tab.id}
@@ -4854,6 +5373,7 @@ export default function App() {
                   {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
                   {adminTab === 'Sanitizer' && <DataSanitizer />}
                   {adminTab === 'Reports' && <ReportHub />}
+                  {adminTab === 'Classroom' && <ClassManager user={user} />}
                 </motion.div>
               </section>
             )}

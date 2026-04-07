@@ -143,9 +143,9 @@ Lỗi #${i + 1}:
 === YÊU CẦU PHÂN TÍCH CHUẨN ĐOÁN ===
 Dựa vào chuẩn kiến thức GDPT 2018 môn Vật lý:
 1. Đánh giá tổng quan về các lỗ hổng kiến thức chính (redZones). Liệt kê cụ thể tên các chủ đề nhỏ bị rỗng. Dựa chủ yếu vào phần CÂU SAI.
-2. Viết Phản hồi (feedback) bằng Markdown để học sinh đọc. Phân tích rõ vì sao dính bẫy.
-   - Nếu tỷ lệ câu hỏi 'Bỏ trống' (Skipped) > 15%, hãy đưa ra lời khuyên về Chiến thuật quản lý thời gian (Time Management) và khuyên học sinh không được bỏ trống vì thi trắc nghiệm không trừ điểm sai.
-   - Chỉ tập trung kê đơn ôn tập kiến thức cho các câu 'Làm sai' (Incorrect).
+2. Viết Phản hồi (feedback) bằng Markdown để học sinh.
+${skippedRecords.length > 0 ? `   - [QUAN TRỌNG] Học sinh đã bỏ trống ${skippedRecords.length} câu! Hãy BẮT BUỘC đưa ra lời khuyên khắt khe về Chiến thuật quản lý thời gian, yêu cầu tuyệt đối không được bỏ trống vì thi trắc nghiệm không trừ điểm sai.` : ''}
+   - Tập trung kê đơn để lấp lỗ hổng cho các câu 'Làm sai'.
 3. Đếm số lỗi "careless" (ẩu, tính sai) và "fundamental" (sai bản chất vật lý) TỪ CÁC CÂU LÀM SAI.
 4. TẠO MA TRẬN KHẮC PHỤC (remedialMatrix): Tính toán phân bổ ĐÚNG 28 câu hỏi ưu tiên tập trung dồn dập vào chính các chủ đề (topic) mà học sinh làm sai ở trên. Ví dụ: Nếu sai nhiều ở "Động lực học", hãy phân cho nó 15 câu, các chủ đề khác bù vào sao cho tổng số đúng bằng 28. Trả về mảng các object { topic: string, count: number } với tổng count phải BẰNG CHÍNH XÁC 28.
 
@@ -338,94 +338,31 @@ ${PHYSICS_KNOWLEDGE_TREE}
    d) Tần số cộng hưởng phụ thuộc vào điện trở R."
   → part = 2 (vì có a/b/c/d chữ thường), KHÔNG PHẢI part = 1
 
-【2】 CORRECTANSWER — TỰ ĐỘNG NHẬN DIỆN ĐÁP ÁN (QUAN TRỌNG NHẤT — BẮT BUỘC CHO MỌI CÂU):
-  ⚠️ QUY TẮC SẮT ĐÁ: correctAnswer KHÔNG BAO GIỜ được null/undefined/rỗng. Phải luôn có giá trị.
-  ⚠️ ĐÂY LÀ TRƯỜNG QUAN TRỌNG NHẤT — AI PHẢI ĐỌC KỸ PHẦN LỜI GIẢI / HƯỚNG DẪN GIẢI ĐỂ XÁC ĐỊNH.
+【2】 CORRECTANSWER — TỰ ĐỘNG NHẬN DIỆN ĐÁP ÁN (QUAN TRỌNG NHẤT):
+  ⚠️ correctAnswer LUÔN là STRING. KHÔNG BAO GIỜ được null/undefined/rỗng.
 
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │ CHIẾN LƯỢC TÌM ĐÁP ÁN (ÁP DỤNG CHO TẤT CẢ CÁC PHẦN):             │
-  │                                                                       │
-  │ 1. ĐỌC TOÀN BỘ đề thi — bao gồm cả phần "Hướng dẫn giải",         │
-  │    "Lời giải", "Đáp án" nếu có (thường ở cuối file PDF).            │
-  │ 2. Quét BẢNG ĐÁP ÁN tổng hợp nếu tồn tại (thường ở trang cuối).    │
-  │ 3. Tìm manh mối inline (gạch chân, in đậm, dấu sao, ✓/✗).          │
-  │ 4. Đọc lời giải từng câu → tìm kết luận cuối "→ Chọn X".           │
-  │ 5. Nếu KHÔNG TÌM THẤY bất kỳ dấu hiệu nào → AI TỰ GIẢI BÀI.       │
-  └─────────────────────────────────────────────────────────────────────────┘
+  CHIẾN LƯỢC TÌM ĐÁP ÁN (theo thứ tự ưu tiên):
+  1. Tìm tag <u> (gạch chân) quanh chữ cái A/B/C/D hoặc a/b/c/d → đó là đáp án đúng
+  2. Tìm <strong>/<b> (in đậm) quanh chữ cái hoặc phương án
+  3. Tìm dấu sao (*) hoặc dấu tích (✓) trước/sau chữ cái
+  4. Tìm BẢNG ĐÁP ÁN cuối đề: "1.A 2.C 3.B" hoặc bảng dạng "Câu|1|2|3"
+  5. Đọc lời giải → tìm "→ Chọn B", "Đáp án: C"
+  6. Nếu không tìm thấy gì → AI TỰ GIẢI BÀI bằng kiến thức Vật lý
 
-  ━━━ PART 1 (Trắc nghiệm) → correctAnswer = index số nguyên (0=A, 1=B, 2=C, 3=D) ━━━
-  Tìm đáp án đúng bằng cách quét TẤT CẢ dấu hiệu sau (theo thứ tự ưu tiên):
-  
-  ✅ Ưu tiên 1: Chữ cái A/B/C/D được **gạch chân** (<u>A</u>, <u>B</u>...) → đó là đáp án đúng
-  ✅ Ưu tiên 2: Chữ cái A/B/C/D hoặc nội dung phương án được **in đậm** (<strong>B</strong>, <b>C. 2m/s</b>...)
-  ✅ Ưu tiên 3: Có dấu sao (*) hoặc dấu tích (✓, ✔) nằm trước/sau chữ cái (VD: *A, A✓)
-  ✅ Ưu tiên 4: Phương án có highlight/màu khác biệt (<span style="color:red">C</span>)
-  ✅ Ưu tiên 5: Tìm BẢNG ĐÁP ÁN ở cuối đề/cuối mỗi phần. Bảng thường có format:
-     - "Câu | 1 | 2 | 3 | ..." dòng 1, "ĐA | A | C | B | ..." dòng 2
-     - Hoặc: "1.A  2.C  3.B  4.D ..."
-     - Hoặc: "1-A, 2-C, 3-B..."
-  ✅ Ưu tiên 6: Nếu đang trong phần "Lời giải" / "Hướng dẫn giải", tìm KẾT LUẬN CUỐI:
-     - "→ Chọn B", "Đáp án: C", "Chọn D", "Lời giải: ... → A"
-     - Các biến thể: "Chọn A.", "Chọn: A", "ĐA: B", "Vậy đáp án là C"
-  
-  ⛔ Nếu KHÔNG tìm thấy bất kỳ dấu hiệu nào → Dùng kiến thức Vật lý để GIẢI câu hỏi → chọn đáp án đúng.
+  ━━━ FORMAT OUTPUT (LUÔN LÀ STRING) ━━━
 
-  ⚠️ OUTPUT FORMAT CHÍNH XÁC (KHÔNG ĐƯỢC SAI):
-  correctAnswer PHẢI là INTEGER: 0, 1, 2, hoặc 3
-  ❌ SAI: correctAnswer = "A"  ← CHUỖI, KHÔNG CHẤP NHẬN
-  ❌ SAI: correctAnswer = "Chọn B" ← CHUỖI, KHÔNG CHẤP NHẬN
-  ❌ SAI: correctAnswer = {"answer": "C"} ← OBJECT, KHÔNG CHẤP NHẬN
-  ❌ SAI: correctAnswer = null ← NULL, KHÔNG CHẤP NHẬN
-  ✅ ĐÚNG: correctAnswer = 0 (A), 1 (B), 2 (C), 3 (D)
-  
-  VÍ DỤ:
-  - Thấy <u>B</u> → correctAnswer = 1
-  - Thấy <strong>C</strong>. 340 m/s → correctAnswer = 2
-  - Bảng đáp án: "Câu 5: D" → correctAnswer = 3
-  - Lời giải kết luận: "→ Chọn A" → correctAnswer = 0
-  - Không có dấu hiệu → AI giải bài → xác định A đúng → correctAnswer = 0
+  PART 1 (Trắc nghiệm): correctAnswer = STRING chứa MỘT chữ số 0-3
+    A đúng → "0"  |  B đúng → "1"  |  C đúng → "2"  |  D đúng → "3"
+    VD: Thấy <u>B</u> → correctAnswer = "1"
+    VD: Bảng đáp án Câu 5: D → correctAnswer = "3"
+    VD: AI giải ra chọn C → correctAnswer = "2"
 
-  ━━━ PART 2 (Đúng/Sai 4 ý) → correctAnswer = [bool, bool, bool, bool] ━━━
-  Mỗi ý a), b), c), d) cần xác định Đúng (true) hoặc Sai (false):
-  
-  ✅ Ưu tiên 1: Dấu sao (*) trước chữ cái → ĐÚNG (true). VD: *a), *b) → true
-  ✅ Ưu tiên 2: Ký hiệu Đ/S ghi kèm: "a) Đ", "b) S" hoặc "a) ✓", "b) ✗"
-  ✅ Ưu tiên 3: Ý nào được **gạch chân** hoặc **in đậm** → ĐÚNG
-  ✅ Ưu tiên 4: Tìm BẢNG ĐÁP ÁN cuối đề. Format phổ biến:
-     - "Câu 19: a-Đ, b-Đ, c-S, d-S" → [true, true, false, false]
-     - "19: Đ Đ S Đ" → [true, true, false, true]
-     - "Đáp án: S - S - S - Đ" → [false, false, false, true]
-     - "19: a)* b)* c) d)" → [true, true, false, false]
-  ✅ Ưu tiên 5: Nếu ý có lời giải → đọc lời giải để xác nhận từng ý
-  
-  ⛔ Nếu KHÔNG tìm thấy → Dùng kiến thức Vật lý: đọc từng mệnh đề, xác nhận đúng/sai bằng lý thuyết.
+  PART 2 (Đúng/Sai 4 ý): correctAnswer = STRING chứa 4 giá trị true/false cách nhau bằng dấu phẩy
+    VD: a đúng, b đúng, c sai, d sai → correctAnswer = "true,true,false,false"
+    VD: Tìm thấy *a), *c) → correctAnswer = "true,false,true,false"
 
-  ⚠️ OUTPUT FORMAT CHÍNH XÁC (KHÔNG ĐƯỢC SAI):
-  correctAnswer PHẢI là ARRAY gồm ĐÚNG 4 BOOLEAN: [true/false, true/false, true/false, true/false]
-  ❌ SAI: correctAnswer = "Đ, Đ, S, S" ← CHUỖI
-  ❌ SAI: correctAnswer = ["Đ", "S", "S", "Đ"] ← MẢNG CHUỖI
-  ❌ SAI: correctAnswer = {"a": true, "b": false} ← OBJECT
-  ✅ ĐÚNG: correctAnswer = [true, true, false, false]
-
-  ━━━ PART 3 (Trả lời ngắn) → correctAnswer = "số" (STRING chứa số) ━━━
-  Tìm đáp số bằng cách quét:
-  
-  ✅ Ưu tiên 1: Tìm cụm "Đáp án:", "KQ:", "Kết quả:", "Đ/A:" → lấy con số ngay sau đó
-  ✅ Ưu tiên 2: Tìm BẢNG ĐÁP ÁN cuối đề: "Câu 25: 1.25", "25. 2,5"
-  ✅ Ưu tiên 3: Tìm trong lời giải: "Trả lời: 165", "Kết quả: 2,45"
-  ✅ Ưu tiên 4: Nếu có lời giải → tìm con số cuối cùng trong lời giải (thường là đáp số)
-  ✅ Ưu tiên 5: Tìm số được **in đậm** hoặc **gạch chân** hoặc **đóng khung** trong câu hỏi
-  
-  ⛔ Nếu KHÔNG tìm thấy → Dùng kiến thức Vật lý: GIẢI BÀI TOÁN → ghi đáp số.
-  
-  ⚠️ Lưu ý format số: "1,25" (phẩy) = 1.25 (chấm). Luôn trả về dạng chấm thập phân.
-  
-  ⚠️ OUTPUT FORMAT CHÍNH XÁC (KHÔNG ĐƯỢC SAI):
-  correctAnswer PHẢI là STRING chứa giá trị số: "2.45", "165", "0.75"
-  ❌ SAI: correctAnswer = "Đáp án là 2.45" ← THỪA TEXT
-  ❌ SAI: correctAnswer = null ← NULL
-  ✅ ĐÚNG: correctAnswer = "2.45"
-  ✅ ĐÚNG: correctAnswer = "165"
+  PART 3 (Trả lời ngắn): correctAnswer = STRING chứa đáp số (dùng dấu chấm thập phân)
+    VD: correctAnswer = "2.45"  |  correctAnswer = "165"
 
 【3】 TỰ NHẬN DIỆN CHỦ ĐỀ (topic):
   • Đọc nội dung → xác định thuộc chương/bài nào trong CÂY KIẾN THỨC ở trên
@@ -451,10 +388,10 @@ ${PHYSICS_KNOWLEDGE_TREE}
   • Vector: $\\\\vec{F}$, $\\\\overrightarrow{AB}$
   • Phân số: $\\\\frac{a}{b}$; Căn: $\\\\sqrt{x}$
 
-【7】 HÌNH ẢNH — CHỈ ĐÁNH DẤU Ở CUỐI NỘI DUNG:
-  • Nếu câu hỏi có hình → THÊM VÀO CUỐI content chuỗi: **[HÌNH MINH HỌA]**
-  • KHÔNG mô tả hình, KHÔNG đặt placeholder ở giữa câu
-  • Ví dụ đúng: "Một vật dao động điều hòa... **[HÌNH MINH HỌA]**"
+【7】 HÌNH ẢNH — GIỮ NGUYÊN MARKER:
+  • Nếu input có marker [IMG_1], [IMG_2]... → GIỮ NGUYÊN trong content, đặt ở CUỐI câu hỏi
+  • KHÔNG xóa, KHÔNG thay đổi, KHÔNG mô tả hình
+  • Ví dụ: "Một vật dao động điều hòa... [IMG_3]"
 
 【8】 BẢNG SỐ LIỆU → PLACEHOLDER:
   • Có bảng → **[BẢNG SỐ LIỆU — Thầy copy nội dung bảng vào đây]**
@@ -555,7 +492,7 @@ const QUESTION_ITEM_PROPERTIES = {
   level:         { type: Type.STRING },
   content:       { type: Type.STRING },
   options:       { type: Type.ARRAY, items: { type: Type.STRING } },
-  correctAnswer: { type: Type.OBJECT },
+  correctAnswer: { type: Type.STRING },
   explanation:   { type: Type.STRING },
   tags:          { type: Type.ARRAY, items: { type: Type.STRING } },
   groupId:       { type: Type.STRING },
@@ -608,27 +545,27 @@ const DIGITIZE_SCHEMA = {
  *  - Part 1: number (0-3)
  *  - Part 2: boolean[] (4 phần tử)
  *  - Part 3: number
+ * Trả về { value, needsReview } — needsReview=true khi fallback.
  */
-function normalizeCorrectAnswer(raw: any, part: number): any {
+function normalizeCorrectAnswer(raw: any, part: number): { value: any; needsReview: boolean } {
   // ── PART 1: Trắc nghiệm → số nguyên 0-3 ──
   if (part === 1) {
     // Đã là số hợp lệ
-    if (typeof raw === 'number' && [0, 1, 2, 3].includes(raw)) return raw;
+    if (typeof raw === 'number' && [0, 1, 2, 3].includes(raw)) return { value: raw, needsReview: false };
 
     // Chuỗi chữ cái: "A", "B", "C", "D" (có thể lẫn text thừa)
     if (typeof raw === 'string') {
       const cleaned = raw.trim().toUpperCase();
       // Tìm chữ cái A-D đầu tiên trong chuỗi
-      // Xử lý: "Chọn A", "Đáp án: B", "A", "Lời giải: → C", "D."
       const match = cleaned.match(/\b([ABCD])\b|\.?\s*([ABCD])\s*\.?/);
       if (match) {
         const letter = (match[1] || match[2]);
         const MAP: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
-        if (letter && MAP[letter] !== undefined) return MAP[letter];
+        if (letter && MAP[letter] !== undefined) return { value: MAP[letter], needsReview: false };
       }
       // Thử parse như số
       const numVal = parseInt(cleaned, 10);
-      if ([0, 1, 2, 3].includes(numVal)) return numVal;
+      if ([0, 1, 2, 3].includes(numVal)) return { value: numVal, needsReview: false };
     }
 
     // Object dạng {"answer": "C"} hoặc {"correct_answer": "B"}
@@ -637,16 +574,16 @@ function normalizeCorrectAnswer(raw: any, part: number): any {
       if (val !== undefined) return normalizeCorrectAnswer(val, 1);
     }
 
-    // Fallback: 0 (A) — tốt hơn null
-    console.warn('[normalizeCorrectAnswer] Part 1: Không parse được, fallback 0. Raw:', raw);
-    return 0;
+    // Fallback: 0 (A) + đánh dấu cần review
+    console.warn('[normalizeCorrectAnswer] Part 1: ⚠️ Không parse được → cần review. Raw:', raw);
+    return { value: 0, needsReview: true };
   }
 
   // ── PART 2: Đúng/Sai → boolean[4] ──
   if (part === 2) {
     // Đã đúng format
     if (Array.isArray(raw) && raw.length === 4 && raw.every((v: any) => typeof v === 'boolean')) {
-      return raw;
+      return { value: raw, needsReview: false };
     }
 
     // Mảng nhưng phần tử chưa phải boolean
@@ -660,19 +597,18 @@ function normalizeCorrectAnswer(raw: any, part: number): any {
         if (typeof v === 'number') return v === 1 || v > 0;
         return false;
       });
-      // Pad to 4 if needed
       while (normalized.length < 4) normalized.push(false);
-      return normalized;
+      return { value: normalized, needsReview: false };
     }
 
-    // Chuỗi: "Đ, S, S, Đ" hoặc "Đ - S - S - Đ" hoặc "true, false, true, false"
+    // Chuỗi: "Đ, S, S, Đ" hoặc "true, false, true, false"
     if (typeof raw === 'string') {
       const parts = raw.split(/[,\-;/\s]+/).filter(Boolean);
       if (parts.length >= 4) {
-        return parts.slice(0, 4).map((s: string) => {
+        return { value: parts.slice(0, 4).map((s: string) => {
           const v = s.trim().toLowerCase();
           return v === 'true' || v === 'đ' || v === 'đúng' || v === '✓' || v === '✔' || v === '*' || v === '1';
-        });
+        }), needsReview: false };
       }
     }
 
@@ -688,53 +624,55 @@ function normalizeCorrectAnswer(raw: any, part: number): any {
         }
         return false;
       });
-      return fromObj;
+      return { value: fromObj, needsReview: false };
     }
 
-    console.warn('[normalizeCorrectAnswer] Part 2: Không parse được, fallback all false. Raw:', raw);
-    return [false, false, false, false];
+    console.warn('[normalizeCorrectAnswer] Part 2: ⚠️ Không parse được → cần review. Raw:', raw);
+    return { value: [false, false, false, false], needsReview: true };
   }
 
   // ── PART 3: Trả lời ngắn → number ──
   if (part === 3) {
-    // Đã là số
-    if (typeof raw === 'number' && !isNaN(raw)) return raw;
+    if (typeof raw === 'number' && !isNaN(raw)) return { value: raw, needsReview: false };
 
-    // Chuỗi chứa số: "2.45", "165", "Trả lời: 165", "Đáp án: 2,45"
     if (typeof raw === 'string') {
-      // Xóa text thừa, giữ lại số (bao gồm dấu âm, chấm, phẩy)
-      const cleaned = raw.replace(/,/g, '.'); // Phẩy → chấm
+      const cleaned = raw.replace(/,/g, '.');
       const numMatch = cleaned.match(/-?\d+\.?\d*/);
       if (numMatch) {
         const val = parseFloat(numMatch[0]);
-        if (!isNaN(val)) return val;
+        if (!isNaN(val)) return { value: val, needsReview: false };
       }
     }
 
-    // Object
     if (typeof raw === 'object' && raw !== null) {
       const val = raw.answer || raw.correct_answer || raw.correctAnswer || raw.value;
       if (val !== undefined) return normalizeCorrectAnswer(val, 3);
     }
 
-    console.warn('[normalizeCorrectAnswer] Part 3: Không parse được, fallback 0. Raw:', raw);
-    return 0;
+    console.warn('[normalizeCorrectAnswer] Part 3: ⚠️ Không parse được → cần review. Raw:', raw);
+    return { value: 0, needsReview: true };
   }
 
-  return raw;
+  return { value: raw, needsReview: false };
 }
 
 /**
  * Normalize toàn bộ mảng Question[] sau khi nhận từ AI.
  * Đảm bảo correctAnswer luôn đúng kiểu cho UI.
- * Hỗ trợ cả dạng cluster (flatten sub_questions → individual Questions + clusterId).
+ * Gắn tag '__needs_answer_review' nếu không parse được đáp án.
  */
 export function normalizeQuestions(rawItems: any[]): Question[] {
   const flattened = flattenClusterOutput(rawItems);
-  return flattened.map(q => ({
-    ...q,
-    correctAnswer: normalizeCorrectAnswer(q.correctAnswer, q.part),
-  }));
+  return flattened.map(q => {
+    const { value, needsReview } = normalizeCorrectAnswer(q.correctAnswer, q.part);
+    return {
+      ...q,
+      correctAnswer: value,
+      tags: needsReview
+        ? [...(q.tags || []), '__needs_answer_review']
+        : (q.tags || []),
+    };
+  });
 }
 
 /**
@@ -908,6 +846,132 @@ async function splitPdfToPageGroups(
 }
 
 // ============================================================
+// TRINH SÁT ĐÁP ÁN — Trích xuất bảng đáp án TRƯỚC khi chunk
+// ============================================================
+
+/**
+ * Quét HTML (từ mammoth) bằng regex để tìm bảng đáp án.
+ * Chạy TRƯỚC khi chunk → kết quả sẽ inject vào prompt mỗi chunk.
+ * Trả về string dạng: "Câu 1: B, Câu 2: D, ..."
+ */
+function extractAnswerKeyFromHTML(html: string): string {
+  const results: Map<number, string> = new Map();
+
+  // Strip HTML tags để quét text thuần
+  const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
+
+  // === Pattern 1: Inline "1.A 2.C 3.B" hoặc "1-A, 2-C" ===
+  const p1 = /(\d+)\s*[.:\-]\s*([ABCDabcd])(?=[\s,;.|\d]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = p1.exec(text)) !== null) {
+    const num = parseInt(m[1], 10);
+    if (num >= 1 && num <= 50) {
+      results.set(num, m[2].toUpperCase());
+    }
+  }
+
+  // === Pattern 2: Gạch chân <u>A</u>, <u>B</u> trong HTML gốc ===
+  // Tìm pattern: "Câu X" ... <u>Y</u> (Y = A/B/C/D)
+  const uPattern = /Câu\s+(\d+)[^]*?<u[^>]*>\s*([ABCDabcd])\s*<\/u>/gi;
+  while ((m = uPattern.exec(html)) !== null) {
+    const num = parseInt(m[1], 10);
+    if (num >= 1 && num <= 50 && !results.has(num)) {
+      results.set(num, m[2].toUpperCase());
+    }
+  }
+
+  // === Pattern 3: Part 2 — "Câu 19: a-Đ b-S c-Đ d-S" ===
+  const p2 = /[Cc]âu\s+(\d+)\s*[:.]?\s*.*?([a-d])\s*[-–]\s*([ĐđSsTt]).*?([a-d])\s*[-–]\s*([ĐđSsTt]).*?([a-d])\s*[-–]\s*([ĐđSsTt]).*?([a-d])\s*[-–]\s*([ĐđSsTt])/gi;
+  while ((m = p2.exec(text)) !== null) {
+    const num = parseInt(m[1], 10);
+    const vals = [m[3], m[5], m[7], m[9]].map(v => /[ĐđTt]/.test(v) ? 'Đ' : 'S');
+    if (!results.has(num)) {
+      results.set(num, vals.join(','));
+    }
+  }
+
+  // === Pattern 4: Part 3 — "Câu 25: 2.45" ===
+  const p3 = /[Cc]âu\s+(\d+)\s*[:.]\s*([\d.,]+)/g;
+  while ((m = p3.exec(text)) !== null) {
+    const num = parseInt(m[1], 10);
+    if (num >= 21 && num <= 40 && !results.has(num)) {
+      results.set(num, m[2].replace(',', '.'));
+    }
+  }
+
+  if (results.size === 0) return '';
+
+  // Sắp xếp theo số câu
+  const sorted = [...results.entries()].sort((a, b) => a[0] - b[0]);
+  return sorted.map(([num, ans]) => `Câu ${num}: ${ans}`).join(' | ');
+}
+
+/**
+ * Gửi 1-2 trang cuối PDF cho AI Flash để trích xuất bảng đáp án.
+ * Trả về string dạng: "Câu 1: B, Câu 2: D, ..."
+ */
+async function extractAnswerKeyFromPDF(
+  ai: any,
+  pdfBuffer: ArrayBuffer,
+  onProgress?: (status: string) => void
+): Promise<string> {
+  try {
+    const srcDoc = await PDFDocument.load(pdfBuffer);
+    const totalPages = srcDoc.getPageCount();
+    if (totalPages < 2) return ''; // PDF quá ngắn
+
+    // Trích 1-2 trang cuối
+    const startPage = Math.max(0, totalPages - 2);
+    const newDoc = await PDFDocument.create();
+    const pages = await newDoc.copyPages(
+      srcDoc,
+      Array.from({ length: totalPages - startPage }, (_, i) => startPage + i)
+    );
+    pages.forEach(p => newDoc.addPage(p));
+    const pdfBytes = await newDoc.save();
+    const base64Data = arrayBufferToBase64(pdfBytes.buffer as ArrayBuffer);
+
+    onProgress?.('🔍 Đang trinh sát bảng đáp án ở trang cuối...');
+
+    const response = await retryWithBackoff(() => ai.models.generateContent({
+      model: MODELS.ANALYZE, // Flash — nhanh & rẻ
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: base64Data } },
+          { text: `Nếu trang này chứa BẢNG ĐÁP ÁN, hãy trích xuất.
+Format: Câu 1: B | Câu 2: D | Câu 3: A | ...
+Với Part 2 (Đúng/Sai): Câu 19: Đ,S,S,Đ
+Với Part 3: Câu 25: 2.45
+Nếu KHÔNG CÓ bảng đáp án, trả về chỉ chữ "NONE".` }
+        ]
+      }],
+      config: { responseMimeType: 'text/plain' }
+    }), 2, 2000);
+
+    const result = ((response as any).text || '').trim();
+    if (result === 'NONE' || result.length < 5) return '';
+
+    console.info('[AnswerKey PDF] Trích xuất được:', result.substring(0, 200));
+    return result;
+  } catch (error) {
+    console.warn('[AnswerKey PDF] Không trích xuất được bảng đáp án:', error);
+    return '';
+  }
+}
+
+/**
+ * Tạo đoạn text inject vào prompt nếu có bảng đáp án.
+ */
+function buildAnswerKeyInjection(answerKey: string): string {
+  if (!answerKey) return '';
+  return `\n\n=== BẢNG ĐÁP ÁN ĐÃ TRÍCH XUẤT TỪ FILE GỐC ===
+${answerKey}
+→ Hãy dùng bảng này để điền correctAnswer cho từng câu tương ứng.
+→ Nếu câu nào không có trong bảng, hãy tự xác định đáp án theo chiến lược ở trên.`;
+}
+
+// ============================================================
 // DIGITIZE FROM PDF — Gemini Vision + Song song từng nhóm trang
 // ============================================================
 export async function digitizeFromPDF(
@@ -919,12 +983,20 @@ export async function digitizeFromPDF(
 
   onProgress?.("Đang đọc và cắt trang PDF...");
   const pdfBuffer = await pdfFile.arrayBuffer();
+
+  // ── Trinh sát đáp án từ trang cuối PDF ──
+  const answerKey = await extractAnswerKeyFromPDF(ai, pdfBuffer, onProgress);
+  const answerKeyInjection = buildAnswerKeyInjection(answerKey);
+  if (answerKey) {
+    onProgress?.(`✅ Tìm thấy bảng đáp án! Đang tiếp tục số hóa...`);
+  }
+
   const pageGroups = await splitPdfToPageGroups(pdfBuffer, 2);
 
   const prompt = buildDigitizePromptFull(
     "nội dung đề thi Vật lý trong file PDF đính kèm",
     topicHint
-  );
+  ) + answerKeyInjection;
 
   onProgress?.(`PDF có ${pageGroups.length} phần. Đang xử lý song song...`);
 
@@ -992,6 +1064,14 @@ export async function digitizeDocument(
 ): Promise<Question[]> {
   const ai = getAI();
 
+  // ── Trinh sát đáp án từ HTML gốc (trước khi chunk) ──
+  const answerKey = extractAnswerKeyFromHTML(htmlContent);
+  const answerKeyInjection = buildAnswerKeyInjection(answerKey);
+  if (answerKey) {
+    console.info('[AnswerKey HTML] Trích xuất được:', answerKey.substring(0, 200));
+    onProgress?.(`🎯 Tìm thấy bảng đáp án trong file! (${answerKey.split('|').length} câu)`);
+  }
+
   // ── CHUNKING: Tách thông minh theo ranh giới "Câu X" ──
   const chunks: string[] = [];
   const splitParts = htmlContent.split(/(?=Câu\s+\d+)/i);
@@ -1010,14 +1090,14 @@ export async function digitizeDocument(
   if (chunks.length === 0) chunks.push(htmlContent);
 
   const totalChunks = chunks.length;
-  onProgress?.(`📦 Chia thành ${totalChunks} phần (mỗi phần ~10-15 câu). Đang xử lý...`);
+  onProgress?.(`📦 Chia thành ${totalChunks} phần. Đang xử lý...`);
 
   // ── Hàm xử lý 1 chunk — Flash trước, Pro fallback ──
   const processChunk = async (chunk: string, idx: number): Promise<Question[]> => {
     const prompt = buildDigitizePromptFull(
       "nội dung HTML từ file Word (ảnh đã được thay bằng URL Firebase Storage)",
       topicHint
-    ) + `\n\n=== NỘI DUNG HTML ĐẦU VÀO ===\n${chunk}`;
+    ) + answerKeyInjection + `\n\n=== NỘI DUNG HTML ĐẦU VÀO ===\n${chunk}`;
 
     for (const model of [MODELS.ANALYZE, MODELS.DIGITIZE]) {
       onProgress?.(

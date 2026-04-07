@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
 import { cn } from '../lib/utils';
-import { Check, X, ArrowLeft, Lightbulb, Info, Flag } from 'lucide-react';
+import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { auth, db, collection, addDoc, Timestamp } from '../firebase';
+import { toast } from './Toast';
 
 export const ReviewExam = ({
   test,
@@ -45,7 +46,7 @@ export const ReviewExam = ({
       }, 2000);
     } catch (error) {
       console.error('Error reporting question:', error);
-      alert('Có lỗi xảy ra khi gửi báo lỗi. Vui lòng thử lại sau.');
+      toast.error('Có lỗi xảy ra khi gửi báo lỗi. Vui lòng thử lại sau.');
     } finally {
       setIsSubmittingReport(false);
     }
@@ -117,12 +118,39 @@ export const ReviewExam = ({
         </aside>
 
         {/* Content */}
-        <main className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar relative">
+        <main className="flex-1 bg-slate-950 flex flex-col overflow-hidden relative">
           {/* Glassmorphism ambient background */}
           <div className="absolute top-[20%] left-[10%] w-96 h-96 bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
           <div className="absolute top-[40%] right-[10%] w-[30rem] h-[30rem] bg-rose-600/10 rounded-full blur-[120px] pointer-events-none" />
 
-          <div className="max-w-3xl mx-auto space-y-10 relative z-10">
+          {/* Mobile Horizontal Nav */}
+          <div className="block lg:hidden flex-none w-full overflow-x-auto custom-scrollbar bg-slate-900 border-b border-slate-800 p-4 relative z-20">
+            <div className="flex gap-2">
+              {test.questions.map((q, i) => {
+                const isCorrect = checkCorrectness(q, answers[q.id || '']);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentIndex(i)}
+                    className={cn(
+                      "flex-none w-12 h-12 rounded-xl flex items-center justify-center text-xs font-black transition-all border",
+                      currentIndex === i ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
+                      isCorrect 
+                        ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" 
+                        : answers[q.id || ''] !== undefined 
+                          ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
+                          : "bg-slate-800 border-slate-700 text-slate-500" // Not answered
+                    )}
+                  >
+                    {i + 1}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12">
+            <div className="max-w-3xl mx-auto space-y-10 relative z-10">
             <div className="flex items-center gap-4">
               <span className="bg-slate-900 border border-slate-800 text-slate-400 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
                 PHẦN {currentQuestion?.part || '?'}
@@ -296,6 +324,27 @@ export const ReviewExam = ({
                 </div>
               </div>
 
+              </div >
+
+              {/* Navigation Footer */}
+              <div className="flex justify-between items-center pt-8 border-t border-slate-900 mt-8 mb-4">
+                <button 
+                  onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
+                  disabled={currentIndex === 0}
+                  className="flex items-center gap-2 text-slate-500 hover:text-white disabled:opacity-0 transition-colors font-bold text-sm"
+                >
+                  <ChevronRight className="w-5 h-5 rotate-180" />
+                  Câu trước
+                </button>
+                <button 
+                  onClick={() => setCurrentIndex(prev => Math.min(test.questions.length - 1, prev + 1))}
+                  disabled={currentIndex === test.questions.length - 1}
+                  className="flex items-center gap-2 text-blue-500 hover:text-blue-400 disabled:opacity-0 transition-colors font-bold text-sm"
+                >
+                  Câu tiếp theo
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
         </main>

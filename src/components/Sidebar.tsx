@@ -14,18 +14,20 @@ import {
   VolumeX,
   Target,
   ShieldAlert,
-  Flag
+  Flag,
+  Radio,
+  Users
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
 
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
-  | 'dashboard' | 'tasks' | 'history'                                        // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports'; // Admin tabs
+  | 'dashboard' | 'tasks' | 'history' | 'liveExam'                                        // Student tabs
+  | 'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom'; // Admin tabs
 
-export const STUDENT_TABS = ['dashboard', 'tasks', 'history'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports'] as const;
+export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -51,6 +53,7 @@ export const Sidebar = ({
     { id: 'dashboard' as SidebarTab, label: 'Bảng Điều Khiển', icon: Home },
     { id: 'tasks' as SidebarTab, label: 'Nhiệm Vụ', icon: Target },
     { id: 'history' as SidebarTab, label: 'Lịch Sử Nháp', icon: History },
+    { id: 'liveExam' as SidebarTab, label: 'Phòng Thi', icon: Radio },
   ];
 
   const adminMenu = [
@@ -61,6 +64,7 @@ export const Sidebar = ({
     { id: 'Duplicates' as SidebarTab, label: 'Duyệt Trùng', icon: ArrowLeftRight },
     { id: 'Sanitizer' as SidebarTab, label: 'Bảo Trì Dữ Liệu', icon: ShieldAlert },
     { id: 'Reports' as SidebarTab, label: 'Duyệt Báo Lỗi', icon: Flag },
+    { id: 'Classroom' as SidebarTab, label: 'Phòng Thi', icon: Users },
   ];
 
   if (!user) return null;
