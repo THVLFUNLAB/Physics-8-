@@ -41,9 +41,10 @@ const MAMMOTH_STYLE_MAP = [
   "p[style-name='Question'] => p.question:fresh",
   // Math object placeholder (nếu có custom style)
   "p[style-name='Math'] => p.math:fresh",
-  // Giữ nguyên in đậm, gạch chân
+  // Giữ nguyên in đậm
   "r[style-name='Strong'] => strong",
-  "u => u"
+  // Lưu ý: underline không xử lý được qua styleMap.
+  // Phải dùng option convertUnderline riêng (xem mammoth.convertToHtml bên dưới).
 ].join('\n');
 
 // ─── Hàm chính ────────────────────────────────────────────────────────────
@@ -106,7 +107,11 @@ export async function processDocxFile(
       convertImage,
       styleMap: MAMMOTH_STYLE_MAP,
       includeDefaultStyleMap: true,
-    }
+      // RÀO CẢN 1 FIX: mammoth mặc định BỎ QUA underline.
+      // Phải dùng convertUnderline để ép output <u> tag từ Word's <w:u>.
+      // TS types lạc hậu chưa có field này, bypass bằng assertion.
+      convertUnderline: (mammoth as any).underline.element('u'),
+    } as any
   );
 
   // Đảm bảo tất cả upload hoàn thành
@@ -135,11 +140,17 @@ export async function processDocxFile(
 function postProcessHtml(html: string): string {
   let out = html;
 
+  // 0. [ANSWER DETECT] Chuyển span underline → <u> tag chuẩn (trước mọi bước khác)
+  //    Word/mammoth đôi khi dùng <span style="text-decoration: underline"> thay vì <u>
+  out = out.replace(/<span[^>]*text-decoration:\s*underline[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>');
+
   // 1. Loại bỏ các thẻ <p></p> hoặc <p> </p> rỗng
   out = out.replace(/<p[^>]*>\s*<\/p>/gi, '');
 
   // 2. Chuyển <p><strong>A.</strong> ... </p> về dạng chuẩn
   //    Mammoth đôi khi gói phương án trong <strong>
+  //    [ANSWER DETECT] Giữ nguyên <u> nếu lồng bên trong <strong>
+  out = out.replace(/<strong>\s*(<u[^>]*>\s*[A-Da-d]\s*<\/u>)\s*[.):]?\s*<\/strong>/gi, '$1. ');
   out = out.replace(/<strong>\s*([A-D])\.\s*<\/strong>/g, '$1. ');
 
   // 3. Bảo tồn siêu ký hiệu thường dùng trong Vật Lý:
@@ -220,7 +231,9 @@ export function splitHtmlIntoLines(html: string): string[] {
       // Loại bỏ các thẻ format không mang ý nghĩa ngữ nghĩa
       const cleaned = inner
         .replace(/<br\s*\/?>/gi, ' ')
-        .replace(/<span[^>]*>([\s\S]*?)<\/span>/gi, '$1') // unwrap span
+        // [ANSWER DETECT] Chuyển span underline → <u> trước khi strip span
+        .replace(/<span[^>]*text-decoration:\s*underline[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+        .replace(/<span[^>]*>([\s\S]*?)<\/span>/gi, '$1') // unwrap remaining span
         .trim();
       if (cleaned) lines.push(cleaned);
     }

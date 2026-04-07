@@ -1,0 +1,238 @@
+/**
+ * ═══════════════════════════════════════════════════════════════
+ *  HỆ THỐNG RANK E-SPORTS — CHINH PHỤC 8.0+ VẬT LÝ
+ *  10 Cấp độ Rank dựa trên điểm Sao tích lũy
+ * ═══════════════════════════════════════════════════════════════
+ */
+
+// ── Rank Definition ──────────────────────────────────────────
+
+export interface RankDef {
+  id: number;
+  name: string;
+  minStars: number;
+  color: string;          // Tailwind text color class
+  bgColor: string;        // Tailwind bg/gradient class
+  borderColor: string;    // Border accent
+  icon: string;           // Emoji icon
+  description: string;    // Mô tả rank
+}
+
+export const RANKS: RankDef[] = [
+  {
+    id: 1,
+    name: 'Đồng Đoàn',
+    minStars: 0,
+    color: 'text-amber-700',
+    bgColor: 'from-amber-900/30 to-amber-800/10',
+    borderColor: 'border-amber-700/40',
+    icon: '🥉',
+    description: 'Khởi đầu hành trình Vật Lý',
+  },
+  {
+    id: 2,
+    name: 'Bạc Đoàn',
+    minStars: 11,
+    color: 'text-slate-300',
+    bgColor: 'from-slate-500/20 to-slate-600/10',
+    borderColor: 'border-slate-400/40',
+    icon: '🥈',
+    description: 'Đã nắm được nền tảng',
+  },
+  {
+    id: 3,
+    name: 'Vàng Đoàn',
+    minStars: 31,
+    color: 'text-yellow-400',
+    bgColor: 'from-yellow-600/20 to-yellow-700/10',
+    borderColor: 'border-yellow-500/40',
+    icon: '🥇',
+    description: 'Chiến binh Vật Lý thực thụ',
+  },
+  {
+    id: 4,
+    name: 'Bạch Kim',
+    minStars: 61,
+    color: 'text-cyan-300',
+    bgColor: 'from-cyan-600/20 to-cyan-700/10',
+    borderColor: 'border-cyan-400/40',
+    icon: '💎',
+    description: 'Kỹ năng vượt trội',
+  },
+  {
+    id: 5,
+    name: 'Kim Cương',
+    minStars: 101,
+    color: 'text-blue-300',
+    bgColor: 'from-blue-500/20 to-blue-600/10',
+    borderColor: 'border-blue-400/40',
+    icon: '💠',
+    description: 'Đẳng cấp Kim Cương',
+  },
+  {
+    id: 6,
+    name: 'Tinh Anh',
+    minStars: 151,
+    color: 'text-purple-400',
+    bgColor: 'from-purple-600/20 to-purple-700/10',
+    borderColor: 'border-purple-400/40',
+    icon: '🔮',
+    description: 'Tinh hoa Vật Lý',
+  },
+  {
+    id: 7,
+    name: 'Cao Thủ',
+    minStars: 221,
+    color: 'text-rose-400',
+    bgColor: 'from-rose-600/20 to-rose-700/10',
+    borderColor: 'border-rose-400/40',
+    icon: '⚔️',
+    description: 'Bậc thầy giải đề',
+  },
+  {
+    id: 8,
+    name: 'Thách Đấu',
+    minStars: 301,
+    color: 'text-red-400',
+    bgColor: 'from-red-600/20 to-red-700/10',
+    borderColor: 'border-red-500/40',
+    icon: '🏆',
+    description: 'Nắm Trùm 8+',
+  },
+  {
+    id: 9,
+    name: 'Quán Quân',
+    minStars: 401,
+    color: 'text-amber-300',
+    bgColor: 'from-amber-500/20 to-amber-400/10',
+    borderColor: 'border-amber-400/40',
+    icon: '👑',
+    description: 'Vô địch Vật Lý',
+  },
+  {
+    id: 10,
+    name: 'Bất Tử',
+    minStars: 551,
+    color: 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500',
+    bgColor: 'from-amber-500/20 via-rose-500/20 to-purple-500/20',
+    borderColor: 'border-amber-400/60',
+    icon: '🌟',
+    description: 'Huyền thoại bất diệt',
+  },
+];
+
+// ── Utility Functions ────────────────────────────────────────
+
+/**
+ * Lấy Rank hiện tại từ tổng sao
+ */
+export function getCurrentRank(stars: number): RankDef {
+  let rank = RANKS[0];
+  for (const r of RANKS) {
+    if (stars >= r.minStars) rank = r;
+    else break;
+  }
+  return rank;
+}
+
+/**
+ * Lấy Rank tiếp theo (null nếu đã max)
+ */
+export function getNextRank(stars: number): RankDef | null {
+  const current = getCurrentRank(stars);
+  const idx = RANKS.findIndex(r => r.id === current.id);
+  return idx < RANKS.length - 1 ? RANKS[idx + 1] : null;
+}
+
+/**
+ * Tính % tiến độ thăng cấp
+ * Trả về: { percent, starsNeeded, starsInCurrentTier }
+ */
+export function getRankProgress(stars: number): {
+  percent: number;
+  starsNeeded: number;
+  starsInCurrentTier: number;
+  totalStarsInTier: number;
+} {
+  const current = getCurrentRank(stars);
+  const next = getNextRank(stars);
+
+  if (!next) {
+    // Đã max rank
+    return { percent: 100, starsNeeded: 0, starsInCurrentTier: 0, totalStarsInTier: 0 };
+  }
+
+  const tierSize = next.minStars - current.minStars;
+  const starsInTier = stars - current.minStars;
+  const percent = Math.min(100, Math.round((starsInTier / tierSize) * 100));
+  const starsNeeded = next.minStars - stars;
+
+  return { percent, starsNeeded, starsInCurrentTier: starsInTier, totalStarsInTier: tierSize };
+}
+
+// ── Star Earning Actions ─────────────────────────────────────
+
+export type StarAction =
+  | 'complete_test'       // Hoàn thành 1 bài test
+  | 'high_score'          // Đạt >= 8.0 điểm
+  | 'perfect_score'       // Đạt 10/10 điểm
+  | 'daily_streak_3'      // Streak 3 ngày
+  | 'daily_streak_7'      // Streak 7 ngày
+  | 'daily_streak_14'     // Streak 14 ngày
+  | 'daily_streak_30'     // Streak 30 ngày
+  | 'master_topic'        // Master 1 chủ đề (bestScore >= 8.0)
+  | 'first_login'         // Đăng nhập lần đầu
+  | 'daily_login';        // Đăng nhập mỗi ngày
+
+const STAR_REWARDS: Record<StarAction, { stars: number; label: string }> = {
+  complete_test:    { stars: 2,  label: 'Hoàn thành bài test' },
+  high_score:       { stars: 3,  label: 'Đạt điểm cao (≥8.0)' },
+  perfect_score:    { stars: 10, label: 'Đạt điểm tuyệt đối!' },
+  daily_streak_3:   { stars: 5,  label: 'Streak 3 ngày 🔥' },
+  daily_streak_7:   { stars: 10, label: 'Streak 7 ngày 🔥🔥' },
+  daily_streak_14:  { stars: 20, label: 'Streak 14 ngày 🔥🔥🔥' },
+  daily_streak_30:  { stars: 50, label: 'Streak 30 ngày 🔥👑' },
+  master_topic:     { stars: 15, label: 'Master chủ đề mới!' },
+  first_login:      { stars: 5,  label: 'Chào mừng tân binh!' },
+  daily_login:      { stars: 1,  label: 'Đăng nhập hàng ngày' },
+};
+
+/**
+ * Tính số sao thưởng cho một hành động
+ */
+export function getStarReward(action: StarAction): { stars: number; label: string } {
+  return STAR_REWARDS[action];
+}
+
+/**
+ * Tính sao sau khi hoàn thành 1 bài test
+ * @param score Điểm test (thang 10)
+ * @param streak Streak hiện tại
+ * @returns Danh sách các phần thưởng
+ */
+export function calculateTestRewards(score: number, streak: number): { action: StarAction; stars: number; label: string }[] {
+  const rewards: { action: StarAction; stars: number; label: string }[] = [];
+
+  // Hoàn thành bài test
+  rewards.push({ action: 'complete_test', ...STAR_REWARDS.complete_test });
+
+  // Điểm cao
+  if (score >= 10.0) {
+    rewards.push({ action: 'perfect_score', ...STAR_REWARDS.perfect_score });
+  } else if (score >= 8.0) {
+    rewards.push({ action: 'high_score', ...STAR_REWARDS.high_score });
+  }
+
+  // Streak bonuses (chỉ thưởng milestone cao nhất)
+  if (streak >= 30) {
+    rewards.push({ action: 'daily_streak_30', ...STAR_REWARDS.daily_streak_30 });
+  } else if (streak >= 14) {
+    rewards.push({ action: 'daily_streak_14', ...STAR_REWARDS.daily_streak_14 });
+  } else if (streak >= 7) {
+    rewards.push({ action: 'daily_streak_7', ...STAR_REWARDS.daily_streak_7 });
+  } else if (streak >= 3) {
+    rewards.push({ action: 'daily_streak_3', ...STAR_REWARDS.daily_streak_3 });
+  }
+
+  return rewards;
+}

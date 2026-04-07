@@ -12,7 +12,8 @@
  *  - Nút "Đồng bộ lên Kho Dữ Liệu" để push lên Firestore
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import MDEditor from '@uiw/react-md-editor';
 import '@uiw/react-md-editor/markdown-editor.css';
 import rehypeKatex from 'rehype-katex';
@@ -34,9 +35,15 @@ import {
   ImagePlus,
   Image,
   TableProperties,
+  ShieldAlert,
+  Copy,
+  Trash2,
 } from 'lucide-react';
 import { Question, Topic, QuestionLevel, Part } from '../types';
 import { ParseError } from '../services/AzotaParser';
+import { checkAgainstBank, prepareBankVectors, BankDuplicateMatch } from '../services/DuplicateDetector';
+import { normalizeQuestions } from '../services/geminiService';
+import MathRenderer from '../lib/MathRenderer';
 
 // ─── Helper: phát hiện placeholder trong nội dung ─────────────────────────
 const hasImagePlaceholder = (text: string) =>
@@ -52,6 +59,7 @@ interface QuestionReviewBoardProps {
   topic: Topic;
   onSync: (questions: Question[]) => Promise<void>;
   onCancel: () => void;
+  bankQuestions?: Question[];   // Ngân hàng hiện tại — dùng để phát hiện trùng
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -185,6 +193,7 @@ const MathToolbar: React.FC<MathToolbarProps> = ({ onInsert }) => {
                 {group.items.map((item) => (
                   <button
                     key={item.insert}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onInsert(item.insert)}
                     title={item.title}
                     className="px-2 py-1 bg-slate-900 hover:bg-red-600/20 border border-slate-700 hover:border-red-600/50 rounded-lg text-xs text-slate-300 hover:text-red-400 font-mono font-bold transition-all duration-150 active:scale-90"
@@ -216,10 +225,81 @@ interface MathFieldProps {
 
 const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight = 80 }) => {
   const [mode, setMode] = useState<'edit' | 'preview'>('preview');
+  const editorWrapRef = useRef<HTMLDivElement>(null);
+  // FIX VĐ3: Cache vị trí cursor — giữ nguyên khi textarea bị blur do click toolbar
+  const cursorPosRef = useRef<{ start: number; end: number }>({
+    start: (value || '').length,
+    end: (value || '').length,
+  });
 
+  // Attach blur/select listener vào textarea của MDEditor khi nó mount
+  React.useEffect(() => {
+    if (mode !== 'edit') return;
+
+    const attachListeners = () => {
+      const textarea = editorWrapRef.current?.querySelector(
+        'textarea.w-md-editor-text-input'
+      ) as HTMLTextAreaElement | null;
+      if (!textarea) return false;
+
+      const saveCursor = () => {
+        cursorPosRef.current = {
+          start: textarea.selectionStart ?? (value || '').length,
+          end: textarea.selectionEnd ?? (value || '').length,
+        };
+      };
+      textarea.addEventListener('blur', saveCursor);
+      textarea.addEventListener('select', saveCursor);
+      textarea.addEventListener('keyup', saveCursor);
+      textarea.addEventListener('click', saveCursor);
+
+      // Cleanup
+      return () => {
+        textarea.removeEventListener('blur', saveCursor);
+        textarea.removeEventListener('select', saveCursor);
+        textarea.removeEventListener('keyup', saveCursor);
+        textarea.removeEventListener('click', saveCursor);
+      };
+    };
+
+    // MDEditor mount async — chờ textarea xuất hiện
+    let cleanup: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      const result = attachListeners();
+      if (typeof result === 'function') cleanup = result;
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      cleanup?.();
+    };
+  }, [mode]);
+
+  // Chèn tại vị trí cursor đã cache — KHÔNG phụ thuộc vào focus hiện tại
   const handleToolbarInsert = (text: string) => {
-    // Chèn ký hiệu vào cuối nội dung hiện tại
-    onChange((value || '') + text);
+    const { start, end } = cursorPosRef.current;
+    const current = value || '';
+    const safStart = Math.min(start, current.length);
+    const safEnd = Math.min(end, current.length);
+    const before = current.substring(0, safStart);
+    const after = current.substring(safEnd);
+    const newVal = before + text + after;
+    onChange(newVal);
+
+    // Cập nhật cursor position cho lần chèn tiếp theo
+    const newPos = safStart + text.length;
+    cursorPosRef.current = { start: newPos, end: newPos };
+
+    // Khôi phục focus + cursor sau React re-render
+    requestAnimationFrame(() => {
+      const textarea = editorWrapRef.current?.querySelector(
+        'textarea.w-md-editor-text-input'
+      ) as HTMLTextAreaElement | null;
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(newPos, newPos);
+      }
+    });
   };
 
   return (
@@ -250,15 +330,16 @@ const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight
         </div>
       )}
 
-      {/* Math Toolbar — chỉ hiện khi đang chỉnh sửa */}
-      {mode === 'edit' && (
-        <MathToolbar onInsert={handleToolbarInsert} />
-      )}
-
       <div
+        ref={editorWrapRef}
         data-color-mode="dark"
-        className="rounded-xl overflow-hidden border border-slate-700 focus-within:border-red-600/60 transition-colors"
+        className="rounded-xl overflow-visible border border-slate-700 focus-within:border-fuchsia-500/60 focus-within:shadow-[0_0_15px_-3px_rgba(192,38,211,0.3)] transition-all duration-300"
       >
+        {/* FIX VĐ3: MathToolbar TRONG editorWrapRef — chỉ hiện khi đang chỉnh sửa */}
+        {mode === 'edit' && (
+          <MathToolbar onInsert={handleToolbarInsert} />
+        )}
+
         {mode === 'edit' ? (
           <MDEditor
             value={value}
@@ -295,6 +376,7 @@ interface QuestionCardProps {
   index: number;
   onChange: (updated: Question) => void;
   onRemove: () => void;
+  duplicateWarning?: BankDuplicateMatch | null; // Cảnh báo trùng với ngân hàng
 }
 
 // ─── Sub-component: ImageInserter ─────────────────────────────────────────
@@ -344,20 +426,10 @@ const ImageInserter: React.FC<ImageInserterProps> = ({ content, onContentChange 
       // Nén ảnh offline → JPEG nhẹ (5-20KB), KHÔNG cần Firebase Storage
       const compressedUrl = await compressToJpeg(file);
 
-      const imgTag = `![Hình minh họa](${compressedUrl})`;
-      let newContent = content;
-
-      if (/\[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây\]/i.test(newContent)) {
-        newContent = newContent.replace(
-          /\*\*\[HÌNH MINH HỌA — Thầy cần chèn ảnh tại đây\]\*\*/i,
-          imgTag
-        );
-      } else if (/\[HÌNH MINH HỌA\]/i.test(newContent)) {
-        newContent = newContent.replace(/\*\*\[HÌNH MINH HỌA\]\*\*/i, imgTag)
-                               .replace(/\[HÌNH MINH HỌA\]/i, imgTag);
-      } else {
-        newContent = newContent + `\n\n${imgTag}`;
-      }
+      // Xóa placeholder [HÌNH MINH HỌA...] rồi chèn ảnh vào CUỐI nội dung
+      const newContent = content
+        .replace(/\*{0,2}\[HÌNH\s+MINH\s+HỌA[^\]]*\]\*{0,2}/gi, '')
+        .trim() + `\n\n![](${compressedUrl})`;
 
       onContentChange(newContent);
       setUploadStatus('success');
@@ -406,8 +478,9 @@ const ImageInserter: React.FC<ImageInserterProps> = ({ content, onContentChange 
   );
 };
 
-const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, onRemove }) => {
+const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, onRemove, duplicateWarning }) => {
   const [expanded, setExpanded] = useState(true);
+  const [showDupDetail, setShowDupDetail] = useState(false);
 
   const updateField = useCallback(
     <K extends keyof Question>(key: K, value: Question[K]) => {
@@ -442,10 +515,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
   const needsTable = hasTablePlaceholder(question.content);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
       className={cn(
-        'bg-slate-900 border rounded-2xl overflow-hidden transition-all',
-        needsImage ? 'border-indigo-700/60' : expanded ? 'border-slate-700' : 'border-slate-800'
+        'group bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-500',
+        needsImage ? 'border-indigo-700/60 shadow-[0_0_15px_-3px_rgba(79,70,229,0.3)]' : expanded ? 'border-fuchsia-600/50 shadow-[0_0_15px_-3px_rgba(192,38,211,0.15)] z-10 relative scale-[1.01]' : 'border-slate-800 hover:border-slate-600'
       )}
     >
       {/* Card Header */}
@@ -461,6 +536,12 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
           <span className={cn('text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide', LEVEL_COLORS[question.level])}>
             {question.level}
           </span>
+          {/* Badge cảnh báo trùng với ngân hàng */}
+          {duplicateWarning && (
+            <span className="flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-full bg-red-600/20 border border-red-600/40 text-red-400 uppercase tracking-wide animate-pulse">
+              <ShieldAlert className="w-2.5 h-2.5" /> Nghi trùng {Math.round(duplicateWarning.similarity * 100)}%
+            </span>
+          )}
           {/* Badge cảnh báo cần chèn ảnh */}
           {needsImage && (
             <span className="flex items-center gap-1 text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-600/20 border border-indigo-600/40 text-indigo-400 uppercase tracking-wide">
@@ -496,6 +577,49 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
       {/* Card Body */}
       {expanded && (
         <div className="p-6 pt-0 space-y-6 border-t border-slate-800">
+
+          {/* ── Cảnh báo trùng lặp (collapsible) ── */}
+          {duplicateWarning && (
+            <div className="mt-4 bg-red-600/5 border border-red-600/30 rounded-2xl overflow-hidden">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowDupDetail(!showDupDetail); }}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-red-600/10 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-red-500" />
+                  <span className="text-xs font-black text-red-400 uppercase tracking-wider">
+                    ⚠️ Phát hiện câu tương tự trong Ngân hàng ({Math.round(duplicateWarning.similarity * 100)}% giống)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                    className="flex items-center gap-1 text-[10px] font-bold text-red-500 hover:text-white bg-red-600/20 hover:bg-red-600 px-3 py-1.5 rounded-lg transition-all"
+                    title="Xóa câu này khỏi lô chờ duyệt"
+                  >
+                    <Trash2 className="w-3 h-3" /> Xóa câu trùng
+                  </button>
+                  {showDupDetail ? <ChevronUp className="w-3.5 h-3.5 text-red-500" /> : <ChevronDown className="w-3.5 h-3.5 text-red-500" />}
+                </div>
+              </button>
+              {showDupDetail && (
+                <div className="px-4 pb-4 space-y-3 border-t border-red-600/20">
+                  <div className="flex items-center gap-2 pt-3">
+                    <Copy className="w-3 h-3 text-slate-500" />
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      Câu gốc trong ngân hàng · P{duplicateWarning.bankPart} · {duplicateWarning.bankTopic}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 text-sm text-slate-300 leading-relaxed max-h-[250px] overflow-y-auto">
+                    <MathRenderer content={duplicateWarning.bankContent} />
+                  </div>
+                  <p className="text-[9px] text-slate-600 italic">
+                    💡 Nếu nội dung thực sự trùng, nhấn "Xóa câu trùng" ở trên để loại khỏi lô trước khi đồng bộ.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Meta Row */}
           <div className="flex flex-wrap gap-3 pt-4">
@@ -712,7 +836,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
           />
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 
@@ -724,11 +848,60 @@ const QuestionReviewBoard: React.FC<QuestionReviewBoardProps> = ({
   topic,
   onSync,
   onCancel,
+  bankQuestions,
 }) => {
-  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+  // ── Normalize correctAnswer ngay khi nhận initialQuestions ──
+  const normalizedInitial = useMemo(() => normalizeQuestions(initialQuestions), [initialQuestions]);
+  const [questions, setQuestions] = useState<Question[]>(normalizedInitial);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showErrors, setShowErrors] = useState(parseErrors.length > 0);
   const [syncDone, setSyncDone] = useState(false);
+  // ── Duplicate check state ──
+  const [duplicateMap, setDuplicateMap] = useState<Map<number, BankDuplicateMatch>>(new Map());
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const [dupCheckDone, setDupCheckDone] = useState(false);
+
+  // ── Pre-compute bank vectors (1 lần khi mount) ──
+  const preparedBank = useMemo(() => {
+    if (!bankQuestions || bankQuestions.length === 0) return [];
+    return prepareBankVectors(
+      bankQuestions.map(q => ({
+        id: q.id!,
+        content: q.content,
+        options: q.options,
+        part: q.part,
+        topic: q.topic,
+        level: q.level,
+      }))
+    );
+  }, [bankQuestions]);
+
+  // ── Quét trùng khi mount (nếu có bank) ──
+  useEffect(() => {
+    if (preparedBank.length === 0 || dupCheckDone) return;
+    setIsCheckingDuplicates(true);
+
+    // Chạy async để không block UI
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const map = new Map<number, BankDuplicateMatch>();
+        for (let i = 0; i < initialQuestions.length; i++) {
+          const q = initialQuestions[i];
+          const match = checkAgainstBank(
+            { content: q.content, options: q.options },
+            preparedBank,
+            0.7 // threshold 70%
+          );
+          if (match) {
+            map.set(i, match);
+          }
+        }
+        setDuplicateMap(map);
+        setIsCheckingDuplicates(false);
+        setDupCheckDone(true);
+      }, 50);
+    });
+  }, [preparedBank, initialQuestions, dupCheckDone]);
 
   const handleChange = useCallback((index: number, updated: Question) => {
     setQuestions(prev => {
@@ -775,6 +948,12 @@ const QuestionReviewBoard: React.FC<QuestionReviewBoardProps> = ({
               <span className="text-red-400 font-bold"> Phần I: {stats.p1}</span> · 
               <span className="text-amber-400 font-bold"> Phần II: {stats.p2}</span> · 
               <span className="text-blue-400 font-bold"> Phần III: {stats.p3}</span>
+              {duplicateMap.size > 0 && (
+                <> · <span className="text-red-500 font-bold">⚠️ {duplicateMap.size} câu nghi trùng</span></>
+              )}
+              {isCheckingDuplicates && (
+                <> · <span className="text-yellow-500 font-bold animate-pulse">🔍 Đang kiểm tra trùng lặp...</span></>
+              )}
             </p>
           </div>
           <div className="flex gap-3">
@@ -852,6 +1031,7 @@ const QuestionReviewBoard: React.FC<QuestionReviewBoardProps> = ({
               index={i}
               onChange={(updated) => handleChange(i, updated)}
               onRemove={() => handleRemove(i)}
+              duplicateWarning={duplicateMap.get(i) ?? null}
             />
           ))}
         </div>

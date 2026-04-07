@@ -49,9 +49,12 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "haunn.vietanhschool@gmail.com" && request.auth.token.email_verified == true));
+      // Kiểm tra theo email trực tiếp từ Auth token (không cần get() Firestore)
+      // → Tránh lỗi permission loop khi rules gọi get() bên trong rules
+      return isAuthenticated() && (
+        request.auth.token.email == "haunn.vietanhschool@gmail.com" ||
+        request.auth.token.email == "thayhauvatly@gmail.com"
+      );
     }
 
     function isValidEmail(email) {
@@ -98,10 +101,32 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /simulations/{simId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /exams/{examId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /loginLogs/{logId} {
+      allow create: if isAuthenticated();
+      allow read: if isAdmin();
+    }
+
     match /attempts/{attemptId} {
       allow read: if isOwner(resource.data.userId) || isAdmin();
       allow create: if isAuthenticated() && isValidAttempt(request.resource.data);
-      allow update: if false; // Attempts should be immutable
+      allow update: if isAdmin(); // Cho phép admin update điểm sau khi regrade
+      allow delete: if isAdmin();
+    }
+
+    match /reportedQuestions/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
   }
