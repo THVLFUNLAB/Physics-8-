@@ -2537,7 +2537,7 @@ const PerformanceChart = ({ data }: { data: { name: string, score: number, total
               <Cell 
                 key={`cell-score-${index}`} 
                 fill={entry.score === entry.total ? '#10b981' : '#ef4444'} 
-                radius={entry.missing === 0 ? [6, 6, 0, 0] : [0, 0, 0, 0]}
+                radius={(entry.missing === 0 ? [6, 6, 0, 0] : [0, 0, 0, 0]) as any}
               />
             ))}
           </Bar>
@@ -3163,7 +3163,7 @@ const ProExamExperience = ({
                     onClick={() => onAnswer(currentQuestion.id, idx)}
                     className={cn(
                       "w-full p-6 rounded-2xl border text-left transition-all flex items-center gap-6 group",
-                      answers[currentQuestion.id] === idx 
+                      initialAnswers[currentQuestion.id] === idx 
                         ? "bg-blue-600/10 border-blue-600 shadow-lg shadow-blue-900/10" 
                         : "bg-slate-900 border-slate-800 hover:border-slate-600"
                     )}
@@ -3777,7 +3777,7 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
                 // start a quiz based on vault questions (simplified for now, full implementation pending)
                 toast.info(`Bạn có ${user.knowledgeGapVault.length} câu hỏi trong kho. Tính năng bốc thuốc từ Kho đang phát triển.`);
               } else {
-                toast.warning("Kho ôn tập của bạn đang trống!");
+                toast.info("Kho ôn tập của bạn đang trống!");
               }
             }} 
             className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/20 active:scale-95 duration-200"
