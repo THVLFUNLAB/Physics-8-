@@ -174,9 +174,13 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
 
       // 2. Auto join class if not already member
       if (!classData.studentIds.includes(user.uid)) {
-        await updateDoc(doc(db, 'classes', classDoc.id), {
-          studentIds: arrayUnion(user.uid),
-        });
+        try {
+          await updateDoc(doc(db, 'classes', classDoc.id), {
+            studentIds: arrayUnion(user.uid),
+          });
+        } catch (updateErr) {
+          console.warn('Contention when updating class studentIds, skipping...', updateErr);
+        }
       }
 
       // 3. Check for live exam in this class
