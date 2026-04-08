@@ -24,7 +24,8 @@ import {
   Timestamp,
   handleFirestoreError,
   OperationType,
-  writeBatch
+  writeBatch,
+  orderBy
 } from './firebase';
 import { UserProfile, Question, ClusterQuestion, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification, LoginLog, Simulation } from './types';
 import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam } from './services/geminiService';
@@ -56,6 +57,7 @@ import {
   ImagePlus,
   Save,
   X,
+  Check,
   Filter,
   Beaker,
   Archive,
@@ -83,6 +85,7 @@ import { SimulationAdminBoard, SimulationViewer } from './components/SimulationL
 import DuplicateReviewHub from './components/DuplicateReviewHub';
 import DataSanitizer from './components/DataSanitizer';
 import ReportHub from './components/ReportHub';
+import { StudentDirectory } from './components/StudentDirectory';
 import { Sidebar, SidebarTab, STUDENT_TABS, ADMIN_TABS } from './components/Sidebar';
 import { ToastProvider, toast } from './components/Toast';
 import { getCurrentRank, getNextRank, getRankProgress, calculateTestRewards, RANKS } from './services/RankSystem';
@@ -165,9 +168,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
 
     const isPDF = file.name.toLowerCase().endsWith('.pdf');
     const isDOCX = file.name.toLowerCase().endsWith('.docx');
+    const isJSON = file.name.toLowerCase().endsWith('.json');
 
-    if (!isPDF && !isDOCX) {
-      toast.error('Vui lòng chọn file .pdf hoặc .docx');
+    if (!isPDF && !isDOCX && !isJSON) {
+      toast.error('Vui lòng chọn file .pdf, .docx hoặc .json');
       return;
     }
 
@@ -185,7 +189,54 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
     const sourceFileName = file.name;
     setIsProcessing(true);
     try {
-      if (isPDF) {
+      if (isJSON) {
+        setImageProgress('Đang tải file ngân hàng câu hỏi JSON...');
+        const text = await file.text();
+        let questions: Question[];
+        try {
+          questions = JSON.parse(text);
+        } catch (e) {
+          throw new Error('File JSON bị lỗi định dạng.');
+        }
+        
+        if (!Array.isArray(questions)) {
+          // If the JSON is wrapped in an object e.g. { questions: [...] }
+          if (questions && typeof questions === 'object' && Array.isArray((questions as any).questions)) {
+            questions = (questions as any).questions;
+          } else {
+            throw new Error('File JSON không đúng cấu trúc (phải chứa danh sách câu hỏi).');
+          }
+        }
+
+        // Tự động bổ sung các trường bị thiếu từ model/pipeline bên ngoài
+        const finalQuestions = questions.map(q => {
+          let inferredPart = q.part;
+          if (!inferredPart) {
+            // Nội suy Phần dựa vào cấu trúc đáp án/options
+            if (q.options && Array.isArray(q.options) && q.options.length === 4) {
+              inferredPart = 1; // Trắc nghiệm 4 đáp án (Phần 1)
+            } else if (typeof q.correctAnswer === 'object' || (q.options && q.options.length > 0)) {
+              inferredPart = 2; // Đúng/Sai thường trả object hoặc options khác 4 (Phần 2)
+            } else {
+              inferredPart = 3; // Trả lời ngắn, không có options (Phần 3)
+            }
+          }
+          return {
+            ...q,
+            id: q.id || `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            part: inferredPart,
+            topic: q.topic || topicHint || 'Chưa phân loại'
+          };
+        });
+        
+        setParseErrors([]);
+        setImageProgress(null);
+        setPendingQuestions(finalQuestions);
+        setPendingSourceFile(sourceFileName);
+        setShowActionModal(true);
+        setIsProcessing(false);
+        return;
+      } else if (isPDF) {
         // ===== PDF MODE: Gemini Vision đọc trực tiếp =====
         const questions = await digitizeFromPDF(
           file,
@@ -514,6 +565,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
     let clusterSavedCount = 0;
 
     // ── Bước 1: Nhóm câu hỏi theo clusterId (nếu có) ──
+    const uploadBatchId = 'batch_' + Date.now();
     const clusterGroups: Map<string, Question[]> = new Map();
     const standaloneQuestions: Question[] = [];
 
@@ -558,6 +610,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
               tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
             });
             cleanQ.createdAt = Timestamp.now();
+            cleanQ.uploadBatchId = uploadBatchId;
             const qDoc = await addDoc(collection(db, 'questions'), cleanQ);
             questionIds.push(qDoc.id);
             clusterSavedCount++;
@@ -590,6 +643,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
             tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
           });
           clean.createdAt = batchTimestamp;
+          clean.uploadBatchId = uploadBatchId;
           await addDoc(collection(db, 'questions'), clean);
         } catch (err: any) {
           const contentPreview = (q.content || '').substring(0, 50).replace(/\n/g, ' ');
@@ -797,10 +851,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           )}>
             <input 
               type="file" 
-              accept=".pdf,.docx" 
+              accept=".pdf,.docx,.json" 
               onChange={handleFileUpload}
               className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={isProcessing}
+              disabled={true /* isProcessing - DISABLED cho Live Test */}
             />
             <div className="flex items-center justify-center gap-3 pointer-events-none">
               <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1175,6 +1229,27 @@ const QuestionBank = () => {
   const [editSaving, setEditSaving] = useState(false);
   const [quickImgSaving, setQuickImgSaving] = useState<string | null>(null);
 
+  // ── Thêm state cho Bulk Delete & Batch Filter ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [filterBatchId, setFilterBatchId] = useState<string | 'All'>('All');
+
+  // Load danh sách UploadBatchId
+  const uploadBatches = useMemo(() => {
+    const batches = new Map<string, { id: string, count: number, timestamp: number }>();
+    questions.forEach(q => {
+      if (q.uploadBatchId && q.createdAt) {
+        if (!batches.has(q.uploadBatchId)) {
+          const ts = q.createdAt?.toDate ? q.createdAt.toDate().getTime() : new Date(q.createdAt).getTime();
+          batches.set(q.uploadBatchId, { id: q.uploadBatchId, count: 1, timestamp: ts });
+        } else {
+          batches.get(q.uploadBatchId)!.count++;
+        }
+      }
+    });
+    return Array.from(batches.values()).sort((a, b) => b.timestamp - a.timestamp);
+  }, [questions]);
+
   useEffect(() => {
     const qRef = collection(db, 'questions');
     const unsubscribe = onSnapshot(qRef, (snapshot) => {
@@ -1187,9 +1262,10 @@ const QuestionBank = () => {
     return unsubscribe;
   }, []);
 
-  // ── Lọc kết hợp Search + Topic + Part + Level + Time ──
+  // ── Lọc kết hợp Search + Topic + Part + Level + Time + Batch ──
   const filtered = useMemo(() => {
     let result = questions;
+    if (filterBatchId !== 'All') result = result.filter(q => q.uploadBatchId === filterBatchId);
     // Filter topic
     if (filterTopic !== 'All') result = result.filter(q => q.topic === filterTopic);
     // Filter part
@@ -1220,12 +1296,6 @@ const QuestionBank = () => {
         const ts = q.createdAt?.toDate ? q.createdAt.toDate().getTime() : new Date(q.createdAt).getTime();
         return (now - ts) <= cutoff;
       });
-      // Sort mới nhất lên đầu khi lọc theo thời gian
-      result = [...result].sort((a, b) => {
-        const tsA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime();
-        const tsB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime();
-        return tsB - tsA;
-      });
     }
     // Full-text search
     if (searchQuery.trim()) {
@@ -1237,6 +1307,12 @@ const QuestionBank = () => {
         return haystack.includes(needle);
       });
     }
+    // Mặc định luôn sắp xếp mới nhất lên đầu (cho cả old docs chưa có createdAt)
+    result = [...result].sort((a, b) => {
+      const tsA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+      const tsB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+      return tsB - tsA;
+    });
     return result;
   }, [questions, filterTopic, filterPart, filterLevels, filterStatus, filterTime, searchQuery]);
 
@@ -1247,7 +1323,7 @@ const QuestionBank = () => {
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, currentPage]);
   // Reset page khi filter thay đổi
-  useEffect(() => { setCurrentPage(1); }, [filterTopic, filterPart, filterLevels, filterStatus, filterTime, searchQuery]);
+  useEffect(() => { setCurrentPage(1); }, [filterTopic, filterPart, filterLevels, filterStatus, filterTime, filterBatchId, searchQuery]);
 
   const hasActiveFilters = filterTopic !== 'All' || filterPart !== 'All' || filterLevels.size > 0 || filterStatus !== 'All' || filterTime !== 'All' || searchQuery.trim() !== '';
   const resetAllFilters = () => {
@@ -1256,6 +1332,7 @@ const QuestionBank = () => {
     setFilterLevels(new Set());
     setFilterStatus('All');
     setFilterTime('All');
+    setFilterBatchId('All');
     setSearchQuery('');
     setCurrentPage(1);
   };
@@ -1286,8 +1363,40 @@ const QuestionBank = () => {
     if (!window.confirm('Thầy có chắc chắn muốn xóa câu hỏi này không?')) return;
     try {
       await deleteDoc(doc(db, 'questions', id));
+      setQuestions(prev => prev.filter(q => q.id !== id));
+      setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+      toast.success('Xóa câu hỏi thành công!');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `questions/${id}`);
+    }
+  };
+
+  const deleteSelectedQuestions = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Thầy có chắc chắn muốn xóa ${selectedIds.size} câu hỏi đã chọn?`)) return;
+    setIsDeletingBulk(true);
+    try {
+      const batch = writeBatch(db);
+      selectedIds.forEach(id => {
+        batch.delete(doc(db, 'questions', id));
+      });
+      await batch.commit();
+      
+      setQuestions(prev => prev.filter(q => !selectedIds.has(q.id!)));
+      setSelectedIds(new Set());
+      toast.success(`Đã xóa thành công ${selectedIds.size} câu hỏi!`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'questions_bulk');
+    } finally {
+      setIsDeletingBulk(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedQuestions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedQuestions.map(q => q.id!)));
     }
   };
 
@@ -1605,16 +1714,36 @@ const QuestionBank = () => {
 
         {/* ══════════ THANH KẾT QUẢ + RESET ══════════ */}
         <div className="flex items-center justify-between bg-slate-800/40 rounded-xl px-4 py-2.5 border border-slate-800">
-          <span className="text-xs text-slate-400 font-bold">
-            {hasActiveFilters ? (
-              <>Tìm thấy <span className="text-red-400 text-sm font-black">{filtered.length}</span> / {questions.length} câu hỏi</>
-            ) : (
-              <>Hiển thị tất cả <span className="text-white font-black">{questions.length}</span> câu hỏi</>
-            )}
-            {totalPages > 1 && (
-              <span className="ml-2 text-slate-500">· Trang {currentPage}/{totalPages}</span>
-            )}
-          </span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleSelectAll}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
+                selectedIds.size === paginatedQuestions.length && paginatedQuestions.length > 0
+                  ? "bg-red-600 border-red-600 text-white"
+                  : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
+              )}
+              disabled={paginatedQuestions.length === 0}
+            >
+              <div className={cn(
+                "w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors",
+                selectedIds.size > 0 ? "border-white bg-white text-red-600" : "border-slate-500"
+              )}>
+                {selectedIds.size > 0 && <Check className="w-2.5 h-2.5" />}
+              </div>
+              Chọn tất cả ({currentPage})
+            </button>
+            <span className="text-xs text-slate-400 font-bold">
+              {hasActiveFilters ? (
+                <>Tìm thấy <span className="text-red-400 text-sm font-black">{filtered.length}</span> / {questions.length} câu hỏi</>
+              ) : (
+                <>Hiển thị tất cả <span className="text-white font-black">{questions.length}</span> câu hỏi</>
+              )}
+              {totalPages > 1 && (
+                <span className="ml-2 text-slate-500">· Trang {currentPage}/{totalPages}</span>
+              )}
+            </span>
+          </div>
           {hasActiveFilters && (
             <button
               onClick={resetAllFilters}
@@ -1647,12 +1776,30 @@ const QuestionBank = () => {
               </div>
             </div>
           ) : (
-            paginatedQuestions.map((q) => (
+            paginatedQuestions.map((q) => {
+              const isSelected = selectedIds.has(q.id!);
+              return (
               <div key={q.id} className={cn(
-                "bg-slate-950 border p-6 rounded-2xl space-y-4 relative group",
-                hasImageIssue(q) ? "border-red-600/30" : "border-slate-800",
+                "bg-slate-950 border p-6 rounded-2xl space-y-4 relative group transition-all",
+                hasImageIssue(q) ? "border-red-600/30" : isSelected ? "border-red-500 bg-slate-900 border-2" : "border-slate-800",
                 editingId === q.id && "ring-2 ring-blue-500/50"
               )}>
+                
+                {/* ── Checkbox Chọn ── */}
+                <button
+                  onClick={() => {
+                    const next = new Set(selectedIds);
+                    if (next.has(q.id!)) next.delete(q.id!); else next.add(q.id!);
+                    setSelectedIds(next);
+                  }}
+                  className={cn(
+                    "absolute top-4 left-4 w-5 h-5 rounded border-2 flex items-center justify-center transition-all focus:outline-none z-10",
+                    isSelected ? "bg-red-600 border-red-600" : "border-slate-600 hover:border-slate-400"
+                  )}
+                >
+                  {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                </button>
+
                 {/* ── Action buttons ── */}
                 <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button 
@@ -1677,7 +1824,7 @@ const QuestionBank = () => {
                 </div>
                 
                 {/* ── Badges ── */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap pl-6 md:pl-8">
                   <span className={cn(
                     "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded",
                     q.part === 1 ? "bg-blue-600 text-white" : q.part === 2 ? "bg-amber-600 text-white" : "bg-emerald-600 text-white"
@@ -2018,7 +2165,8 @@ const QuestionBank = () => {
                   </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -2064,12 +2212,50 @@ const QuestionBank = () => {
           <button
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
-            className="flex items-center gap-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             Sau <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
+
+      {/* ══════════ FLOATING BULK DELETE BAR ══════════ */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-slate-900 border border-slate-700 p-4 rounded-2xl shadow-2xl shadow-black/50"
+          >
+            <div className="flex items-center gap-2 px-2">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-red-600/20 text-red-500 font-black text-[10px]">
+                {selectedIds.size}
+              </span>
+              <span className="text-sm font-bold text-slate-300">câu đã chọn</span>
+            </div>
+            
+            <div className="w-px h-8 bg-slate-700 hidden md:block"></div>
+            
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs font-bold text-slate-400 hover:text-white px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              Hủy
+            </button>
+            <button
+              onClick={deleteSelectedQuestions}
+              disabled={isDeletingBulk}
+              className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-red-600/20 disabled:opacity-50"
+            >
+              {isDeletingBulk ? 'Đang xóa...' : (
+                <>
+                  <LogOut className="w-4 h-4 rotate-180" /> Xóa {selectedIds.size} câu
+                </>
+              )}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3968,7 +4154,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom'>('Digitize');
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -4048,129 +4234,136 @@ export default function App() {
     let aSub: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const ADMIN_EMAILS = ['haunn.vietanhschool@gmail.com', 'thayhauvatly@gmail.com'];
-        const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email ?? '');
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        
-        let currentUserData: UserProfile;
-        const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-
-        // ── Streak calculation helper ──
-        const calcStreak = (prevStreak?: number, lastDate?: string): { streak: number; lastStreakDate: string } => {
-          if (!lastDate) return { streak: 1, lastStreakDate: today };
-          if (lastDate === today) return { streak: prevStreak || 1, lastStreakDate: today };
-          const yesterday = new Date();
-          yesterday.setDate(yesterday.getDate() - 1);
-          const yesterdayStr = yesterday.toISOString().slice(0, 10);
-          if (lastDate === yesterdayStr) return { streak: (prevStreak || 0) + 1, lastStreakDate: today };
-          return { streak: 1, lastStreakDate: today }; // Reset streak
-        };
-
-        if (userDoc.exists()) {
-          // ── Email cũ: cập nhật lastActive + streak ──
-          currentUserData = userDoc.data() as UserProfile;
-          // Cập nhật photoURL nếu thay đổi
-          if (firebaseUser.photoURL && currentUserData.photoURL !== firebaseUser.photoURL) {
-            currentUserData.photoURL = firebaseUser.photoURL;
-          }
-          if (isAdmin && currentUserData.role !== 'admin') {
-            currentUserData.role = 'admin';
-          }
-          const { streak, lastStreakDate } = calcStreak(currentUserData.streak, currentUserData.lastStreakDate);
-          currentUserData.streak = streak;
-          currentUserData.lastStreakDate = lastStreakDate;
-          currentUserData.lastActive = Timestamp.now();
-          await setDoc(doc(db, 'users', firebaseUser.uid), {
-            role: currentUserData.role,
-            photoURL: currentUserData.photoURL || null,
-            streak,
-            lastStreakDate,
-            lastActive: Timestamp.now(),
-          }, { merge: true });
-        } else {
-          // ── Email mới: tạo UserProfile đầy đủ ──
-          currentUserData = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'Học sinh',
-            photoURL: firebaseUser.photoURL || undefined,
-            role: isAdmin ? 'admin' : 'student',
-            targetGroup: 'Chống Sai Ngu',
-            redZones: [],
-            createdAt: Timestamp.now(),
-            lastActive: Timestamp.now(),
-            streak: 1,
-            lastStreakDate: today,
-            learningPath: {
-              completedTopics: [],
-              topicProgress: {},
-              overallProgress: 0,
-              weaknesses: [],
-            },
-          };
-          await setDoc(doc(db, 'users', firebaseUser.uid), currentUserData);
-        }
-
-        // ── Ghi LoginLog ──
-        try {
-          const loginLog: Omit<LoginLog, 'id'> = {
-            userId: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || '',
-            timestamp: Timestamp.now(),
-            userAgent: navigator.userAgent,
-            action: 'login',
-          };
-          await addDoc(collection(db, 'loginLogs'), loginLog);
-        } catch (e) {
-          console.warn('[LoginLog] Không ghi được log:', e);
-        }
-
-        setUser(currentUserData);
-
-        // Real-time user profile
-        uSub = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
-          if (snap.exists()) {
-            setUser(snap.data() as UserProfile);
-          }
-        });
-
-        // Real-time attempts
-        const aQuery = query(collection(db, 'attempts'), where('userId', '==', firebaseUser.uid));
-        aSub = onSnapshot(aQuery, async (snap) => {
-          const sortedAttempts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Attempt)).sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
-          setAttempts(sortedAttempts);
-
-          // Daily Reminder logic using latest snapshot data
-          const today = new Date().toDateString();
-          const lastAttempt = sortedAttempts[0];
-          const lastAttemptDate = lastAttempt?.timestamp?.toDate().toDateString();
+      try {
+        if (firebaseUser) {
+          const ADMIN_EMAILS = ['haunn.vietanhschool@gmail.com', 'thayhauvatly@gmail.com'];
+          const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email ?? '');
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
           
-          // We need the latest user data for notification check
-          const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const latestUser = userSnap.data() as UserProfile;
+          let currentUserData: UserProfile;
+          const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
-          if (lastAttemptDate !== today && !latestUser.notifications?.find(n => n.title === 'Nhắc nhở hàng ngày' && n.timestamp.toDate().toDateString() === today)) {
-            const reminder: AppNotification = {
-              id: 'daily_' + Date.now(),
-              title: 'Nhắc nhở hàng ngày',
-              message: 'Hôm nay em chưa uống thuốc Vật lý đâu nhé! Hãy làm một đề để duy trì phong độ.',
-              type: 'warning',
-              read: false,
-              timestamp: Timestamp.now()
+          // ── Streak calculation helper ──
+          const calcStreak = (prevStreak?: number, lastDate?: string): { streak: number; lastStreakDate: string } => {
+            if (!lastDate) return { streak: 1, lastStreakDate: today };
+            if (lastDate === today) return { streak: prevStreak || 1, lastStreakDate: today };
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().slice(0, 10);
+            if (lastDate === yesterdayStr) return { streak: (prevStreak || 0) + 1, lastStreakDate: today };
+            return { streak: 1, lastStreakDate: today }; // Reset streak
+          };
+
+          if (userDoc.exists()) {
+            // ── Email cũ: cập nhật lastActive + streak ──
+            currentUserData = userDoc.data() as UserProfile;
+            // Cập nhật photoURL nếu thay đổi
+            if (firebaseUser.photoURL && currentUserData.photoURL !== firebaseUser.photoURL) {
+              currentUserData.photoURL = firebaseUser.photoURL;
+            }
+            if (isAdmin && currentUserData.role !== 'admin') {
+              currentUserData.role = 'admin';
+            }
+            const { streak, lastStreakDate } = calcStreak(currentUserData.streak, currentUserData.lastStreakDate);
+            currentUserData.streak = streak;
+            currentUserData.lastStreakDate = lastStreakDate;
+            currentUserData.lastActive = Timestamp.now();
+            await setDoc(doc(db, 'users', firebaseUser.uid), {
+              role: currentUserData.role,
+              photoURL: currentUserData.photoURL || null,
+              streak,
+              lastStreakDate,
+              lastActive: Timestamp.now(),
+            }, { merge: true });
+          } else {
+            // ── Email mới: tạo UserProfile đầy đủ ──
+            currentUserData = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || 'Học sinh',
+              photoURL: firebaseUser.photoURL || undefined,
+              role: isAdmin ? 'admin' : 'student',
+              targetGroup: 'Chống Sai Ngu',
+              redZones: [],
+              createdAt: Timestamp.now(),
+              lastActive: Timestamp.now(),
+              streak: 1,
+              lastStreakDate: today,
+              learningPath: {
+                completedTopics: [],
+                topicProgress: {},
+                overallProgress: 0,
+                weaknesses: [],
+              },
             };
-            const updatedNotifications = [reminder, ...(latestUser.notifications || [])].slice(0, 20);
-            await setDoc(doc(db, 'users', firebaseUser.uid), { notifications: updatedNotifications }, { merge: true });
+            await setDoc(doc(db, 'users', firebaseUser.uid), currentUserData);
           }
-        });
-      } else {
-        setUser(null);
-        setAttempts([]);
-        if (uSub) uSub();
-        if (aSub) aSub();
+
+          // ── Ghi LoginLog ──
+          try {
+            const loginLog: Omit<LoginLog, 'id'> = {
+              userId: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || '',
+              timestamp: Timestamp.now(),
+              userAgent: navigator.userAgent,
+              action: 'login',
+            };
+            await addDoc(collection(db, 'loginLogs'), loginLog);
+          } catch (e) {
+            console.warn('[LoginLog] Không ghi được log:', e);
+          }
+
+          setUser(currentUserData);
+
+          // Real-time user profile
+          uSub = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
+            if (snap.exists()) {
+              setUser(snap.data() as UserProfile);
+            }
+          });
+
+          // Real-time attempts
+          const aQuery = query(collection(db, 'attempts'), where('userId', '==', firebaseUser.uid));
+          aSub = onSnapshot(aQuery, async (snap) => {
+            const sortedAttempts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Attempt)).sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
+            setAttempts(sortedAttempts);
+
+            // Daily Reminder logic using latest snapshot data
+            const today = new Date().toDateString();
+            const lastAttempt = sortedAttempts[0];
+            const lastAttemptDate = lastAttempt?.timestamp?.toDate().toDateString();
+            
+            // We need the latest user data for notification check
+            const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+            const latestUser = userSnap.data() as UserProfile;
+
+            if (lastAttemptDate !== today && !latestUser.notifications?.find(n => n.title === 'Nhắc nhở hàng ngày' && n.timestamp.toDate().toDateString() === today)) {
+              const reminder: AppNotification = {
+                id: 'daily_' + Date.now(),
+                title: 'Nhắc nhở hàng ngày',
+                message: 'Hôm nay em chưa uống thuốc Vật lý đâu nhé! Hãy làm một đề để duy trì phong độ.',
+                type: 'warning',
+                read: false,
+                timestamp: Timestamp.now()
+              };
+              const updatedNotifications = [reminder, ...(latestUser.notifications || [])].slice(0, 20);
+              await setDoc(doc(db, 'users', firebaseUser.uid), { notifications: updatedNotifications }, { merge: true });
+            }
+          });
+        } else {
+          setUser(null);
+          setAttempts([]);
+          if (uSub) uSub();
+          if (aSub) aSub();
+        }
+      } catch (err: any) {
+        console.error("Auth State Error:", err);
+        setAuthError(`Lỗi đồng bộ dữ liệu: ${err?.message || 'Không xác định'}`);
+        setUser(null); // Fallback to login screen
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
@@ -5374,6 +5567,7 @@ export default function App() {
                   {adminTab === 'Sanitizer' && <DataSanitizer />}
                   {adminTab === 'Reports' && <ReportHub />}
                   {adminTab === 'Classroom' && <ClassManager user={user} />}
+                  {adminTab === 'Directory' && <StudentDirectory />}
                 </motion.div>
               </section>
             )}

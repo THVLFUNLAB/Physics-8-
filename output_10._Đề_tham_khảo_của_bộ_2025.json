@@ -1,0 +1,521 @@
+[
+  {
+    "content": "Quá trình một chất chuyển từ thể lỏng sang thể khí được gọi là quá trình",
+    "options": [
+      "Nóng chảy.",
+      "Hóa hơi.",
+      "Hóa lỏng.",
+      "Đông đặc."
+    ]
+  },
+  {
+    "content": "Biển báo nào dưới đây cảnh báo khu vực có chất phóng xạ?",
+    "options": [
+      "\n![](assets/media/image1.jpeg)\n",
+      "\n![](assets/media/image2.jpeg)\n",
+      "\n![](assets/media/image3.jpeg)\n",
+      "\n![](assets/media/image4.jpeg)\n"
+    ]
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 3 và Câu 4: \n![](assets/media/image5.jpeg)\n Hình bên là sơ đồ nguyên lí hoạt động của một máy sưởi dùng nước nóng. Nước nóng được bơm vào ống bên trong máy, hệ thống tản nhiệt được gắn với ống này. Không khí lạnh được hút vào trong máy sưởi bằng quạt và được làm ấm lên nhờ hệ thống tản nhiệt. Mỗi giờ có 575 kg nước nóng được bơm qua máy. Biết nhiệt độ của nước giảm 5,0^∘^C khi đi qua máy; nhiệt dung riêng của nước là c = 4180 J/(kg. K). Nhiệt độ của nước giảm bao nhiêu kelvin khi đi qua máy sưởi?",
+    "options": [
+      "5 K.",
+      "278 K.",
+      "268 K.",
+      "4 K."
+    ]
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 3 và Câu 4: \n![](assets/media/image5.jpeg)\n Hình bên là sơ đồ nguyên lí hoạt động của một máy sưởi dùng nước nóng. Nước nóng được bơm vào ống bên trong máy, hệ thống tản nhiệt được gắn với ống này. Không khí lạnh được hút vào trong máy sưởi bằng quạt và được làm ấm lên nhờ hệ thống tản nhiệt. Mỗi giờ có 575 kg nước nóng được bơm qua máy. Biết nhiệt độ của nước giảm 5,0^∘^C khi đi qua máy; nhiệt dung riêng của nước là c = 4180 J/(kg. K). Nhiệt lượng tỏa ra từ nước trong mỗi giờ là",
+    "options": [
+      "12 MJ.",
+      "670 MJ.",
+      "2,5 MJ.",
+      "21 kJ."
+    ]
+  },
+  {
+    "content": "Một vật đang được làm lạnh sao cho thể tích của vật không thay đổi. Nội năng của vật",
+    "options": [
+      "Tăng lên.",
+      "Giảm đi.",
+      "Không thay đồi.",
+      "Tăng lên rồi giảm đi."
+    ]
+  },
+  {
+    "content": "Một khối khí lí tưởng xác định có áp suất bằng áp suất khí quyển. Nếu giữ nhiệt độ của khối khí đó không đổi và làm cho áp suất của nó bằng một nửa áp suất khí quyển thì thể tích của khối khí",
+    "options": [
+      "Bằng một nửa giá trị ban đầu.",
+      "Bằng hai lần giá trị ban đầu.",
+      "Bằng giá trị ban đầu.",
+      "Bằng bốn lần giá trị ban đầu."
+    ]
+  },
+  {
+    "content": "Gọi p, V và T lần lượt là áp suất, thể tích và nhiệt độ tuyệt đối của một khối khí lí tưởng xác định. Công thức nào sau đây mô tả đúng định luật Charles?",
+    "options": [
+      "pV = hằng số.",
+      "$\\frac{V}{T}$= hằng số.",
+      "VT = hằng số.",
+      "$\\frac{p}{T}$= hằng số."
+    ]
+  },
+  {
+    "content": "Khi chưa đóng cửa, không khí bên trong ô tô có nhiệt độ là 25^∘^C. Sau khi đóng cửa và đỗ ô tô dưới trời nắng một thời gian, nhiệt độ không khí trong ô tô là 55^∘^C. So với số mol khí trong ô tô ngay khi vừa đóng cửa, phần trăm số mol khí đã thoát ra là",
+    "options": [
+      "9%.",
+      "91%.",
+      "10%.",
+      "55%."
+    ]
+  },
+  {
+    "content": "Trong sóng điện từ, cường độ điện trường ⃗E và cảm ứng từ ⃗B",
+    "imageUrls": [
+      "assets/media/image6.jpeg"
+    ],
+    "options": [
+      "Ngược chiều nhau.",
+      "Cùng chiều nhau.",
+      "Tạo với nhau góc 45^∘^.",
+      "Tạo với nhau góc 90^∘^."
+    ]
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 10 và Câu 11: Một khung dây dẫn phẳng có diện tích S, gồm N vòng dây quay đều với tốc độ góc ω quanh trục cố định vuông góc với cảm ứng từ ⃗B của từ trường đều (hình bên).\n\nNối hai đầu khung dây với điện trở R thành một mạch kín, trong mạch sẽ",
+    "imageUrls": [
+      "assets/media/image7.jpeg"
+    ],
+    "options": [
+      "Xuất hiện dòng điện không đổi.",
+      "Không xuất hiện dòng điện.",
+      "Xuất hiện dòng điện xoay chiều.",
+      "Xuất hiện dòng điện có cường độ lớn dần."
+    ]
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 10 và Câu 11: Một khung dây dẫn phẳng có diện tích S, gồm N vòng dây quay đều với tốc độ góc ω quanh trục cố định vuông góc với cảm ứng từ ⃗B của từ trường đều (hình bên).\n\nSuất điện động cực đại xuất hiện trong khung dây nói trên là",
+    "imageUrls": [
+      "assets/media/image7.jpeg"
+    ],
+    "options": [
+      "E~0~= NBS.",
+      "E~0~= $\\frac{NBS\\ }{R}$.",
+      "E~0~= NBSω.",
+      "E~0~= $\\frac{NBS\\ }{R}$."
+    ]
+  },
+  {
+    "content": "Bốn đoạn dây dẫn a, b, c, d có cùng chiều dài được đặt trong từ trường đều (hình bên). Các dòng điện chạy trong bốn đoạn dây dẫn này có cùng cường độ I. Lực từ tác dụng lên đoạn dây dẫn nào là mạnh nhất?",
+    "imageUrls": [
+      "assets/media/image8.jpeg"
+    ],
+    "options": [
+      "Đoạn a.",
+      "Đoạn b.",
+      "Đoạn c.",
+      "Đoạn d."
+    ]
+  },
+  {
+    "content": "Khi nói về từ trường, phát biểu nào sau đây sai?",
+    "options": [
+      "Từ trường là trường lực gây ra bởi dòng điện hoặc nam châm.",
+      "Cảm ứng từ tại một điểm đặc trưng cho từ trường về mặt tác dụng lực tại điểm đó.",
+      "Từ trường tác dụng lực từ lên một dòng điện hay một nam châm đặt trong nó.",
+      "Phương của lực từ tại một điểm trùng với phương tiếp tuyến của đường sức từ tại điểm đó."
+    ]
+  },
+  {
+    "content": "Khi bác sĩ đang siêu âm người bệnh (hình bên), đầu dò của máy siêu âm phát ra",
+    "correctAnswer": "B",
+    "imageUrls": [],
+    "options": [
+      "Tia x.",
+      "Sóng siêu âm.",
+      "Sóng ánh sáng.",
+      "Tia gamma."
+    ]
+  },
+  {
+    "content": "Số nucleon có trong hạt nhân ^39^ K là",
+    "correctAnswer": "C",
+    "imageUrls": [],
+    "options": [
+      "19.",
+      "20.",
+      "39.",
+      "58."
+    ]
+  },
+  {
+    "content": "Hạt nhân càng bền vững nếu nó có",
+    "correctAnswer": "D",
+    "imageUrls": [],
+    "options": [
+      "Khối lượng càng lớn.",
+      "Độ hụt khối càng lớn.",
+      "Năng lượng liên kết càng lớn.",
+      "Năng lượng liên kết riêng càng lớn."
+    ]
+  },
+  {
+    "content": "Trong hình bên, N là một mẫu phóng xạ được đặt trong một điện trường đều do hai bản kim loại phẳng song song và tích điện trái dấu tạo ra. Các tia phóng xạ phát ra từ N đập vào màn huỳnh quang F gây ra các chấm sáng. Hệ thống được đặt trong chân không. \n![](assets/media/image9.jpeg)\n{width=\"1.7868055555555555in\" height=\"1.0826377952755906in\"}Phát biểu nào sau đây đúng?",
+    "correctAnswer": "C",
+    "imageUrls": [
+      "assets/media/image9.jpeg"
+    ],
+    "options": [
+      "Chấm sáng tại S do tia β^−^gây ra.",
+      "Hầu hết các tia γ gây ra chấm sáng tại T.",
+      "Chấm sáng tại Q có thể do tia α gây ra.",
+      "Hầu hết các tia β^+^ bị chắn bởi tờ giấy G."
+    ]
+  },
+  {
+    "content": "Khi chụp cộng hưởng từ, để máy ghi nhận thông tin chính xác và tránh nguy hiểm, phải bỏ trang sức kim loại khỏi cơ thể người bệnh. Giả sử có một vòng kim loại nằm trong máy sao cho mặt phẳng của vòng vuông góc với cảm ứng từ của từ trường do máy tạo ra khi chụp. Biết bán kính và điện trở của vòng này lần lượt là 3,9 cm và 0,010Ω. Nếu trong 0,40 s, độ lớn của cảm ứng từ này giảm đều từ 1,80 T xuống 0,20 T thì cường độ dòng điện trong vòng kim loại này là",
+    "correctAnswer": "B",
+    "imageUrls": [],
+    "options": [
+      "7,6 A",
+      "1,9 A",
+      "8,5 A",
+      "3,8 A"
+    ]
+  },
+  {
+    "content": "Có thể sử dụng bộ thí nghiệm (hình bên) để tìm hiểu về mối liên hệ giữa áp suất và thể tích của một lượng khí xác định ở nhiệt độ không đổi. \n![](assets/media/image10.jpeg)\n{width=\"1.550693350831146in\" height=\"1.8277777777777777in\"} \n![](assets/media/image11.jpeg)\n{width=\"2.5089129483814525in\" height=\"1.0980205599300088in\"}",
+    "correctAnswer": "a) Đúng, b) Đúng, c) Sai, d) Đúng",
+    "imageUrls": [
+      "assets/media/image10.jpeg",
+      "assets/media/image11.jpeg"
+    ],
+    "options": [
+      "a) Trình tự thí nghiệm: Nén (giữ nguyên nhiệt độ) khí trong xilanh; Ghi giá trị thể tích và giá trị áp suất khí; Lặp lại các thao tác.",
+      "b) Với kết quả thu được ở bảng bên, công thức liên hệ áp suất theo thể tích là p= $\\frac{23}{V}$ , p đo bằng bar (1bar = 10^5^ Pa), V đo bằng cm^3^.",
+      "c) Lượng khí đã dùng trong thí nghiệm là 8.10^−4^ mol.",
+      "d) Thí nghiệm này đã chứng minh được định luật Boyle."
+    ]
+  },
+  {
+    "content": "Để xác định các chất trong một mẫu, người ta dùng một máy được gọi là máy quang phổ khối (khối phổ kế, hình bên). Khi cho mẫu vào máy này, hạt có khối lượng m bị ion hóa sẽ mang điện tích q. Sau đó, hạt được tăng tốc đến tốc độ v nhờ hiệu điện thế U. Tiếp theo, hạt sẽ chuyển động vào vùng từ trường theo phương vuông góc với cảm ứng từ ⃗B . Lực từ tác dụng lên hạt có độ lớn F = Bv|q|, có phương vuông góc với cảm ứng từ⃗ B và với vận tốc v⃗ của hạt. Bán kính quỹ đạo tròn của hạt trong vùng có từ trường là r. Dựa trên tỉ số $\\frac{|q|}{m}$ , có thể xác định được các chất trong mẫu. \n![](assets/media/image12.jpeg)\n{width=\"1.5590266841644795in\" height=\"0.8090277777777778in\"}",
+    "correctAnswer": "a) Sai, b) Đúng, c) Sai, d) Đúng",
+    "imageUrls": [
+      "assets/media/image12.jpeg"
+    ],
+    "options": [
+      "a) Tốc độ của hạt bị thay đổi do tác dụng của từ trường trong máy.",
+      "b) Bỏ qua tốc độ ban đầu của hạt. Sau khi được tăng tốc bởi hiệu điện thế U, tốc độ của hạt là $v = \\sqrt{\\frac{2|q|U}{m}}$",
+      "c) Tỉ số giữa độ lớn điện tích và khối lượng của hạt là $\\frac{|q|}{m} = \\frac{2U}{Br^{2}}$",
+      "d) Biết U = 3,00kV; B = 3,00 T; 1amu = 1,66. 10^−27^ kg; |e| = 1,60. 10^−19^C. Bán kính quỹ đạo của ion âm ^35^Cl^−^ trong vùng có trường là r = 0,0156 m."
+    ]
+  },
+  {
+    "content": "Một nhóm học sinh tìm hiểu về mối liên hệ giữa sự thay đổi nội năng của một khối khí xác định và nhiệt độ của nó. Họ đã thực hiện các nội dung sau: (I) Chuẩn bị các dụng cụ: Xilanh có pit- tông và cảm biến nhiệt độ (hình vẽ); (II) Họ cho rằng khi làm thay đổi nội năng của khối khí trong xilanh bằng cách tăng, giảm thể tích thì nhiệt độ của khối khí thay đổi; (III) Họ đã làm thí nghiệm nén khối khí trong xilanh và thu được kết quả là nhiệt độ khối khí tăng lên; (IV) Họ kết luận rằng thí nghiệm này đã chứng minh được nội dung ở (II).",
+    "options": [
+      "Nội dung (I) thể hiện việc thực hiện một phần kế hoạch nghiên cứu.",
+      "Nội dung (II) là giả thuyết của nhóm học sinh.",
+      "Nội dung (III) là đủ để đưa ra kết luận (IV).",
+      "Trong thí nghiệm ở nội dung (III), nội năng của khối khí tăng lên là do khối khí đã nhận công."
+    ]
+  },
+  {
+    "content": "Đồng vị xenon ($_{54\n\\ }^{133}{\\ Xe}$) là chất phóng xạ β^−^có chu kì bán rã là 5,24 ngày. Trong y học, hỗn hợp khí chứa xenon được sử dụng để đánh giá độ thông khí của phổi người bệnh. Một người bệnh được chỉ định sử dụng liều xenon có độ phóng xạ 3,18. 10^8^ Bq. Coi rằng 85,0% lượng xenon trong liều đó lắng đọng tại phổi. Người bệnh được chụp ảnh phổi lần thứ nhất ngay sau khi hít khí và lần thứ hai sau đó 24,0 giờ. Biết khối lượng mol nguyên tử của xenon là 133 g/mol.",
+    "options": [
+      "Hạt nhân $_{54\n\\ }^{133}{\\ Xe}$ phóng ra hạt electron để biến đổi thành hạt nhân $_{54\n\\ }^{133}{\\ Cs}.$ ",
+      "Hằng số phóng xạ $_{54\n\\ }^{133}{\\ Xe}$của là 0,132 s^−1^.",
+      "Khối lượng $_{54\n\\ }^{133}{\\ Xe}$ có trong liều mà người bệnh đã hít vào là 0,0459μg.",
+      "Sau khi dùng thuốc 24,0 giờ, lượng $_{54\n\\ }^{133}{\\ Xe}$ đã lắng đọng tại phổi có độ phóng xạ là 2,79. 10^8^ Bq."
+    ]
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 1 và Câu 2: Thông thường, phổi của một người trưởng thành có thể tích khoảng 5,7 lít. Biết không khí trong phổi có áp suất bằng áp suất khí quyển (101 kPa) và nhiệt độ là 37^∘^C. Giả sử số phân tử khí oxygen chiếm 21% số phân tử không khí có trong phổi.\n\nSố phân tử oxygen có trong phổi là x. 10^22^. Tìm x (làm tròn kết quả đến chữ số hàng phần mười)."
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 1 và Câu 2: Thông thường, phổi của một người trưởng thành có thể tích khoảng 5,7 lít. Biết không khí trong phổi có áp suất bằng áp suất khí quyển (101 kPa) và nhiệt độ là 37^∘^C. Giả sử số phân tử khí oxygen chiếm 21% số phân tử không khí có trong phổi.\n\nKhi người đó hít sâu, giả sử không khí trong phổi có 1,4.10^23^ phân tử. Dung tích phổi khi đó là bao nhiêu lít (làm tròn kết quả đến chữ số hàng phần mười)?"
+  },
+  {
+    "content": "Sử dụng các thông tin sau cho Câu 3 và Câu 4: Một dây dẫn thẳng nằm ngang, được dùng để truyền tải dòng điện xoay chiều đi xa. Cường độ dòng điện hiệu dụng trong dây dẫn này là 106 A.\n\nCường độ dòng điện cực đại trong dây dẫn trên là bao nhiêu ampe (làm tròn kết quả đến chữ số hàng đơn vị)?"
+  },
+  {
+    "content": "Tại khu vực dây dẫn đi qua, thành phần nằm ngang của cảm ứng từ của từ trường Trái Đất (có độ lớn B = 1,8.10^−5^ T) tạo với dây dẫn một góc sao cho lực từ do thành phần nằm ngang này tác dụng lên mỗi mét chiều dài dây dẫn có thời điểm đạt độ lớn cực đại. Độ lớn cực đại này là bao nhiêu miliniutơn (làm tròn kết quả đến chữ số hàng phần mười)?",
+    "correctAnswer": "0.0",
+    "imageUrls": [],
+    "options": []
+  },
+  {
+    "content": "Công suất phát điện của một nhà máy điện hạt nhân là 1060 MW ở hiệu suất 35%. Coi rằng mỗi hạt nhân $_{92\\ \\ \\ }^{235}U$ phân hạch tỏa ra năng lượng là 203 MeV. Biết 1eV =1,60. 10^−19^ J. Khối lượng mol nguyên tử của $_{92\\ \\ \\ }^{235}U$ là 235 g/mol. Trong một giây, số nguyên tử $_{92\\ \\ \\ }^{235}U$ trong lò phản ứng đã phân hạch là x.10^19^. Tìm giá trị của x (làm tròn kết quả đến chữ số hàng phần mười).",
+    "correctAnswer": "9.4",
+    "imageUrls": [],
+    "options": []
+  },
+  {
+    "content": "Công suất phát điện của một nhà máy điện hạt nhân là 1060 MW ở hiệu suất 35%. Coi rằng mỗi hạt nhân $_{92\\ \\ \\ }^{235}U$ phân hạch tỏa ra năng lượng là 203 MeV. Biết 1eV =1,60. 10^−19^ J. Khối lượng mol nguyên tử của $_{92\\ \\ \\ }^{235}U$ là 235 g/mol. Biết chỉ có 80% số nguyên tử $_{92\\ \\ \\ }^{235}U$ phân hạch. Nhà máy điện hạt nhân nói trên sẽ sử dụng hết 220 kg $_{92\\ \\ \\ }^{235}U$ trong bao nhiêu ngày (làm tròn kết quả đến chữ số hàng đơn vị)?",
+    "correctAnswer": "699",
+    "imageUrls": [],
+    "options": []
+  },
+  {
+    "content": "Quá trình một chất chuyển từ thể lỏng sang thể khí được gọi là quá trình",
+    "correctAnswer": "B",
+    "imageUrls": [],
+    "options": [
+      "A. Nóng chảy.",
+      "B. Hóa hơi.",
+      "C. Hóa lỏng.",
+      "D. Đông đặc."
+    ]
+  },
+  {
+    "content": "Biển báo nào dưới đây cảnh báo khu vực có chất phóng xạ?",
+    "correctAnswer": "B",
+    "imageUrls": [],
+    "options": [
+      "A. \n![](assets/media/image1.jpeg)\n",
+      "B. \n![](assets/media/image2.jpeg)\n",
+      "C. \n![](assets/media/image3.jpeg)\n",
+      "D. \n![](assets/media/image4.jpeg)\n"
+    ]
+  },
+  {
+    "content": "Hình bên là sơ đồ nguyên lí hoạt động của một máy sưởi dùng nước nóng. Nước nóng được bơm vào ống bên trong máy, hệ thống tản nhiệt được gắn với ống này. Không khí lạnh được hút vào trong máy sưởi bằng quạt và được làm ấm lên nhờ hệ thống tản nhiệt. Mỗi giờ có 575 kg nước nóng được bơm qua máy. Biết nhiệt độ của nước giảm 5,0^∘^C khi đi qua máy; nhiệt dung riêng của nước là c = 4180 J/(kg. K).",
+    "correctAnswer": "668.9",
+    "imageUrls": [
+      "assets/media/image5.jpeg"
+    ],
+    "options": []
+  },
+  {
+    "content": "Nhiệt độ của nước giảm bao nhiêu kelvin khi đi qua máy sưởi?",
+    "options": [
+      "5 K.",
+      "278 K.",
+      "268 K.",
+      "4 K."
+    ]
+  },
+  {
+    "content": "Nhiệt lượng tỏa ra từ nước trong mỗi giờ là",
+    "options": [
+      "12 MJ.",
+      "670 MJ.",
+      "2,5 MJ.",
+      "21 kJ."
+    ]
+  },
+  {
+    "content": "Một vật đang được làm lạnh sao cho thể tích của vật không thay đổi. Nội năng của vật",
+    "options": [
+      "Tăng lên.",
+      "Giảm đi.",
+      "Không thay đồi.",
+      "Tăng lên rồi giảm đi."
+    ]
+  },
+  {
+    "content": "Một khối khí lí tưởng xác định có áp suất bằng áp suất khí quyển. Nếu giữ nhiệt độ của khối khí đó không đổi và làm cho áp suất của nó bằng một nửa áp suất khí quyển thì thể tích của khối khí",
+    "options": [
+      "bằng một nửa giá trị ban đầu.",
+      "bằng hai lần giá trị ban đầu.",
+      "bằng giá trị ban đầu.",
+      "bằng bốn lần giá trị ban đầu."
+    ]
+  },
+  {
+    "content": "Gọi p, V và T lần lượt là áp suất, thể tích và nhiệt độ tuyệt đối của một khối khí lí tưởng xác định. Công thức nào sau đây mô tả đúng định luật Charles?",
+    "options": [
+      "pV = hằng số.",
+      "$\\frac{V}{T}$= hằng số.",
+      "VT = hằng số.",
+      "$\\frac{p}{T}$= hằng số."
+    ]
+  },
+  {
+    "content": "Khi chưa đóng cửa, không khí bên trong ô tô có nhiệt độ là 25^∘^C. Sau khi đóng cửa và đỗ ô tô dưới trời nắng một thời gian, nhiệt độ không khí trong ô tô là 55^∘^C. So với số mol khí trong ô tô ngay khi vừa đóng cửa, phần trăm số mol khí đã thoát ra là",
+    "options": [
+      "9%.",
+      "91%.",
+      "10%.",
+      "55%."
+    ]
+  },
+  {
+    "content": "Trong sóng điện từ, cường độ điện trường ⃗E và cảm ứng từ ⃗B",
+    "options": [
+      "Ngược chiều nhau.",
+      "Cùng chiều nhau.",
+      "Tạo với nhau góc 45^∘^.",
+      "Tạo với nhau góc 90^∘^."
+    ]
+  },
+  {
+    "content": "Nối hai đầu khung dây với điện trở R thành một mạch kín, trong mạch sẽ",
+    "options": [
+      "xuất hiện dòng điện không đổi.",
+      "không xuất hiện dòng điện.",
+      "xuất hiện dòng điện xoay chiều.",
+      "xuất hiện dòng điện có cường độ lớn dần."
+    ]
+  },
+  {
+    "content": "Suất điện động cực đại xuất hiện trong khung dây nói trên là",
+    "options": [
+      "E~0~= NBS.",
+      "E~0~= $\\frac{NBS\\ }{R}$.",
+      "E~0~= NBSω.",
+      "E~0~= $\\frac{NBS\\ }{R}$."
+    ]
+  },
+  {
+    "content": "Bốn đoạn dây dẫn a, b, c, d có cùng chiều dài được đặt trong từ trường đều (hình bên). Các dòng điện chạy trong bốn đoạn dây dẫn này có cùng cường độ I. Lực từ tác dụng lên đoạn dây dẫn nào là mạnh nhất?",
+    "imageUrls": [
+      "assets/media/image7.jpeg"
+    ],
+    "options": [
+      "Đoạn a.",
+      "Đoạn b.",
+      "Đoạn c.",
+      "Đoạn d."
+    ]
+  },
+  {
+    "content": "Khi nói về từ trường, phát biểu nào sau đây sai?",
+    "options": [
+      "Từ trường là trường lực gây ra bởi dòng điện hoặc nam châm.",
+      "Cảm ứng từ tại một điểm đặc trưng cho từ trường về mặt tác dụng lực tại điểm đó.",
+      "Từ trường tác dụng lực từ lên một dòng điện hay một nam châm đặt trong nó.",
+      "Phương của lực từ tại một điểm trùng với phương tiếp tuyến của đường sức từ tại điểm đó."
+    ]
+  },
+  {
+    "content": "Khi bác sĩ đang siêu âm người bệnh (hình bên), đầu dò của máy siêu âm phát ra",
+    "imageUrls": [
+      "assets/media/image8.jpeg"
+    ],
+    "options": [
+      "Tia x.",
+      "Sóng siêu âm.",
+      "Sóng ánh sáng.",
+      "Tia gamma."
+    ]
+  },
+  {
+    "content": "Số nucleon có trong hạt nhân $_{19}^{39}K$ là",
+    "options": [
+      "19.",
+      "20.",
+      "39.",
+      "58."
+    ]
+  },
+  {
+    "content": "Hạt nhân càng bền vững nếu nó có",
+    "options": [
+      "Khối lượng càng lớn.",
+      "Độ hụt khối càng lớn.",
+      "Năng lượng liên kết càng lớn.",
+      "Năng lượng liên kết riêng càng lớn."
+    ]
+  },
+  {
+    "content": "Trong hình bên, N là một mẫu phóng xạ được đặt trong một điện trường đều do hai bản kim loại phẳng song song và tích điện trái dấu tạo ra. Các tia phóng xạ phát ra từ N đập vào màn huỳnh quang F gây ra các chấm sáng. Hệ thống được đặt trong chân không.\n\nPhát biểu nào sau đây đúng?",
+    "imageUrls": [
+      "assets/media/image9.jpeg"
+    ],
+    "options": [
+      "Chấm sáng tại S do tia β^−^gây ra.",
+      "Hầu hết các tia γ gây ra chấm sáng tại T.",
+      "Chấm sáng tại Q có thể do tia α gây ra.",
+      "Hầu hết các tia β^+^ bị chắn bởi tờ giấy G."
+    ]
+  },
+  {
+    "content": "Khi chụp cộng hưởng từ, để máy ghi nhận thông tin chính xác và tránh nguy hiểm, phải bỏ trang sức kim loại khỏi cơ thể người bệnh. Giả sử có một vòng kim loại nằm trong máy sao cho mặt phẳng của vòng vuông góc với cảm ứng từ của từ trường do máy tạo ra khi chụp. Biết bán kính và điện trở của vòng này lần lượt là 3,9 cm và 0,010Ω. Nếu trong 0,40 s, độ lớn của cảm ứng từ này giảm đều từ 1,80 T xuống 0,20 T thì cường độ dòng điện trong vòng kim loại này là",
+    "correctAnswer": "B",
+    "imageUrls": [],
+    "options": [
+      "7,6 A",
+      "1,9 A",
+      "8,5 A",
+      "3,8 A"
+    ]
+  },
+  {
+    "content": "Có thể sử dụng bộ thí nghiệm (hình bên) để tìm hiểu về mối liên hệ giữa áp suất và thể tích của một lượng khí xác định ở nhiệt độ không đổi.",
+    "correctAnswer": "a) Đúng, b) Đúng, c) Sai, d) Sai",
+    "imageUrls": [
+      "assets/media/image10.jpeg"
+    ],
+    "options": [
+      "a) Trình tự thí nghiệm: Nén (giữ nguyên nhiệt độ) khí trong xilanh; Ghi giá trị thể tích và giá trị áp suất khí; Lặp lại các thao tác.",
+      "b) Với kết quả thu được ở bảng bên, công thức liên hệ áp suất theo thể tích là p= $\\frac{23}{V}$ , p đo bằng bar (1bar = 10^5^ Pa), V đo bằng cm^3^.",
+      "c) Lượng khí đã dùng trong thí nghiệm là 8.10^−4^ mol.",
+      "d) Thí nghiệm này đã chứng minh được định luật Boyle."
+    ]
+  },
+  {
+    "content": "Để xác định các chất trong một mẫu, người ta dùng một máy được gọi là máy quang phổ khối (khối phổ kế, hình bên). Khi cho mẫu vào máy này, hạt có khối lượng m bị ion hóa sẽ mang điện tích q. Sau đó, hạt được tăng tốc đến tốc độ v nhờ hiệu điện thế U. Tiếp theo, hạt sẽ chuyển động vào vùng từ trường theo phương vuông góc với cảm ứng từ ⃗B . Lực từ tác dụng lên hạt có độ lớn F = Bv|q|, có phương vuông góc với cảm ứng từ⃗ B và với vận tốc v⃗ của hạt. Bán kính quỹ đạo tròn của hạt trong vùng có từ trường là r. Dựa trên tỉ số $\\frac{|q|}{m}$ , có thể xác định được các chất trong mẫu.",
+    "correctAnswer": "a) Sai, b) Đúng, c) Sai, d) Đúng",
+    "imageUrls": [
+      "assets/media/image11.jpeg"
+    ],
+    "options": [
+      "a) Tốc độ của hạt bị thay đổi do tác dụng của từ trường trong máy.",
+      "b) Bỏ qua tốc độ ban đầu của hạt. Sau khi được tăng tốc bởi hiệu điện thế U, tốc độ của hạt là $v = \\sqrt{\\frac{2|q|U}{m}}$",
+      "c) Tỉ số giữa độ lớn điện tích và khối lượng của hạt là $\\frac{|q|}{m} = \\frac{2U}{Br^{2}}$",
+      "d) Biết U = 3,00kV; B = 3,00 T; 1amu = 1,66. 10^−27^ kg; |e| = 1,60. 10^−19^C. Bán kính quỹ đạo của ion âm ^35^Cl^−^ trong vùng có trường là r = 0,0156 m."
+    ]
+  },
+  {
+    "content": "Một nhóm học sinh tìm hiểu về mối liên hệ giữa sự thay đổi nội năng của một khối khí xác định và nhiệt độ của nó. Họ đã thực hiện các nội dung sau: (I) Chuẩn bị các dụng cụ: Xilanh có pit- tông và cảm biến nhiệt độ (hình vẽ); (II) Họ cho rằng khi làm thay đổi nội năng của khối khí trong xilanh bằng cách tăng, giảm thể tích thì nhiệt độ của khối khí thay đổi; (III) Họ đã làm thí nghiệm nén khối khí trong xilanh và thu được kết quả là nhiệt độ khối khí tăng lên; (IV) Họ kết luận rằng thí nghiệm này đã chứng minh được nội dung ở (II).",
+    "correctAnswer": "a) Đúng, b) Đúng, c) Sai, d) Đúng",
+    "imageUrls": [
+      "assets/media/image12.jpeg"
+    ],
+    "options": [
+      "a) Nội dung (I) thể hiện việc thực hiện một phần kế hoạch nghiên cứu.",
+      "b) Nội dung (II) là giả thuyết của nhóm học sinh.",
+      "c) Nội dung (III) là đủ để đưa ra kết luận (IV).",
+      "d) Trong thí nghiệm ở nội dung (III), nội năng của khối khí tăng lên là do khối khí đã nhận công."
+    ]
+  },
+  {
+    "content": "Đồng vị xenon ($_{54\\ \\ }^{133}{\\ Xe}$) là chất phóng xạ β^−^có chu kì bán rã là 5,24 ngày. Trong y học, hỗn hợp khí chứa xenon được sử dụng để đánh giá độ thông khí của phổi người bệnh. Một người bệnh được chỉ định sử dụng liều xenon có độ phóng xạ 3,18. 10^8^ Bq. Coi rằng 85,0% lượng xenon trong liều đó lắng đọng tại phổi. Người bệnh được chụp ảnh phổi lần thứ nhất ngay sau khi hít khí và lần thứ hai sau đó 24,0 giờ. Biết khối lượng mol nguyên tử của xenon là 133 g/mol.",
+    "correctAnswer": "a) Đúng, b) Sai, c) Đúng, d) Sai",
+    "imageUrls": [],
+    "options": [
+      "a) Hạt nhân $_{54\\ \\ }^{133}{\\ Xe}$ phóng ra hạt electron để biến đổi thành hạt nhân $_{54\\ \\ }^{133}{\\ Cs}.$",
+      "b) Hằng số phóng xạ $_{54\\ \\ }^{133}{\\ Xe}\\$của là 0,132 s^−1^.",
+      "c) Khối lượng $_{54\\ \\ }^{133}{\\ Xe}$ có trong liều mà người bệnh đã hít vào là 0,0459μg.",
+      "d) Sau khi dùng thuốc 24,0 giờ, lượng $_{54\\ \\ }^{133}{\\ Xe}$ đã lắng đọng tại phổi có độ phóng xạ là 2,79. 10^8^ Bq."
+    ]
+  },
+  {
+    "content": "Thông thường, phổi của một người trưởng thành có thể tích khoảng 5,7 lít. Biết không khí trong phổi có áp suất bằng áp suất khí quyển (101 kPa) và nhiệt độ là 37^∘^C. Giả sử số phân tử khí oxygen chiếm 21% số phân tử không khí có trong phổi. Số phân tử oxygen có trong phổi là x. 10^22^. Tìm x (làm tròn kết quả đến chữ số hàng phần mười).",
+    "correctAnswer": "2,8"
+  },
+  {
+    "content": "Thông thường, phổi của một người trưởng thành có thể tích khoảng 5,7 lít. Biết không khí trong phổi có áp suất bằng áp suất khí quyển (101 kPa) và nhiệt độ là 37^∘^C. Giả sử số phân tử khí oxygen chiếm 21% số phân tử không khí có trong phổi. Khi người đó hít sâu, giả sử không khí trong phổi có 1,4.10^23^ phân tử. Dung tích phổi khi đó là bao nhiêu lít (làm tròn kết quả đến chữ số hàng phần mười)?",
+    "correctAnswer": "5,9"
+  },
+  {
+    "content": "Một dây dẫn thẳng nằm ngang, được dùng để truyền tải dòng điện xoay chiều đi xa. Cường độ dòng điện hiệu dụng trong dây dẫn này là 106 A. Cường độ dòng điện cực đại trong dây dẫn trên là bao nhiêu ampe (làm tròn kết quả đến chữ số hàng đơn vị)?",
+    "correctAnswer": "150"
+  },
+  {
+    "content": "Một dây dẫn thẳng nằm ngang, được dùng để truyền tải dòng điện xoay chiều đi xa. Cường độ dòng điện hiệu dụng trong dây dẫn này là 106 A. Tại khu vực dây dẫn đi qua, thành phần nằm ngang của cảm ứng từ của từ trường Trái Đất (có độ lớn B = 1, 8.10^−5^ T) tạo với dây dẫn một góc sao cho lực từ do thành phần nằm ngang này tác dụng lên mỗi mét chiều dài dây dẫn có thời điểm đạt độ lớn cực đại. Độ lớn cực đại này là bao nhiêu miliniutơn (làm tròn kết quả đến chữ số hàng phần mười)?",
+    "correctAnswer": "2,7"
+  },
+  {
+    "content": "Công suất phát điện của một nhà máy điện hạt nhân là 1060 MW ở hiệu suất 35%. Coi rằng mỗi hạt nhân $_{92\\ \\ \\ }^{235}U$ phân hạch tỏa ra năng lượng là 203 MeV. Biết 1eV =1,60. 10^−19^ J. Khối lượng mol nguyên tử của $_{92\\ \\ \\ }^{235}U$ là 235 g/mol. Trong một giây, số nguyên tử $_{92\\ \\ \\ }^{235}U$ trong lò phản ứng đã phân hạch là x.10^19^. Tìm giá trị của x (làm tròn kết quả đến chữ số hàng phần mười).",
+    "correctAnswer": "9,3"
+  },
+  {
+    "content": "Biết chỉ có 80% số nguyên tử $_{92\\ \\ \\ }^{235}U$ phân hạch. Nhà máy điện hạt nhân nói trên sẽ sử dụng hết 220 kg $_{92\\ \\ \\ }^{235}U$ trong bao nhiêu ngày (làm tròn kết quả đến chữ số hàng đơn vị)?",
+    "correctAnswer": "56",
+    "imageUrls": [],
+    "options": []
+  }
+]

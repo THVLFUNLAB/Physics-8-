@@ -67,7 +67,7 @@ const MathRenderer = ({ content, block }: { content: string, block?: boolean }) 
   );
   
   return (
-    <span>
+    <span className="break-words whitespace-normal min-w-0">
       {parts.map((part, i) => {
         if (!part || !part.trim()) return null;
 
@@ -77,26 +77,28 @@ const MathRenderer = ({ content, block }: { content: string, block?: boolean }) 
           const imgSrc = mdImgMatch[2];
           if (!imgSrc || imgSrc.includes('base64,ERROR')) return null;
           return (
-            <img
-              key={i}
-              src={imgSrc}
-              alt={mdImgMatch[1] || 'Hình minh họa'}
-              className="inline-block max-w-full max-h-64 rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
-              loading="lazy"
-            />
+            <div key={i} className="w-full overflow-x-auto block">
+              <img
+                src={imgSrc}
+                alt={mdImgMatch[1] || 'Hình minh họa'}
+                className="max-w-full h-auto rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
+                loading="lazy"
+              />
+            </div>
           );
         }
 
         // Ảnh dạng <img> tag đã trích ra trước đó
         if (part.startsWith('__IMG_PLACEHOLDER_') && imgTagMap[part]) {
           return (
-            <img
-              key={i}
-              src={imgTagMap[part]}
-              alt="Hình minh họa"
-              className="inline-block max-w-full max-h-64 rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
-              loading="lazy"
-            />
+            <div key={i} className="w-full overflow-x-auto block">
+              <img
+                src={imgTagMap[part]}
+                alt="Hình minh họa"
+                className="max-w-full h-auto rounded-xl border border-slate-700 my-2 object-contain bg-white/5"
+                loading="lazy"
+              />
+            </div>
           );
         }
 

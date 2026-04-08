@@ -16,7 +16,8 @@ import {
   ShieldAlert,
   Flag,
   Radio,
-  Users
+  Users,
+  Contact
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
@@ -24,10 +25,10 @@ import { UserProfile } from '../types';
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam'                                        // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom'; // Admin tabs
+  | 'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -65,6 +66,7 @@ export const Sidebar = ({
     { id: 'Sanitizer' as SidebarTab, label: 'Bảo Trì Dữ Liệu', icon: ShieldAlert },
     { id: 'Reports' as SidebarTab, label: 'Duyệt Báo Lỗi', icon: Flag },
     { id: 'Classroom' as SidebarTab, label: 'Phòng Thi', icon: Users },
+    { id: 'Directory' as SidebarTab, label: 'Danh Bạ Học Viên', icon: Contact },
   ];
 
   if (!user) return null;

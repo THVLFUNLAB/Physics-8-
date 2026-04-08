@@ -139,7 +139,7 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
       toast.success(`Đã tạo lớp "${newClassName}" với mã: ${code}`);
     } catch (e) {
       console.error(e);
-      toast.error('Lỗi khi tạo lớp.');
+      toast.error(e instanceof Error ? e.message : 'Lỗi khi tạo lớp.');
     } finally {
       setIsCreating(false);
     }

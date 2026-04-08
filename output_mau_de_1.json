@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Mệnh đề toán học nào sau đây là mệnh đề sai?",
+    "correctAnswer": "D",
+    "imageUrls": [],
+    "options": [
+      "A. Số 2 là số nguyên.",
+      "B. Số 2 là số hữu tỉ.",
+      "C. Số 2 là số hữu tỉ dương.",
+      "D. Số 2 không là số nguyên tố."
+    ]
+  },
+  {
+    "content": "Một cuộc thi bắn cung có 20 người tham gia. Trong lần bắn đầu tiên có 18 người bắn trúng mục tiêu. Trong lần bắn thứ hai có 15 người bắn trúng mục tiêu. Trong lần bắn thứ ba chỉ còn 10 người bắn trúng mục tiêu.\n\na) [1,NB] Số người bắn trượt mục tiêu trong lần đầu tiên là 2.\n\nb) [1,NB] Số người bắn trượt mục tiêu trong lần bắn thứ hai là 6.\n\nc) [0, TH] Số người bắn trượt mục tiêu trong lần bắn thứ nhất và thứ hai nhiều nhất là 8.\n\nd) [2, TH] Số người bắn trúng mục tiêu trong cả ba lần bắn ít nhất là 3.",
+    "correctAnswer": "a) Đúng, b) Sai, c) Sai, d) Đúng",
+    "imageUrls": [],
+    "options": []
+  },
+  {
+    "content": "Cho tứ giác ABCD có \n![](assets/media/image1.wmf)\n lần lượt là trung điểm của các cạnh \n![](assets/media/image2.wmf)\n. Gọi \n![](assets/media/image3.wmf)\n là trung điểm của đoạn thẳng \n![](assets/media/image4.wmf)\n và \n![](assets/media/image5.wmf)\n là trọng tâm tam giác \n![](assets/media/image6.wmf)\n.\n\na) [1, NB] \n![](assets/media/image7.wmf)\n.\n\nb) [2, NB] \n![](assets/media/image8.wmf)\n.\n\nc) [2, TH] \n![](assets/media/image9.wmf)\n.\n\nd) [3, VD] \n![](assets/media/image10.wmf)\n.",
+    "correctAnswer": "a) Đúng, b) Sai, c) Sai, d) Sai",
+    "imageUrls": [
+      "assets/media/image1.wmf",
+      "assets/media/image2.wmf",
+      "assets/media/image3.wmf",
+      "assets/media/image4.wmf",
+      "assets/media/image5.wmf",
+      "assets/media/image6.wmf",
+      "assets/media/image7.wmf",
+      "assets/media/image8.wmf",
+      "assets/media/image9.wmf",
+      "assets/media/image10.wmf"
+    ],
+    "options": []
+  },
+  {
+    "content": "Cho hình chữ nhật \n![](assets/media/image11.wmf)\n có \n![](assets/media/image12.wmf)\n. Độ dài của vectơ \n![](assets/media/image13.wmf)\n bằng bao nhiêu?",
+    "correctAnswer": "10",
+    "imageUrls": [
+      "assets/media/image11.wmf",
+      "assets/media/image12.wmf",
+      "assets/media/image13.wmf"
+    ],
+    "options": []
+  },
+  {
+    "content": "Để đo khoảng cách từ vị trí \n![](assets/media/image15.wmf)\n đến vị trí \n![](assets/media/image16.wmf)\n ở hai bên bờ hồ, bạn Hà tiến hành đo khoảng cách \n![](assets/media/image17.wmf)\n và các góc \n![](assets/media/image18.wmf)\n. Kết quả nhận được là: \n![](assets/media/image19.wmf)\n và \n![](assets/media/image20.wmf)\n (Hình bên). Khoảng cách từ vị trí \n![](assets/media/image21.wmf)\n đến vị trí \n![](assets/media/image22.wmf)\n là bao nhiêu mét (làm tròn kết quả đến hàng đơn vị của mét)?",
+    "correctAnswer": "31",
+    "imageUrls": [
+      "assets/media/image14.jpeg",
+      "assets/media/image15.wmf",
+      "assets/media/image16.wmf",
+      "assets/media/image17.wmf",
+      "assets/media/image18.wmf",
+      "assets/media/image19.wmf",
+      "assets/media/image20.wmf",
+      "assets/media/image21.wmf",
+      "assets/media/image22.wmf"
+    ],
+    "options": []
+  }
+]

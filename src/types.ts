@@ -38,6 +38,8 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  className?: string;              // Lớp thực tế (VD: 12A1)
+  schoolYear?: string;             // Năm học (VD: 2025-2026)
   photoURL?: string;               // Avatar từ Google
   role: Role;
   targetGroup?: TargetGroup;
@@ -97,6 +99,7 @@ export interface Question {
   // ═══ Cluster support: Câu hỏi chùm dùng chung ngữ cảnh ═══
   clusterId?: string;       // ID của cluster chứa câu này (nếu có)
   clusterOrder?: number;    // Thứ tự trong cluster (0, 1, 2...)
+  uploadBatchId?: string;   // ID của đợt upload để lọc hàng loạt
   resources?: {
     title: string;
     url: string;

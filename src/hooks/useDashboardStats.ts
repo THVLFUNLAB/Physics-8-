@@ -14,6 +14,7 @@ import {
   onSnapshot,
   getDocs,
   Timestamp,
+  getCountFromServer,
 } from '../firebase';
 
 export interface AdminDashboardStats {
@@ -36,29 +37,37 @@ export function useDashboardStats(): AdminDashboardStats {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // ── 1. Real-time: Tổng số câu hỏi ──
-    const qUnsub = onSnapshot(collection(db, 'questions'), (snap) => {
-      setTotalQuestions(snap.size);
-      setIsLoading(false);
-    }, (err) => {
-      console.error('[useDashboardStats] questions error:', err);
-      setIsLoading(false);
-    });
+    // ── 1. Một lần lấy số đếm câu hỏi (giảm read liên tục) ──
+    const fetchTotalQuestions = async () => {
+      try {
+        const snap = await getCountFromServer(collection(db, 'questions'));
+        setTotalQuestions(snap.data().count);
+      } catch (err) {
+        console.error('[useDashboardStats] questions error:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchTotalQuestions();
 
-    // ── 2. Real-time: Lượt thi hôm nay ──
-    const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
-    const todayTimestamp = Timestamp.fromDate(todayMidnight);
+    // ── 2. Đếm số lượt thi hôm nay ──
+    const fetchTodayAttempts = async () => {
+      try {
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const todayTimestamp = Timestamp.fromDate(todayMidnight);
 
-    const attemptsQuery = query(
-      collection(db, 'attempts'),
-      where('timestamp', '>=', todayTimestamp)
-    );
-    const aUnsub = onSnapshot(attemptsQuery, (snap) => {
-      setTodayAttempts(snap.size);
-    }, (err) => {
-      console.error('[useDashboardStats] attempts error:', err);
-    });
+        const attemptsQuery = query(
+          collection(db, 'attempts'),
+          where('timestamp', '>=', todayTimestamp)
+        );
+        const snap = await getCountFromServer(attemptsQuery);
+        setTodayAttempts(snap.data().count);
+      } catch (err) {
+        console.error('[useDashboardStats] attempts error:', err);
+      }
+    };
+    fetchTodayAttempts();
 
     // ── 3. Polling: Học sinh Online (lastActive < 15 phút) ──
     const fetchOnline = async () => {
@@ -80,8 +89,6 @@ export function useDashboardStats(): AdminDashboardStats {
     const onlineInterval = setInterval(fetchOnline, 60_000); // Refresh mỗi phút
 
     return () => {
-      qUnsub();
-      aUnsub();
       clearInterval(onlineInterval);
     };
   }, []);

@@ -124,8 +124,8 @@ export const ReviewExam = ({
           <div className="absolute top-[40%] right-[10%] w-[30rem] h-[30rem] bg-rose-600/10 rounded-full blur-[120px] pointer-events-none" />
 
           {/* Mobile Horizontal Nav */}
-          <div className="block lg:hidden flex-none w-full overflow-x-auto custom-scrollbar bg-slate-900 border-b border-slate-800 p-4 relative z-20">
-            <div className="flex gap-2">
+          <div className="block lg:hidden flex-none w-full bg-slate-900 border-b border-slate-800 relative z-20">
+            <div className="flex overflow-x-auto whitespace-nowrap gap-2 py-3 px-4 w-full custom-scrollbar">
               {test.questions.map((q, i) => {
                 const isCorrect = checkCorrectness(q, answers[q.id || '']);
                 return (
@@ -133,7 +133,7 @@ export const ReviewExam = ({
                     key={i}
                     onClick={() => setCurrentIndex(i)}
                     className={cn(
-                      "flex-none w-12 h-12 rounded-xl flex items-center justify-center text-xs font-black transition-all border",
+                      "flex-none w-12 h-12 rounded-xl flex items-center justify-center text-xs font-black transition-all border shrink-0",
                       currentIndex === i ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
                       isCorrect 
                         ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" 
@@ -149,8 +149,8 @@ export const ReviewExam = ({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-12">
-            <div className="max-w-3xl mx-auto space-y-10 relative z-10">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-12 pb-32">
+            <div className="w-full max-w-3xl mx-auto space-y-8 relative z-10 break-words whitespace-normal min-w-0">
             <div className="flex items-center gap-4">
               <span className="bg-slate-900 border border-slate-800 text-slate-400 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
                 PHẦN {currentQuestion?.part || '?'}
@@ -214,7 +214,7 @@ export const ReviewExam = ({
                 return null;
               })()}
 
-              <h3 className="text-2xl font-bold text-white leading-relaxed">
+              <h3 className="text-xl md:text-2xl font-bold text-white leading-relaxed break-words whitespace-normal min-w-0">
                 <span className="text-slate-500 mr-2 font-headline">CÂU {currentIndex + 1}.</span>
                 <MathRenderer content={currentQuestion?.content || 'Chưa có nội dung câu hỏi.'} />
               </h3>
@@ -242,7 +242,7 @@ export const ReviewExam = ({
                       )}>
                         {String.fromCharCode(65 + idx)}
                       </span>
-                      <div className="text-lg flex-1">
+                      <div className="text-base md:text-lg flex-1 min-w-0 break-words whitespace-normal">
                         <MathRenderer content={opt} />
                       </div>
                       {isCorrectAns && <Check className="w-6 h-6 outline-emerald-500 text-emerald-500 mr-4" />}
@@ -264,7 +264,7 @@ export const ReviewExam = ({
                           "p-6 bg-slate-900 border rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4",
                           hasAns ? (isMatch ? "border-emerald-500/50" : "border-rose-500/50") : "border-slate-800"
                         )}>
-                          <div className="text-lg text-slate-200 flex-1">
+                          <div className="text-base md:text-lg text-slate-200 flex-1 min-w-0 break-words whitespace-normal">
                             <MathRenderer content={opt} />
                           </div>
                           <div className="flex items-center gap-4">
@@ -315,7 +315,7 @@ export const ReviewExam = ({
                 <h4 className="text-sm font-black text-white flex items-center gap-2 mb-6 uppercase tracking-widest">
                   <Lightbulb className="text-yellow-500" /> LỜI GIẢI CHI TIẾT
                 </h4>
-                <div className="prose prose-invert max-w-none text-slate-300">
+                <div className="prose prose-invert max-w-none text-slate-300 break-words whitespace-normal min-w-0">
                   {currentQuestion.explanation ? (
                     <MathRenderer content={currentQuestion.explanation} block />
                   ) : (
@@ -326,8 +326,8 @@ export const ReviewExam = ({
 
               </div >
 
-              {/* Navigation Footer */}
-              <div className="flex justify-between items-center pt-8 border-t border-slate-900 mt-8 mb-4">
+              {/* Desktop Navigation Footer */}
+              <div className="hidden lg:flex justify-between items-center pt-8 border-t border-slate-800 mt-8 mb-4">
                 <button 
                   onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
                   disabled={currentIndex === 0}
@@ -346,6 +346,26 @@ export const ReviewExam = ({
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Sticky Bottom Navigation for Mobile */}
+          <div className="lg:hidden absolute bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-4 z-50 flex gap-3 pb-8">
+            <button 
+              onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
+              disabled={currentIndex === 0}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 text-white font-black text-sm disabled:opacity-30 disabled:cursor-not-allowed active:bg-slate-700 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              CÂU TRƯỚC
+            </button>
+            <button 
+              onClick={() => setCurrentIndex(prev => Math.min(test.questions.length - 1, prev + 1))}
+              disabled={currentIndex === test.questions.length - 1}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white font-black text-sm disabled:opacity-30 disabled:cursor-not-allowed active:bg-blue-500 transition-colors shadow-lg shadow-blue-500/20"
+            >
+              CÂU TIẾP
+              <ArrowLeft className="w-5 h-5 rotate-180" />
+            </button>
           </div>
         </main>
       </div>

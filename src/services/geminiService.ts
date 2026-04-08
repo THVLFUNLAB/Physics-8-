@@ -364,22 +364,19 @@ ${PHYSICS_KNOWLEDGE_TREE}
   PART 3 (Trả lời ngắn): correctAnswer = STRING chứa đáp số (dùng dấu chấm thập phân)
     VD: correctAnswer = "2.45"  |  correctAnswer = "165"
 
-【3】 TỰ NHẬN DIỆN CHỦ ĐỀ (topic):
-  • Đọc nội dung → xác định thuộc chương/bài nào trong CÂY KIẾN THỨC ở trên
-  • Gán topic = tên chủ đề cụ thể (VD: "Dao động cơ", "Từ trường", "Quang học")
-  • KHÔNG dùng topic chung chung như "Vật lý"
+【3】 TỰ LUẬN CHỦ ĐỀ (topic), MỨC ĐỘ (level), VÀ THẺ (tags) — DỰA TRÊN DỮ LIỆU CÓ SẴN TRONG ĐỀ:
+  NẾU trong văn bản câu hỏi có sẵn các dòng đánh dấu (ví dụ do giáo viên soạn tay):
+   "#Chương: Vật lí nhiệt", "#Bài: Nhiệt hóa hơi", "#Dạng: ...", "Phần III", "Vận dụng"
+  → BẮT BUỘC phải TRÍCH XUẤT chính xác:
+    - Lấy nội dung sau "#Chương:" gán vào trường \`topic\` (VD: "Vật lí nhiệt").
+    - Lấy tự khóa mức độ ("Nhận biết", "Thông hiểu", "Vận dụng", "Vận dụng cao") gán vào trường \`level\`.
+    - Lấy các "#Bài: ...", "#Dạng: ..." gán vào mảng \`tags\` (bỏ dấu # nếu muốn).
+    - ⚠️ XÓA SẠCH CHÚNG KHỎI TRƯỜNG \`content\`. Nội dung câu hỏi phải gọn gàng, KHÔNG ĐƯỢC để dính lại các cụm từ metadata như "#Chương:...", "Vật lí nhiệt - Vận dụng" hay "Phần III".
 
-【4】 TỰ PHÂN LOẠI MỨC ĐỘ (level):
-  • "Nhận biết": Nhớ khái niệm, nhận dạng đơn giản
-  • "Thông hiểu": Giải thích, suy luận 1 bước
-  • "Vận dụng": Áp dụng 1-2 công thức
-  • "Vận dụng cao": Tổng hợp nhiều kiến thức, bài toán phức tạp
-
-【5】 GẮN THẺ TAGS (chi tiết, ít nhất 2 tag):
-  • "Chương: [Tên chương]" (VD: "Chương: Dao động cơ")
-  • "Bài: [Tên bài]" (VD: "Bài: Con lắc lò xo")
-  • "Dạng: [Dạng bài]" (VD: "Dạng: Tìm biên độ dao động")
-  • Tag phụ: "Có hình", "Có bảng", "Ngữ cảnh chung", "Thí nghiệm"
+  NẾU KHÔNG CÓ DẤU HIỆU CÓ SẴN, HÃY TỰ SUY LUẬN:
+  • \`topic\`: Đọc nội dung → gán tên chương cụ thể (VD: "Dao động cơ"). KHÔNG dùng "Vật lý".
+  • \`level\`: Suy luận Nhận biết / Thông hiểu / Vận dụng / Vận dụng cao.
+  • \`tags\`: Tạo ít nhất 2 tag chi tiết liên quan đến dạng bài, hiện tượng, ...
 
 【6】 CÔNG THỨC → LaTeX (TUYỆT ĐỐI KHÔNG BỎ SÓT):
   • Inline: $F = ma$, $\\\\Delta t$, $v_0$
@@ -1017,12 +1014,12 @@ export async function digitizeFromPDF(
           }
         };
 
-        // Pro trước, Flash fallback
-        for (const model of [MODELS.DIGITIZE, MODELS.ANALYZE]) {
+        // Tối ưu chi phí nhất: Luôn thử dùng Flash 2.5 trước, nếu sập mới dùng Pro dự phòng
+        for (const model of [MODELS.ANALYZE, MODELS.DIGITIZE]) {
           onProgress?.(
-            model === MODELS.DIGITIZE
-              ? `⚡ Pro đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`
-              : `🔄 Dùng Flash cho phần ${groupIdx + 1}...`
+            model === MODELS.ANALYZE
+              ? `⚡ Flash đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`
+              : `🔄 Chuyển sang Pro dự phòng cho phần ${groupIdx + 1}...`
           );
 
           try {
@@ -1030,7 +1027,7 @@ export async function digitizeFromPDF(
               model,
               contents: [{ role: "user", parts: [pdfPart, { text: prompt }] }],
               config: {
-                ...(model === MODELS.DIGITIZE ? { thinkingConfig: { thinkingBudget: 10000 } } : {}),
+                // Đã gỡ bỏ tính năng thinkingBudget tốn tiền của thẻ Pro
                 responseMimeType: "application/json",
                 responseSchema: DIGITIZE_SCHEMA,
               }
@@ -1038,8 +1035,8 @@ export async function digitizeFromPDF(
 
             return JSON.parse(response.text || "[]") as Question[];
           } catch (error) {
-            if (isRateLimitError(error) && model === MODELS.DIGITIZE) {
-              console.warn(`Pro bị 429 ở phần ${groupIdx + 1}, thử Flash...`);
+            if (isRateLimitError(error) && model === MODELS.ANALYZE) {
+              console.warn(`Flash bị 429 ở phần ${groupIdx + 1}, thử Pro...`);
               continue;
             }
             console.error(`PDF Error phần ${groupIdx + 1}:`, error);
@@ -1111,7 +1108,7 @@ export async function digitizeDocument(
             model,
             contents: prompt,
             config: {
-              ...(model === MODELS.DIGITIZE ? { thinkingConfig: { thinkingBudget: 8000 } } : {}),
+              // Tối ưu chi phí triệt để: Không sử dụng thinkingBudget
               responseMimeType: "application/json",
               responseSchema: DIGITIZE_SCHEMA,
             }
