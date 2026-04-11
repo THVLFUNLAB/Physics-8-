@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   auth, 
   db, 
@@ -200,8 +200,13 @@ export const stripUndefined = (obj: any): any => {
 };
 
 export const sanitizeQuestion = (q: Question): Record<string, any> => {
+  // [FIX] Tách `id` ra khỏi data trước khi lưu Firestore
+  // Lý do: Firestore tự quản lý document ID qua addDoc/doc.
+  // Nếu để `id` (VD: "q_123_abc" từ parser) vào data, khi đọc lại
+  // `{ id: d.id, ...d.data() }` → temp ID ghi đè document ID thật → mọi update sẽ thất bại.
+  const { id: _stripId, ...rest } = q;
   const cleaned = {
-    ...q,
+    ...rest,
     content: stripLargeBase64(q.content || ''),
     explanation: stripLargeBase64(q.explanation || ''),
     options: q.options?.map(opt => stripLargeBase64(opt ?? '')),
@@ -230,6 +235,8 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
   const [newExamTitle, setNewExamTitle] = useState('');
   const [alsoSaveToBank, setAlsoSaveToBank] = useState(true);
   const [isSavingExam, setIsSavingExam] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const target = e.target;
@@ -856,37 +863,71 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
 
         <div className="space-y-3">
           <p className="text-xs font-bold text-slate-500 uppercase">3. Tải lên file đề thi</p>
-          <div className={cn(
-            "border-2 border-dashed rounded-2xl p-6 text-center transition-all group relative",
-            digitizeMode === 'AI' ? "border-slate-800 hover:border-red-600/50" : "border-slate-800 hover:border-blue-600/50"
-          )}>
-            <input 
-              type="file" 
-              accept=".pdf,.docx,.json" 
-              onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-50"
-              disabled={isProcessing}
-            />
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            accept=".pdf,.docx,.json" 
+            onChange={handleFileUpload}
+            className="hidden"
+            disabled={isProcessing}
+            id="digitize-file-input"
+          />
+          <div 
+            className={cn(
+              "border-2 border-dashed rounded-2xl p-6 text-center transition-all group cursor-pointer select-none",
+              isProcessing 
+                ? "border-slate-700 opacity-50 cursor-not-allowed" 
+                : isDragging
+                  ? (digitizeMode === 'AI' ? "border-red-500 bg-red-500/10 scale-[1.02]" : "border-blue-500 bg-blue-500/10 scale-[1.02]")
+                  : (digitizeMode === 'AI' ? "border-slate-700 hover:border-red-500/60 hover:bg-red-500/5" : "border-slate-700 hover:border-blue-500/60 hover:bg-blue-500/5")
+            )}
+            onClick={() => { if (!isProcessing && fileInputRef.current) fileInputRef.current.click(); }}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation(); setIsDragging(false);
+              if (isProcessing) return;
+              const file = e.dataTransfer.files?.[0];
+              if (file && fileInputRef.current) {
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                fileInputRef.current.files = dt.files;
+                fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }}
+          >
             <div className="flex items-center justify-center gap-3 pointer-events-none">
-              <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                <History className="text-slate-400 group-hover:text-red-500 w-5 h-5" />
+              <div className={cn(
+                "w-12 h-12 rounded-xl flex items-center justify-center transition-all",
+                isDragging ? "bg-red-500/30 scale-110" : "bg-slate-800 group-hover:bg-red-500/20 group-hover:scale-110"
+              )}>
+                <Download className={cn(
+                  "w-6 h-6 transition-colors",
+                  isDragging ? "text-red-400" : "text-slate-400 group-hover:text-red-400"
+                )} />
               </div>
               <div className="text-left">
-                <p className="text-sm font-bold text-white">Chọn file đề thi</p>
-                <p className="text-[10px] text-slate-500">📄 PDF (khuyên dùng) · 📝 .docx</p>
+                <p className="text-sm font-bold text-white">
+                  {isDragging ? '📥 Thả file vào đây...' : 'Chọn file hoặc kéo thả vào đây'}
+                </p>
+                <p className="text-[10px] text-slate-500">📄 PDF (khuyên dùng) · 📝 DOCX · 📋 JSON</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {isProcessing && (
+      {/* ═══ PROGRESS / ERROR STATUS BAR ═══ */}
+      {(isProcessing || imageProgress) && (
         <div className="flex flex-col items-center justify-center gap-2">
-          <div className="flex items-center gap-3 text-red-500 font-bold animate-pulse">
-            <BrainCircuit className="animate-spin" />
+          <div className={cn(
+            "flex items-center gap-3 font-bold",
+            isProcessing ? "text-red-500 animate-pulse" : "text-amber-400"
+          )}>
+            <BrainCircuit className={isProcessing ? "animate-spin" : ""} />
             {imageProgress || 'AI ĐANG BÓC TÁCH DỮ LIỆU & CÔNG THỨC...'}
           </div>
-          {imageProgress && (
+          {isProcessing && imageProgress && (
             <p className="text-[10px] text-slate-500">Quá trình này có thể mất 30-60 giây với PDF dài</p>
           )}
         </div>
@@ -1399,7 +1440,9 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     try {
       const qRef = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
       const snapshot = await getDocs(qRef);
-      const qs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
+      // [FIX] Đặt `id: d.id` SAU `...d.data()` để document ID thật luôn thắng
+      // Trước đây: { id: d.id, ...d.data() } → d.data().id ghi đè d.id → saveEdit dùng sai ID
+      const qs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Question));
       setQuestions(qs);
       // Đồng bộ số lượng thực tế lên Header Dashboard
       onQuestionsLoaded?.(qs.length);
@@ -1651,35 +1694,54 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   };
 
   const saveEdit = async (q: Question) => {
-    if (!q.id) return;
+    if (!q.id) {
+      toast.error('Lỗi: Không tìm thấy ID câu hỏi. Hãy làm mới trang và thử lại.');
+      return;
+    }
     setEditSaving(true);
     try {
+      // [FIX] Không dùng stripLargeBase64 cho saveEdit — quá mạnh, xóa ảnh Admin vừa chèn.
+      // Chỉ dùng stripUndefined để đảm bảo Firestore không reject undefined.
       const updateData: any = stripUndefined({
-        content: stripLargeBase64(editContent),
-        explanation: stripLargeBase64(editExplanation),
-        status: q.status || 'published',  // Giữ nguyên status hiện tại, chỉ mặc định published nếu chưa có
+        content: editContent || '',
+        explanation: editExplanation || '',
+        status: q.status || 'published',
         isTrap: editIsTrap
       });
       if (q.part === 1 || q.part === 2) {
-        updateData.options = (editOptions || []).map(opt => stripLargeBase64(opt ?? ''));
+        // Đảm bảo options array không chứa undefined — thay bằng '' để giữ đúng index
+        updateData.options = (editOptions || []).map(opt => opt ?? '');
         updateData.correctAnswer = editCorrectAnswer;
       }
       if (q.part === 3) {
         updateData.correctAnswer = Number(editCorrectAnswer) || 0;
       }
       
-      // Cách 1: Chỉ lưu lên mảng local khi API call chạy thật xong qua cơ chế Timeout
-      await withTimeout(updateDoc(doc(db, 'questions', q.id), updateData), 8000);
+      // [FIX] Kiểm tra document size trước khi gửi — Firestore reject > 1MB
+      const payloadSize = new Blob([JSON.stringify(updateData)]).size;
+      if (payloadSize > 900_000) { // 900KB safety margin
+        toast.error(`⚠️ Nội dung quá lớn (${Math.round(payloadSize / 1024)}KB). Firestore giới hạn 1MB. Hãy cắt bớt ảnh hoặc nội dung.`);
+        setEditSaving(false);
+        return;
+      }
+      
+      console.info(`[saveEdit] Đang lưu câu ${q.id} | Size: ${Math.round(payloadSize / 1024)}KB | Part: ${q.part}`);
+      
+      await withTimeout(updateDoc(doc(db, 'questions', q.id), updateData), 12000);
       
       setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, ...updateData } : item));
-      toast.success('Lưu nội dung thành công!');
+      toast.success('✅ Lưu nội dung thành công!');
       setEditingId(null);
     } catch (error: any) {
+      console.error('[saveEdit] LỖI:', { questionId: q.id, error: error?.message, code: error?.code });
       if (error.message === 'TIMEOUT') {
-         toast.error('🚨 Lỗi Server (Timeout): Giao dịch cập nhật câu hỏi thất bại!');
+         toast.error('🚨 Lỗi Server (Timeout): Máy chủ phản hồi quá chậm. Kiểm tra kết nối mạng và thử lại.');
+      } else if (error?.code === 'not-found' || error?.message?.includes('NOT_FOUND')) {
+         toast.error('🚨 Không tìm thấy câu hỏi trên máy chủ! Có thể đã bị xóa. Hãy làm mới trang.');
+      } else if (error?.code === 'permission-denied') {
+         toast.error('🚨 Không có quyền chỉnh sửa! Kiểm tra tài khoản Admin.');
       } else {
-         toast.error('🚨 Không thể cập nhật: Lỗi từ máy chủ!');
-         handleFirestoreError(error, OperationType.UPDATE, `questions/${q.id}`);
+         toast.error(`🚨 Lỗi lưu: ${error?.message?.substring(0, 80) || 'Lỗi không xác định'}`);
       }
     } finally {
       setEditSaving(false);
@@ -2546,7 +2608,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
         const snap = await getDocs(qQuery);
         // TUYỆT ĐỐI XÓA BỎ các câu đang đóng dấu "draft"
         setAllQuestions(
-          snap.docs.map(d => ({ id: d.id, ...d.data() } as Question))
+          snap.docs.map(d => ({ ...d.data(), id: d.id } as Question))
                    .filter(q => q.status !== 'draft')
         );
       } catch (err) {
@@ -4423,7 +4485,7 @@ const DuplicateReviewHubWrapper = () => {
     const fetchQ = async () => {
       try {
         const snap = await getDocs(collection(db, 'questions'));
-        setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+        setQuestions(snap.docs.map(d => ({ ...d.data(), id: d.id } as Question)));
       } catch (err) {
         console.warn('[DuplicateHub] Lỗi fetch questions:', err);
       }
@@ -5220,7 +5282,7 @@ export default function App() {
         for (const cid of clusterIds) {
           const sibSnap = await getDocs(query(qRef, where('clusterId', '==', cid)));
           const siblings = sibSnap.docs
-            .map(d => ({ id: d.id, ...d.data() } as Question))
+            .map(d => ({ ...d.data(), id: d.id } as Question))
             .filter(q => !allPickedIds.has(q.id));
           resultQuestions.push(...siblings);
         }
