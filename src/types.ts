@@ -71,6 +71,7 @@ export interface UserProfile {
     weaknesses: string[];
     lastAssessmentDate?: any;
   };
+  failedQuestionIds?: string[];    // Bộ nhớ "Sai Ngu" định tuyến 70-30
 }
 
 export interface LoginLog {
@@ -93,6 +94,7 @@ export interface Question {
   correctAnswer: any; // Part I: index, Part II: boolean[], Part III: number
   explanation: string;
   status?: 'draft' | 'published'; // Trạng thái nháp/đã duyệt
+  isTrap?: boolean;               // Cờ đánh dấu "Câu Lừa/Bẫy"
   tags?: string[];
   // groupId: Đánh dấu câu kép Phần II dùng chung đề bài — cùng groupId = cùng cặp
   groupId?: string;

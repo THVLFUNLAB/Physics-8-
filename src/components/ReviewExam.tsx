@@ -151,16 +151,16 @@ export const ReviewExam = ({
 
           <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-12 pb-32">
             <div className="w-full max-w-3xl mx-auto space-y-8 relative z-10 break-words whitespace-normal min-w-0">
-            <div className="flex items-center gap-4">
-              <span className="bg-slate-900 border border-slate-800 text-slate-400 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4">
+              <span className="bg-slate-900 border border-slate-800 text-slate-400 px-4 py-1 rounded-full text-xs md:text-sm font-black uppercase tracking-widest">
                 PHẦN {currentQuestion?.part || '?'}
               </span>
-              <span className="text-slate-600 font-bold text-xs">MỨC ĐỘ: {currentQuestion?.level || '—'}</span>
+              <span className="text-slate-600 font-bold text-xs md:text-sm">MỨC ĐỘ: {currentQuestion?.level || '?'}</span>
               
               {currentQuestion && (
                 <button 
                   onClick={() => setReportModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] uppercase font-black tracking-widest border border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500 hover:text-white transition-all ml-2"
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs md:text-sm uppercase font-black tracking-widest border border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500 hover:text-white transition-all ml-0 md:ml-2"
                   title="Báo lỗi câu hỏi này"
                 >
                   <Flag className="w-3 h-3" /> Báo lỗi
@@ -197,7 +197,7 @@ export const ReviewExam = ({
                         <Info className="w-5 h-5" />
                         <span className="text-xs font-black uppercase tracking-wider">Dữ kiện chung — Câu hỏi chùm</span>
                       </div>
-                      <div className="text-amber-100/90 text-sm leading-relaxed">
+                      <div className="text-amber-100/90 text-fluid-base">
                         <MathRenderer content={ctx} />
                       </div>
                     </div>
@@ -214,7 +214,20 @@ export const ReviewExam = ({
                 return null;
               })()}
 
-              <h3 className="text-xl md:text-2xl font-bold text-white leading-relaxed break-words whitespace-normal min-w-0">
+              {/* 🚨 Cảnh báo Sập Bẫy "Sai Ngu" */}
+              {currentQuestion.isTrap && !checkCorrectness(currentQuestion, answers[currentQuestion.id || '']) && answers[currentQuestion.id || ''] !== undefined && (
+                <div className="bg-red-500/10 border-2 border-red-500/50 rounded-2xl p-6 mb-4 flex flex-col md:flex-row items-center gap-6 animate-pulse">
+                  <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-8 h-8 text-red-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-red-500 font-black text-xl uppercase tracking-widest mb-1">BẠN VỪA SẬP BẪY!</h4>
+                    <p className="text-red-400 font-medium text-sm">Đây là câu hỏi "Cài bẫy" kinh điển. Hãy đọc kỹ phần Lời giải chi tiết bên dưới để không bao giờ sai ngớ ngẩn ở phòng thi thật nhé!</p>
+                  </div>
+                </div>
+              )}
+
+              <h3 className="text-fluid-lg font-bold text-white leading-loose break-words whitespace-normal min-w-0">
                 <span className="text-slate-500 mr-2 font-headline">CÂU {currentIndex + 1}.</span>
                 <MathRenderer content={currentQuestion?.content || 'Chưa có nội dung câu hỏi.'} />
               </h3>
@@ -269,15 +282,15 @@ export const ReviewExam = ({
                           </div>
                           <div className="flex items-center gap-4">
                             <div className="flex flex-col items-center">
-                              <span className="text-[10px] text-slate-500 font-bold mb-1 uppercase">Đ/A Gốc</span>
-                              <div className={cn("px-4 py-1 rounded text-xs font-black uppercase", correctAns ? "bg-green-600 text-white" : "bg-red-600 text-white")}>
+                              <span className="text-[10px] md:text-xs text-slate-500 font-bold mb-1 uppercase">ĐÁP ÁN GỐC</span>
+                              <div className={cn("px-4 py-2 rounded text-xs md:text-sm font-black uppercase text-center min-w-[70px]", correctAns ? "bg-green-600 text-white" : "bg-red-600 text-white")}>
                                 {correctAns ? 'ĐÚNG' : 'SAI'}
                               </div>
                             </div>
                             {hasAns && (
                               <div className="flex flex-col items-center border-l border-slate-700 pl-4">
-                                <span className="text-[10px] text-slate-500 font-bold mb-1 uppercase">Bạn Chọn</span>
-                                <div className={cn("px-4 py-1 rounded text-xs font-black uppercase", userAns === correctAns ? "text-emerald-400 bg-emerald-400/10" : "text-rose-400 bg-rose-400/10")}>
+                                <span className="text-[10px] md:text-xs text-slate-500 font-bold mb-1 uppercase">BẠN CHỌN</span>
+                                <div className={cn("px-4 py-2 rounded text-xs md:text-sm font-black uppercase text-center min-w-[70px]", userAns === correctAns ? "text-emerald-400 bg-emerald-400/10" : "text-rose-400 bg-rose-400/10")}>
                                   {userAns ? 'ĐÚNG' : 'SAI'} 
                                 </div>
                               </div>
@@ -312,10 +325,10 @@ export const ReviewExam = ({
               {/* Lời giải chi tiết */}
               <div className="mt-12 p-8 bg-slate-900 border border-slate-800 rounded-3xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-2 h-full bg-blue-500" />
-                <h4 className="text-sm font-black text-white flex items-center gap-2 mb-6 uppercase tracking-widest">
+                <h4 className="text-sm md:text-base font-black text-white flex items-center gap-2 mb-6 uppercase tracking-widest">
                   <Lightbulb className="text-yellow-500" /> LỜI GIẢI CHI TIẾT
                 </h4>
-                <div className="prose prose-invert max-w-none text-slate-300 break-words whitespace-normal min-w-0">
+                <div className="prose prose-invert prose-lg max-w-none text-slate-300 break-words whitespace-normal min-w-0">
                   {currentQuestion.explanation ? (
                     <MathRenderer content={currentQuestion.explanation} block />
                   ) : (

@@ -13,6 +13,7 @@ import {
   doc, 
   getDoc, 
   getDocs,
+  getDocsFromServer,
   setDoc, 
   onAuthStateChanged, 
   onSnapshot, 
@@ -25,7 +26,9 @@ import {
   handleFirestoreError,
   OperationType,
   writeBatch,
-  orderBy
+  orderBy,
+  getDocFromCache,
+  getDocFromServer
 } from './firebase';
 import { UserProfile, Question, ClusterQuestion, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification, LoginLog, Simulation } from './types';
 import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam } from './services/geminiService';
@@ -95,6 +98,7 @@ import KnowledgeGapGallery from './components/KnowledgeGapGallery';
 import ClassManager from './components/ClassManager';
 import LiveClassExam from './components/LiveClassExam';
 import ProjectorLeaderboard from './components/ProjectorLeaderboard';
+import AdaptiveDashboard from './components/AdaptiveDashboard';
 
 import { 
   BarChart, 
@@ -144,6 +148,70 @@ interface DigitizationSummary {
   errorDetails: string[];
 }
 
+// ── Sanitizer: Strip undefined + chỉ xóa ảnh Base64 QUÁ LỚN (>100KB) ──
+// Ảnh nén JPEG (5-20KB) nằm gọn trong giới hạn 1MB Firestore → giữ lại
+export const stripLargeBase64 = (str: string): string => {
+  // Chỉ xóa ảnh base64 > ~100KB (tức > 136,000 ký tự sau mã hóa)
+  let result = str.replace(
+    /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[^)]{136000,})\)/g,
+    '' // Xóa hoàn toàn thay vì để placeholder
+  ).replace(
+    /<img\s+[^>]*src=["'](data:image\/[^"']{136000,})["'][^>]*\/?>/gi,
+    '' // Xóa hoàn toàn thay vì để placeholder
+  );
+  // [FIX #1] Xóa mọi dạng label "HÌNH MINH HỌA" trước khi lưu Firestore
+  result = result.replace(/\*{0,2}\[HÌNH\s+MINH\s+HỌA[^\]]*\]\*{0,2}/gi, '');
+  result = result.replace(/<[^>]*>\s*HÌNH\s+MINH\s+HỌA[^<]*<\/[^>]*>/gi, '');
+
+  // [FIX #2] Xóa chuỗi base64 "rò rỉ" — BẢO VỆ ảnh hợp lệ trước khi dọn
+  // Bước 2a: Tạm thay ảnh Markdown hợp lệ ![...](data:image/...) bằng placeholder
+  const imgBackup: string[] = [];
+  result = result.replace(/!\[[^\]]*\]\(data:image\/[^)]+\)/g, (match) => {
+    imgBackup.push(match);
+    return `__SAFE_IMG_${imgBackup.length - 1}__`;
+  });
+  // Bước 2b: Tạm thay ảnh HTML hợp lệ <img src="data:image/..."> bằng placeholder
+  result = result.replace(/<img\s+[^>]*src=["']data:image\/[^"']+["'][^>]*\/?>/gi, (match) => {
+    imgBackup.push(match);
+    return `__SAFE_IMG_${imgBackup.length - 1}__`;
+  });
+  // Bước 2c: Giờ mới xóa base64 rác (ảnh hợp lệ đã an toàn trong placeholder)
+  result = result.replace(/\(?data:image\/[a-zA-Z+]+;base64,[A-Za-z0-9+/=\s]{20,}\)?/g, '');
+  // Bước 2d: Khôi phục ảnh hợp lệ
+  result = result.replace(/__SAFE_IMG_(\d+)__/g, (_, idx) => imgBackup[parseInt(idx)]);
+
+  return result.replace(/\s{3,}/g, ' ').trim();
+};
+
+// Loại bỏ tất cả key có giá trị undefined (Firestore reject undefined)
+export const stripUndefined = (obj: any): any => {
+  if (obj === null || obj === undefined) return null;
+  if (Array.isArray(obj)) return obj.map(item => stripUndefined(item));
+  if (typeof obj === 'object' && !(obj instanceof Date)) {
+    const clean: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        clean[key] = stripUndefined(value);
+      }
+    }
+    return clean;
+  }
+  return obj;
+};
+
+export const sanitizeQuestion = (q: Question): Record<string, any> => {
+  const cleaned = {
+    ...q,
+    content: stripLargeBase64(q.content || ''),
+    explanation: stripLargeBase64(q.explanation || ''),
+    options: q.options?.map(opt => stripLargeBase64(opt ?? '')),
+    tags: q.tags ?? [],
+    resources: q.resources ?? [],
+    status: q.status || 'draft',
+  };
+  return stripUndefined(cleaned);
+};
+
 const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Question[]) => void }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [parseErrors, setParseErrors] = useState<ParseError[]>([]);
@@ -157,38 +225,42 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
   const [pendingQuestions, setPendingQuestions] = useState<Question[] | null>(null);
   const [pendingSourceFile, setPendingSourceFile] = useState('');
   const [showActionModal, setShowActionModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showCreateExamModal, setShowCreateExamModal] = useState(false);
   const [newExamTitle, setNewExamTitle] = useState('');
   const [alsoSaveToBank, setAlsoSaveToBank] = useState(true);
   const [isSavingExam, setIsSavingExam] = useState(false);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const isPDF = file.name.toLowerCase().endsWith('.pdf');
-    const isDOCX = file.name.toLowerCase().endsWith('.docx');
-    const isJSON = file.name.toLowerCase().endsWith('.json');
-
-    if (!isPDF && !isDOCX && !isJSON) {
-      toast.error('Vui lòng chọn file .pdf, .docx hoặc .json');
-      return;
-    }
-
-    // Check if API key is selected (if platform supports it)
-    if (digitizeMode === 'AI' || isPDF) {
-      try {
-        if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
-          await window.aistudio.openSelectKey();
-        }
-      } catch (err) {
-        console.warn('Error checking API key status:', err);
-      }
-    }
-
-    const sourceFileName = file.name;
-    setIsProcessing(true);
+    const target = e.target;
     try {
+      const file = target.files?.[0];
+      if (!file) return;
+
+      const isPDF = file.name.toLowerCase().endsWith('.pdf');
+      const isDOCX = file.name.toLowerCase().endsWith('.docx');
+      const isJSON = file.name.toLowerCase().endsWith('.json');
+
+      if (!isPDF && !isDOCX && !isJSON) {
+        toast.error('Vui lòng chọn file .pdf, .docx hoặc .json');
+        return;
+      }
+
+      setIsProcessing(true);
+
+      // Check if API key is selected (if platform supports it)
+      if (digitizeMode === 'AI' || isPDF) {
+        try {
+          if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
+            await window.aistudio.openSelectKey();
+          }
+        } catch (err) {
+          console.warn('Error checking API key status:', err);
+        }
+      }
+
+      const sourceFileName = file.name;
+      
       if (isJSON) {
         setImageProgress('Đang tải file ngân hàng câu hỏi JSON...');
         const text = await file.text();
@@ -445,73 +517,12 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       setTimeout(() => setImageProgress(null), 8000);
     } finally {
       setIsProcessing(false);
-      e.target.value = '';
-    }
-  };
-
-  // ── Sanitizer: Strip undefined + chỉ xóa ảnh Base64 QUÁ LỚN (>100KB) ──
-  // Ảnh nén JPEG (5-20KB) nằm gọn trong giới hạn 1MB Firestore → giữ lại
-  const stripLargeBase64 = (str: string): string => {
-    // Chỉ xóa ảnh base64 > ~100KB (tức > 136,000 ký tự sau mã hóa)
-    let result = str.replace(
-      /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[^)]{136000,})\)/g,
-      '' // Xóa hoàn toàn thay vì để placeholder
-    ).replace(
-      /<img\s+[^>]*src=["'](data:image\/[^"']{136000,})["'][^>]*\/?>/gi,
-      '' // Xóa hoàn toàn thay vì để placeholder
-    );
-    // [FIX #1] Xóa mọi dạng label "HÌNH MINH HỌA" trước khi lưu Firestore
-    result = result.replace(/\*{0,2}\[HÌNH\s+MINH\s+HỌA[^\]]*\]\*{0,2}/gi, '');
-    result = result.replace(/<[^>]*>\s*HÌNH\s+MINH\s+HỌA[^<]*<\/[^>]*>/gi, '');
-
-    // [FIX #2] Xóa chuỗi base64 "rò rỉ" — BẢO VỆ ảnh hợp lệ trước khi dọn
-    // Bước 2a: Tạm thay ảnh Markdown hợp lệ ![...](data:image/...) bằng placeholder
-    const imgBackup: string[] = [];
-    result = result.replace(/!\[[^\]]*\]\(data:image\/[^)]+\)/g, (match) => {
-      imgBackup.push(match);
-      return `__SAFE_IMG_${imgBackup.length - 1}__`;
-    });
-    // Bước 2b: Tạm thay ảnh HTML hợp lệ <img src="data:image/..."> bằng placeholder
-    result = result.replace(/<img\s+[^>]*src=["']data:image\/[^"']+["'][^>]*\/?>/gi, (match) => {
-      imgBackup.push(match);
-      return `__SAFE_IMG_${imgBackup.length - 1}__`;
-    });
-    // Bước 2c: Giờ mới xóa base64 rác (ảnh hợp lệ đã an toàn trong placeholder)
-    result = result.replace(/\(?data:image\/[a-zA-Z+]+;base64,[A-Za-z0-9+/=\s]{20,}\)?/g, '');
-    // Bước 2d: Khôi phục ảnh hợp lệ
-    result = result.replace(/__SAFE_IMG_(\d+)__/g, (_, idx) => imgBackup[parseInt(idx)]);
-
-    return result.replace(/\s{3,}/g, ' ').trim();
-  };
-
-  // Loại bỏ tất cả key có giá trị undefined (Firestore reject undefined)
-  const stripUndefined = (obj: any): any => {
-    if (obj === null || obj === undefined) return null;
-    if (Array.isArray(obj)) return obj.map(item => stripUndefined(item));
-    if (typeof obj === 'object' && !(obj instanceof Date)) {
-      const clean: any = {};
-      for (const [key, value] of Object.entries(obj)) {
-        if (value !== undefined) {
-          clean[key] = stripUndefined(value);
-        }
+      if (target) {
+        target.value = '';
       }
-      return clean;
     }
-    return obj;
   };
 
-  const sanitizeQuestion = (q: Question): Record<string, any> => {
-    const cleaned = {
-      ...q,
-      content: stripLargeBase64(q.content || ''),
-      explanation: stripLargeBase64(q.explanation || ''),
-      options: q.options?.map(opt => stripLargeBase64(opt ?? '')),
-      tags: q.tags ?? [],
-      resources: q.resources ?? [],
-      status: q.status || 'draft',
-    };
-    return stripUndefined(cleaned);
-  };
 
   // Sync từ Review Board → Firestore (sạch bóng Base64 + undefined)
   // ═══ Hỗ trợ Cluster: tạo document trong /clusters rồi gắn clusterId thật vào câu hỏi ═══
@@ -853,8 +864,8 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
               type="file" 
               accept=".pdf,.docx,.json" 
               onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={true /* isProcessing - DISABLED cho Live Test */}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-50"
+              disabled={isProcessing}
             />
             <div className="flex items-center justify-center gap-3 pointer-events-none">
               <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1083,6 +1094,19 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
 
               <div className="space-y-3">
                 <button
+                  onClick={() => { setShowActionModal(false); setShowPreviewModal(true); }}
+                  className="w-full p-4 bg-fuchsia-600/10 border border-fuchsia-500/30 rounded-2xl hover:bg-fuchsia-600/20 transition-all flex items-center gap-4 group"
+                >
+                  <div className="w-12 h-12 bg-fuchsia-600/20 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <CheckCircle2 className="w-6 h-6 text-fuchsia-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-white">👀 Xem trước từng câu</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Kiểm tra kết quả nhận diện của AI trước khi lưu.</p>
+                  </div>
+                </button>
+
+                <button
                   onClick={handleSaveToBank}
                   className="w-full p-4 bg-blue-600/10 border border-blue-500/30 rounded-2xl hover:bg-blue-600/20 transition-all flex items-center gap-4 group"
                 >
@@ -1116,6 +1140,124 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
                 Hủy bỏ — không lưu
               </button>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ PREVIEW MODAL — Xem trước các câu do AI số hóa ═══ */}
+      <AnimatePresence>
+        {showPreviewModal && pendingQuestions && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex flex-col p-4 md:p-8"
+            style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)' }}
+          >
+            <div className="w-full max-w-5xl mx-auto bg-slate-900 border border-cyan-500/30 rounded-3xl flex flex-col h-full shadow-2xl shadow-cyan-900/20 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between p-6 border-b border-slate-800/80 bg-slate-900/50">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-cyan-500/20 rounded-xl flex items-center justify-center">
+                    <BookOpen className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white uppercase tracking-tight">KẾT QUẢ SỐ HÓA TỪ AI</h2>
+                    <p className="text-sm text-cyan-400 font-bold mt-0.5">{pendingQuestions.length} câu hỏi • {pendingSourceFile}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setShowPreviewModal(false); setShowActionModal(true); }}
+                  className="p-3 text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-colors"
+                  title="Quay lại"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar bg-slate-950/30">
+                <div className="space-y-6">
+                  {pendingQuestions.map((q, idx) => (
+                    <div key={idx} className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5 hover:border-cyan-500/30 transition-colors">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          <span className="px-3 py-1 bg-cyan-950 text-cyan-400 text-xs font-bold rounded-lg border border-cyan-900/50 uppercase">Câu {idx + 1}</span>
+                          <span className="px-3 py-1 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg border border-slate-700 uppercase">Phần {q.part}</span>
+                          <span className="px-3 py-1 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg border border-slate-700">{q.level}</span>
+                          {q.topic && <span className="px-3 py-1 bg-slate-800 text-slate-300 text-xs flex items-center gap-1 rounded-lg border border-slate-700"><CheckCircle2 className="w-3 h-3 text-emerald-500"/> {q.topic}</span>}
+                        </div>
+                      </div>
+
+                      <div className="mb-4 text-sm text-slate-200">
+                        <MathRenderer content={q.content} />
+                      </div>
+
+                      {(q.part === 1 || q.part === 2) && q.options && q.options.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                          {q.options.map((opt, iMap) => {
+                            const isCorrect = q.part === 1 
+                              ? String(q.correctAnswer) === String(iMap + 1)
+                              : String(q.correctAnswer).split(',').includes(String(iMap + 1));
+                            
+                            return (
+                              <div key={iMap} className={`flex gap-3 p-3 rounded-xl border ${isCorrect ? 'bg-emerald-950/30 border-emerald-500/30' : 'bg-slate-900/50 border-slate-700/50'}`}>
+                                <span className={`font-bold shrink-0 ${isCorrect ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                  {String.fromCharCode(65 + iMap)}.
+                                </span>
+                                <div className={`text-sm ${isCorrect ? 'text-emerald-100' : 'text-slate-300'}`}>
+                                  <MathRenderer content={opt} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {q.part === 3 && q.correctAnswer !== undefined && (
+                        <div className="mb-4 p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl inline-block">
+                          <span className="text-sm font-bold text-emerald-400">Đáp án: </span>
+                          <span className="text-sm font-black text-white">{q.correctAnswer}</span>
+                        </div>
+                      )}
+
+                      {q.explanation && (
+                        <div className="p-4 bg-slate-900/80 rounded-xl border border-slate-700">
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lời giải chi tiết</p>
+                          <div className="text-sm text-slate-300 leading-relaxed">
+                            <MathRenderer content={q.explanation} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 sm:p-6 border-t border-slate-800/80 bg-slate-900/90 flex flex-col sm:flex-row justify-end gap-3 sm:gap-4 shrink-0">
+                 <button
+                   onClick={() => { setShowPreviewModal(false); setShowActionModal(true); }}
+                   className="px-6 py-3 rounded-xl font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors uppercase tracking-wider text-sm w-full sm:w-auto"
+                 >
+                   Quay lại
+                 </button>
+                 <button
+                   onClick={() => { setShowPreviewModal(false); handleSaveToBank(); }}
+                   className="px-6 py-3 rounded-xl font-black text-white bg-blue-600 hover:bg-blue-500 transition-all shadow-lg shadow-blue-500/20 active:scale-95 uppercase tracking-wider text-sm flex items-center justify-center gap-2 w-full sm:w-auto"
+                 >
+                   <BookOpen className="w-4 h-4" />
+                   Lưu vào Kho (Đã Kiểm tra)
+                 </button>
+                 <button
+                   onClick={() => { setShowPreviewModal(false); setShowCreateExamModal(true); setNewExamTitle(''); }}
+                   className="px-6 py-3 rounded-xl font-black text-white bg-violet-600 hover:bg-violet-500 transition-all shadow-lg shadow-violet-500/20 active:scale-95 uppercase tracking-wider text-sm flex items-center justify-center gap-2 w-full sm:w-auto"
+                 >
+                   <FileText className="w-4 h-4" />
+                   Tạo Đề Thi Riêng
+                 </button>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1206,7 +1348,7 @@ const normalizeText = (str: string): string =>
 
 const ITEMS_PER_PAGE = 20;
 
-const QuestionBank = () => {
+const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: (delta: number) => void; onQuestionsLoaded?: (count: number) => void }) => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterTopic, setFilterTopic] = useState<Topic | 'All'>('All');
@@ -1223,6 +1365,7 @@ const QuestionBank = () => {
   // ── Inline edit state ──
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [editIsTrap, setEditIsTrap] = useState(false);
   const [editExplanation, setEditExplanation] = useState('');
   const [editOptions, setEditOptions] = useState<string[]>([]);
   const [editCorrectAnswer, setEditCorrectAnswer] = useState<any>(null);
@@ -1250,16 +1393,26 @@ const QuestionBank = () => {
     return Array.from(batches.values()).sort((a, b) => b.timestamp - a.timestamp);
   }, [questions]);
 
-  useEffect(() => {
-    const qRef = collection(db, 'questions');
-    const unsubscribe = onSnapshot(qRef, (snapshot) => {
-      const qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+  // ── Fetch questions ONE-SHOT — Cache-first để tiết kiệm quota ──
+  const fetchQuestions = async () => {
+    setLoading(true);
+    try {
+      const qRef = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
+      const snapshot = await getDocs(qRef);
+      const qs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Question));
       setQuestions(qs);
+      // Đồng bộ số lượng thực tế lên Header Dashboard
+      onQuestionsLoaded?.(qs.length);
+    } catch (error) {
+      console.warn('[fetchQuestions] Lỗi khi tải câu hỏi:', error);
+      // Không throw — giữ UI hoạt động
+    } finally {
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'questions');
-    });
-    return unsubscribe;
+    }
+  };
+
+  useEffect(() => {
+    fetchQuestions();
   }, []);
 
   // ── Lọc kết hợp Search + Topic + Part + Level + Time + Batch ──
@@ -1359,15 +1512,36 @@ const QuestionBank = () => {
     return { total: questions.length, p1, p2, p3, topics: topicSet.size, needsImage };
   }, [questions]);
 
+  // Hàm hỗ trợ chống kẹt Firebase nếu mất mạng/hết Quota
+  const withTimeout = (promise: Promise<any>, ms: number) => {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+    ]);
+  };
+
   const deleteQuestion = async (id: string) => {
     if (!window.confirm('Thầy có chắc chắn muốn xóa câu hỏi này không?')) return;
+    
+    // Giao diện chỉ tiến hành báo đang xoá
+    toast.info('Đang xóa câu hỏi...');
+
     try {
-      await deleteDoc(doc(db, 'questions', id));
+      // Cách 1: Chờ Server phản hồi thực sự. Cài timeout chặn Firebase pending forever
+      await withTimeout(deleteDoc(doc(db, 'questions', id)), 8000);
+      
+      // CHỈ update mảng khi thực sự THÀNH CÔNG
       setQuestions(prev => prev.filter(q => q.id !== id));
       setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+      onCountChanged?.(-1);
       toast.success('Xóa câu hỏi thành công!');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `questions/${id}`);
+    } catch (error: any) {
+      if (error.message === 'TIMEOUT') {
+        toast.error('🚨 Lỗi Server (Timeout): Quá tải mạng hoặc hết Quota! Giao dịch bị huỷ bỏ.');
+      } else {
+        toast.error('🚨 Lỗi Server: Hành động bị từ chối!');
+        handleFirestoreError(error, OperationType.DELETE, `questions/${id}`);
+      }
     }
   };
 
@@ -1376,17 +1550,45 @@ const QuestionBank = () => {
     if (!window.confirm(`Thầy có chắc chắn muốn xóa ${selectedIds.size} câu hỏi đã chọn?`)) return;
     setIsDeletingBulk(true);
     try {
-      const batch = writeBatch(db);
-      selectedIds.forEach(id => {
-        batch.delete(doc(db, 'questions', id));
-      });
-      await batch.commit();
+      const idsArray = Array.from(selectedIds);
+      let deletedCount = 0;
+      toast.info(`Bắt đầu xóa từng câu (tổng ${idsArray.length})...`);
       
-      setQuestions(prev => prev.filter(q => !selectedIds.has(q.id!)));
-      setSelectedIds(new Set());
-      toast.success(`Đã xóa thành công ${selectedIds.size} câu hỏi!`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'questions_bulk');
+      // Xóa tuần tự từng câu hỏi một để tránh lỗi batch im lặng (silent failure) do Quota/Permissions
+      for (const id of idsArray) {
+        // Gửi lệnh xóa RAW REST API đi thẳng đến backend, bỏ qua Firebase SDK cache/bug
+        const token = await auth.currentUser?.getIdToken(true);
+        const projectId = "gen-lang-client-0765259986";
+        const databaseId = "ai-studio-bcba3130-d40a-41ac-adf2-90526578a2ea";
+        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/questions/${id}`;
+        
+        const resp = await fetch(url, {
+           method: 'DELETE',
+           headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        if (!resp.ok) {
+           const errText = await resp.text();
+           throw new Error(`REST LỖI: ${resp.status} - ${errText}`);
+        }
+        
+        // Cập nhật UI ngay lập tức
+        deletedCount++;
+        const currentIdSet = new Set([id]);
+        setQuestions(prev => prev.filter(q => !currentIdSet.has(q.id!)));
+        setSelectedIds(prev => { 
+           const newSet = new Set(prev); 
+           newSet.delete(id); 
+           return newSet; 
+        });
+      }
+      
+      onCountChanged?.(-deletedCount);
+      toast.success(`✅ Xong! Đã xóa vĩnh viễn ${deletedCount} câu khỏi máy chủ.`);
+    } catch (error: any) {
+      console.error('[deleteSelectedQuestions] LỖI:', error);
+      window.alert(`🚨 LỖI QUAN TRỌNG KHI XÓA: ${error?.message || 'Lỗi Firebase'}. \n\nKiểm tra lại đường truyền mạng, tài khoản đăng nhập hoặc dung lượng Quota của Firebase.`);
+      toast.error(`Không thể hoàn thành xóa: ${error?.message || 'Lỗi Firebase'}. Kiểm tra Quota hoặc quyền Admin.`);
     } finally {
       setIsDeletingBulk(false);
     }
@@ -1404,9 +1606,19 @@ const QuestionBank = () => {
     if (!q.id) return;
     try {
       const newStatus = (q.status || 'published') === 'published' ? 'draft' : 'published';
-      await updateDoc(doc(db, 'questions', q.id), { status: newStatus });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `questions/${q.id}`);
+      
+      // Cách 1: Chờ hoàn thành mới báo UI
+      await withTimeout(updateDoc(doc(db, 'questions', q.id), { status: newStatus }), 8000);
+      
+      setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, status: newStatus } : item));
+      toast.success(newStatus === 'published' ? 'Đã duyệt câu hỏi vào thư viện' : 'Đã chuyển thành bản nháp');
+    } catch (error: any) {
+      if (error.message === 'TIMEOUT') {
+        toast.error('🚨 Lỗi Server (Timeout): Server phản hồi quá chậm!');
+      } else {
+        toast.error('🚨 Lỗi hệ thống, trạng thái vẫn như cũ!');
+        handleFirestoreError(error, OperationType.UPDATE, `questions/${q.id}`);
+      }
     }
   };
 
@@ -1425,6 +1637,7 @@ const QuestionBank = () => {
     } else {
       setEditCorrectAnswer(q.correctAnswer ?? (q.part === 1 ? 0 : 0));
     }
+    setEditIsTrap(q.isTrap || false);
     setExpandedId(q.id!);
   };
 
@@ -1434,27 +1647,40 @@ const QuestionBank = () => {
     setEditExplanation('');
     setEditOptions([]);
     setEditCorrectAnswer(null);
+    setEditIsTrap(false);
   };
 
   const saveEdit = async (q: Question) => {
     if (!q.id) return;
     setEditSaving(true);
     try {
-      const updateData: any = {
-        content: editContent,
-        explanation: editExplanation,
-      };
+      const updateData: any = stripUndefined({
+        content: stripLargeBase64(editContent),
+        explanation: stripLargeBase64(editExplanation),
+        status: q.status || 'published',  // Giữ nguyên status hiện tại, chỉ mặc định published nếu chưa có
+        isTrap: editIsTrap
+      });
       if (q.part === 1 || q.part === 2) {
-        updateData.options = editOptions;
+        updateData.options = (editOptions || []).map(opt => stripLargeBase64(opt ?? ''));
         updateData.correctAnswer = editCorrectAnswer;
       }
       if (q.part === 3) {
-        updateData.correctAnswer = Number(editCorrectAnswer);
+        updateData.correctAnswer = Number(editCorrectAnswer) || 0;
       }
-      await updateDoc(doc(db, 'questions', q.id), updateData);
+      
+      // Cách 1: Chỉ lưu lên mảng local khi API call chạy thật xong qua cơ chế Timeout
+      await withTimeout(updateDoc(doc(db, 'questions', q.id), updateData), 8000);
+      
+      setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, ...updateData } : item));
+      toast.success('Lưu nội dung thành công!');
       setEditingId(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `questions/${q.id}`);
+    } catch (error: any) {
+      if (error.message === 'TIMEOUT') {
+         toast.error('🚨 Lỗi Server (Timeout): Giao dịch cập nhật câu hỏi thất bại!');
+      } else {
+         toast.error('🚨 Không thể cập nhật: Lỗi từ máy chủ!');
+         handleFirestoreError(error, OperationType.UPDATE, `questions/${q.id}`);
+      }
     } finally {
       setEditSaving(false);
     }
@@ -1525,6 +1751,10 @@ const QuestionBank = () => {
           .trim();
         newContent = newContent + `\n\n![](${dataUrl})`;
         await updateDoc(doc(db, 'questions', q.id), { content: newContent });
+        
+        // Cập nhật local state
+        setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, content: newContent } : item));
+        toast.success('Đã chèn ảnh trực tiếp thành công!');
       } catch (err) {
         toast.error('Lỗi chèn ảnh. Kiểm tra file hoặc kết nối.');
         console.error('[QuickImageInsert]', err);
@@ -1567,6 +1797,18 @@ const QuestionBank = () => {
               )}
             </div>
           </div>
+          <button
+            onClick={fetchQuestions}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition-all disabled:opacity-40"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+            )}
+            Làm mới
+          </button>
         </div>
 
         {/* ══════════ THANH TÌM KIẾM ══════════ */}
@@ -1590,7 +1832,7 @@ const QuestionBank = () => {
         </div>
 
         {/* ── Lọc theo Chủ đề ── */}
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2 pb-1">
           <button
             onClick={() => setFilterTopic('All')}
             className={cn(
@@ -1865,6 +2107,20 @@ const QuestionBank = () => {
                 {/* ── EDIT FORM ── */}
                 {editingId === q.id ? (
                   <div className="space-y-4">
+                    {/* Logic Câu Lừa */}
+                    <div className="flex items-center gap-4 mb-2">
+                       <label className="flex items-center gap-3 text-sm font-bold cursor-pointer bg-red-500/10 hover:bg-red-500/20 px-4 py-3 rounded-xl border border-red-500/30 transition-colors w-full sm:w-auto text-red-400">
+                          <input 
+                            type="checkbox" 
+                            checked={editIsTrap} 
+                            onChange={(e) => setEditIsTrap(e.target.checked)} 
+                            className="w-4 h-4 text-red-500 rounded bg-slate-900 border-red-500/50 focus:ring-red-500/50 focus:ring-offset-slate-900 cursor-pointer"
+                          />
+                          <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+                          Đánh dấu đây là "Câu Lừa / Bẫy Sai Ngu"
+                       </label>
+                    </div>
+
                     {/* Nội dung câu hỏi */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
@@ -2059,7 +2315,9 @@ const QuestionBank = () => {
                               <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-black">
                                 {String.fromCharCode(65 + idx)}
                               </span>
-                              <MathRenderer content={opt} />
+                              <div className="text-base md:text-lg flex-1 overflow-x-auto min-w-0 break-words whitespace-normal">
+                                <MathRenderer content={opt} />
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -2269,16 +2527,33 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
   const [genType, setGenType] = useState<'AI' | 'Matrix'>('AI');
 
   useEffect(() => {
-    // Fetch students
-    const sQuery = query(collection(db, 'users'), where('role', '==', 'student'));
-    onSnapshot(sQuery, (snap) => {
-      setStudents(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
-    });
+    // Fetch students — 1 lần, cache-first
+    const fetchStudents = async () => {
+      try {
+        const sQuery = query(collection(db, 'users'), where('role', '==', 'student'));
+        const snap = await getDocs(sQuery);
+        setStudents(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
+      } catch (err) {
+        console.warn('[ExamGenerator] Lỗi fetch students:', err);
+      }
+    };
+    fetchStudents();
 
-    // Fetch all questions
-    onSnapshot(collection(db, 'questions'), (snap) => {
-      setAllQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
-    });
+    // Fetch all questions — Cache-first để tiết kiệm quota
+    const fetchQ = async () => {
+      try {
+        const qQuery = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(qQuery);
+        // TUYỆT ĐỐI XÓA BỎ các câu đang đóng dấu "draft"
+        setAllQuestions(
+          snap.docs.map(d => ({ id: d.id, ...d.data() } as Question))
+                   .filter(q => q.status !== 'draft')
+        );
+      } catch (err) {
+        console.warn('[ExamGenerator] Lỗi fetch questions:', err);
+      }
+    };
+    fetchQ();
   }, []);
 
   const generateExam = async () => {
@@ -3234,16 +3509,23 @@ const ProExamExperience = ({
   const currentQuestion = test.questions[currentIndex];
 
   return (
-    <div className="fixed inset-0 bg-slate-950 z-[100] flex flex-col overflow-hidden">
+    <div className={cn(
+      "fixed inset-0 bg-slate-950 z-[100] flex flex-col overflow-hidden transition-all duration-1000",
+      timeLeft < 300 ? "shadow-[inset_0_0_150px_rgba(220,38,38,0.3)] ring-4 ring-inset ring-red-500/50" : ""
+    )}>
+      {timeLeft < 300 && (
+        <div className="absolute inset-0 pointer-events-none bg-red-500/5 animate-pulse z-0" />
+      )}
+      
       {/* Exam Header */}
-      <header className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center">
+      <header className="relative z-10 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
-          <div className="bg-red-600 p-2 rounded-xl">
+          <div className={cn("p-2 rounded-xl transition-all", timeLeft < 300 ? "bg-red-600 animate-bounce" : "bg-blue-600")}>
             <Activity className="text-white w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-lg font-black text-white uppercase tracking-tighter">PHÒNG THI PHYS-8+</h2>
-            <p className="text-[10px] text-slate-500 font-bold uppercase">Chủ đề: {test.topic} | {test.questions.length} Câu hỏi</p>
+            <h2 className={cn("text-lg md:text-xl font-black uppercase tracking-tighter transition-colors", timeLeft < 300 ? "text-red-400" : "text-white")}>PHÒNG THI ZEN MODE</h2>
+            <p className="text-xs md:text-sm text-slate-500 font-bold uppercase">Chủ đề: {test.topic} | {test.questions.length} Câu hỏi</p>
           </div>
         </div>
 
@@ -3300,11 +3582,11 @@ const ProExamExperience = ({
         {/* Question Content */}
         <main className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar">
           <div className="max-w-3xl mx-auto space-y-10">
-            <div className="flex items-center gap-4">
-              <span className="bg-slate-900 text-slate-400 px-4 py-1 rounded-full text-[10px] font-black uppercase border border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4">
+              <span className="bg-slate-900 text-slate-400 px-4 py-1 rounded-full text-xs md:text-sm font-black uppercase border border-slate-800">
                 Phần {currentQuestion.part}
               </span>
-              <span className="text-slate-600 font-bold text-xs">Độ khó: {currentQuestion.level}</span>
+              <span className="text-slate-600 font-bold text-xs md:text-sm">Độ khó: {currentQuestion.level}</span>
             </div>
 
             <div className="space-y-6">
@@ -3319,7 +3601,7 @@ const ProExamExperience = ({
                         <Info className="w-5 h-5" />
                         <span className="text-xs font-black uppercase tracking-wider">Dữ kiện chung — Câu hỏi chùm</span>
                       </div>
-                      <div className="text-amber-100/90 text-sm leading-relaxed">
+                      <div className="text-amber-100/90 text-fluid-base">
                         <MathRenderer content={ctx} />
                       </div>
                     </div>
@@ -3337,7 +3619,7 @@ const ProExamExperience = ({
                 return null;
               })()}
 
-              <h3 className="text-2xl font-bold text-white leading-relaxed">
+              <h3 className="text-fluid-lg font-bold text-white leading-loose break-words whitespace-normal min-w-0">
                 <span className="text-blue-500 mr-2">Câu {currentIndex + 1}:</span>
                 <MathRenderer content={currentQuestion.content} />
               </h3>
@@ -3348,7 +3630,7 @@ const ProExamExperience = ({
                     key={idx}
                     onClick={() => onAnswer(currentQuestion.id, idx)}
                     className={cn(
-                      "w-full p-6 rounded-2xl border text-left transition-all flex items-center gap-6 group",
+                      "w-full p-4 md:p-6 rounded-2xl border text-left transition-all flex flex-row items-center gap-4 md:gap-6 group touch-target",
                       initialAnswers[currentQuestion.id] === idx 
                         ? "bg-blue-600/10 border-blue-600 shadow-lg shadow-blue-900/10" 
                         : "bg-slate-900 border-slate-800 hover:border-slate-600"
@@ -3384,7 +3666,7 @@ const ProExamExperience = ({
                                 onAnswer(currentQuestion.id, next);
                               }}
                               className={cn(
-                                "px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border",
+                                "px-4 py-3 md:px-6 md:py-2 rounded-xl text-xs md:text-sm font-black uppercase tracking-widest transition-all border touch-target flex-1 md:flex-none text-center min-w-[70px]",
                                 (initialAnswers[currentQuestion.id] || [])[idx] === val
                                   ? (val ? "bg-green-600 border-green-500 text-white" : "bg-red-600 border-red-500 text-white")
                                   : "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
@@ -3400,8 +3682,8 @@ const ProExamExperience = ({
                 )}
 
                 {currentQuestion.part === 3 && (
-                  <div className="space-y-4">
-                    <p className="text-xs text-slate-500 font-bold uppercase">Nhập kết quả số của bạn:</p>
+                  <div className="space-y-4 pt-6">
+                    <p className="text-xs md:text-sm text-slate-500 font-bold uppercase">Nhập kết quả số của bạn:</p>
                     <input 
                       type="text"
                       inputMode="decimal"
@@ -3416,7 +3698,7 @@ const ProExamExperience = ({
                       className="w-full bg-slate-900 border border-slate-800 p-6 rounded-2xl text-2xl font-black text-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-800"
                       placeholder="0.00"
                     />
-                    <p className="text-[10px] text-slate-600 italic">* Lưu ý quy tắc làm tròn số theo yêu cầu của đề bài.</p>
+                    <p className="text-xs md:text-sm text-slate-600 italic">* Lưu ý quy tắc làm tròn số theo yêu cầu của đề bài.</p>
                   </div>
                 )}
               </div>
@@ -3711,19 +3993,19 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
   return (
     <div className="space-y-10">
       {/* ── Header: Avatar + Info + Streak ── */}
-      <div className="relative overflow-hidden bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-8 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-2xl">
+      <div className="relative overflow-hidden bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-4 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 shadow-2xl">
         <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-600/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/4 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-fuchsia-600/5 blur-3xl rounded-full translate-y-1/2 -translate-x-1/4 pointer-events-none" />
         <div className="flex items-center gap-6 relative z-10">
           {user.photoURL ? (
-            <img src={user.photoURL} alt="Avatar" className="w-20 h-20 rounded-3xl border-2 border-cyan-500/30 object-cover shadow-lg shadow-cyan-500/10" referrerPolicy="no-referrer" />
+            <img src={user.photoURL} alt="Avatar" className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-2xl md:rounded-3xl border-2 border-cyan-500/30 object-cover shadow-lg shadow-cyan-500/10" referrerPolicy="no-referrer" />
           ) : (
             <div className="w-20 h-20 bg-cyan-600/10 rounded-3xl flex items-center justify-center border border-cyan-600/20">
               <UserIcon className="text-cyan-500 w-10 h-10" />
             </div>
           )}
           <div>
-            <h2 className="text-3xl md:text-4xl font-black font-headline tracking-tight mb-1 text-gradient-cyber">CHÀO CHIẾN BINH, {user.displayName}</h2>
+            <h2 className="text-xl sm:text-2xl md:text-4xl font-black font-headline tracking-tight mb-1 text-gradient-cyber">CHÀO CHIẾN BINH, {user.displayName}</h2>
             <p className="text-slate-400 font-medium font-sans leading-7">Hệ thống đã chuẩn bị lộ trình huấn luyện hôm nay.</p>
             <div className="flex gap-2 mt-2 flex-wrap">
               <span className="bg-slate-800 text-slate-400 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-widest">
@@ -4134,17 +4416,24 @@ const TopicCard = ({ topic, displayName, isLocked, onClick, color }: { topic: To
 
 // --- Main App ---
 
-// ── Wrapper tự fetch questions cho DuplicateReviewHub ──
+// ── Wrapper tự fetch questions cho DuplicateReviewHub — ONE-SHOT ──
 const DuplicateReviewHubWrapper = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   useEffect(() => {
-    const qRef = collection(db, 'questions');
-    return onSnapshot(qRef, (snap) => {
-      setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
-    });
+    const fetchQ = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'questions'));
+        setQuestions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+      } catch (err) {
+        console.warn('[DuplicateHub] Lỗi fetch questions:', err);
+      }
+    };
+    fetchQ();
   }, []);
   const handleDelete = async (id: string) => {
     await deleteDoc(doc(db, 'questions', id));
+    // Fix: Cập nhật local state ngay sau khi xóa thành công
+    setQuestions(prev => prev.filter(q => q.id !== id));
   };
   return <DuplicateReviewHub questions={questions} onDeleteQuestion={handleDelete} />;
 };
@@ -4153,6 +4442,7 @@ export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
@@ -4175,6 +4465,7 @@ export default function App() {
   const [results, setResults] = useState<Attempt | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean } | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
 
   const [simulations, setSimulations] = useState<Simulation[]>([]);
@@ -4205,7 +4496,7 @@ export default function App() {
         const domain = window.location.hostname;
         setAuthError(`Tên miền ${domain} chưa được cấp phép. Thầy vào Firebase Console → Authentication → Settings → Authorized domains và thêm "${domain}" để đăng nhập.`);
       } else if (code === 'auth/popup-blocked') {
-        setAuthError('Trình duyệt đã chặn cửa sổ đăng nhập. Vui lòng cho phép popup từ trang này và thử lại.');
+        setAuthError('Popup bị chặn — đang chuyển sang đăng nhập Redirect. Vui lòng đợi...');
       } else if (code === 'auth/popup-closed-by-user') {
         // User closed popup intentionally - not an error
       } else {
@@ -4238,7 +4529,18 @@ export default function App() {
         if (firebaseUser) {
           const ADMIN_EMAILS = ['haunn.vietanhschool@gmail.com', 'thayhauvatly@gmail.com'];
           const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email ?? '');
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          let userDoc: any;
+          try {
+            userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          } catch (fetchErr: any) {
+            console.warn("Lỗi lấy dữ liệu user từ server, thử đọc từ cache...", fetchErr);
+            try {
+              userDoc = await getDocFromCache(doc(db, 'users', firebaseUser.uid));
+            } catch (cacheErr) {
+              console.warn("Lỗi đọc cache rỗng, tạo dữ liệu ảo tạm:", cacheErr);
+              userDoc = { exists: () => false, data: () => undefined };
+            }
+          }
           
           let currentUserData: UserProfile;
           const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -4268,13 +4570,17 @@ export default function App() {
             currentUserData.streak = streak;
             currentUserData.lastStreakDate = lastStreakDate;
             currentUserData.lastActive = Timestamp.now();
-            await setDoc(doc(db, 'users', firebaseUser.uid), {
-              role: currentUserData.role,
-              photoURL: currentUserData.photoURL || null,
-              streak,
-              lastStreakDate,
-              lastActive: Timestamp.now(),
-            }, { merge: true });
+            try {
+              await setDoc(doc(db, 'users', firebaseUser.uid), {
+                role: currentUserData.role,
+                photoURL: currentUserData.photoURL || null,
+                streak,
+                lastStreakDate,
+                lastActive: Timestamp.now(),
+              }, { merge: true });
+            } catch (writeErr) {
+              console.warn('[Sync] Không thể cập nhật streak (có thể do lỗi quota):', writeErr);
+            }
           } else {
             // ── Email mới: tạo UserProfile đầy đủ ──
             currentUserData = {
@@ -4296,7 +4602,11 @@ export default function App() {
                 weaknesses: [],
               },
             };
-            await setDoc(doc(db, 'users', firebaseUser.uid), currentUserData);
+            try {
+              await setDoc(doc(db, 'users', firebaseUser.uid), currentUserData);
+            } catch (writeErr) {
+              console.warn('[Sync] Không thể tạo user mới trên server:', writeErr);
+            }
           }
 
           // ── Ghi LoginLog ──
@@ -4335,20 +4645,24 @@ export default function App() {
             const lastAttemptDate = lastAttempt?.timestamp?.toDate().toDateString();
             
             // We need the latest user data for notification check
-            const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-            const latestUser = userSnap.data() as UserProfile;
+            try {
+              const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
+              const latestUser = userSnap.data() as UserProfile;
 
-            if (lastAttemptDate !== today && !latestUser.notifications?.find(n => n.title === 'Nhắc nhở hàng ngày' && n.timestamp.toDate().toDateString() === today)) {
-              const reminder: AppNotification = {
-                id: 'daily_' + Date.now(),
-                title: 'Nhắc nhở hàng ngày',
-                message: 'Hôm nay em chưa uống thuốc Vật lý đâu nhé! Hãy làm một đề để duy trì phong độ.',
-                type: 'warning',
-                read: false,
-                timestamp: Timestamp.now()
-              };
-              const updatedNotifications = [reminder, ...(latestUser.notifications || [])].slice(0, 20);
-              await setDoc(doc(db, 'users', firebaseUser.uid), { notifications: updatedNotifications }, { merge: true });
+              if (lastAttemptDate !== today && !latestUser.notifications?.find(n => n.title === 'Nhắc nhở hàng ngày' && n.timestamp.toDate().toDateString() === today)) {
+                const reminder: AppNotification = {
+                  id: 'daily_' + Date.now(),
+                  title: 'Nhắc nhở hàng ngày',
+                  message: 'Hôm nay em chưa uống thuốc Vật lý đâu nhé! Hãy làm một đề để duy trì phong độ.',
+                  type: 'warning',
+                  read: false,
+                  timestamp: Timestamp.now()
+                };
+                const updatedNotifications = [reminder, ...(latestUser.notifications || [])].slice(0, 20);
+                await setDoc(doc(db, 'users', firebaseUser.uid), { notifications: updatedNotifications }, { merge: true });
+              }
+            } catch (err) {
+              console.warn("Không thể check daily reminder (có thể do quota)", err);
             }
           });
         } else {
@@ -4359,8 +4673,16 @@ export default function App() {
         }
       } catch (err: any) {
         console.error("Auth State Error:", err);
-        setAuthError(`Lỗi đồng bộ dữ liệu: ${err?.message || 'Không xác định'}`);
-        setUser(null); // Fallback to login screen
+        // Error handling fallback 
+        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota')) {
+           setAuthError(`Server đang quá tải tạm thời. Bạn đang xem chế độ Offline từ bộ nhớ đệm.`);
+           // Lỗi quota: không reset user(null) vì có thể dữ liệu cache đang dùng tốt
+           // Chỉ reset nếu thât sự user chưa được fetch
+           setUser((prev) => prev); // Giữ nguyên
+        } else {
+           setAuthError(`Lỗi đồng bộ dữ liệu: ${err?.message || 'Không xác định'}`);
+           setUser(null); // Lỗi khác (mạng, corrupt,...) -> logout
+        }
       } finally {
         setLoading(false);
       }
@@ -4624,6 +4946,9 @@ export default function App() {
     let totalScore = 0;
     const errorTracking: Record<string, any> = {};
     const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
+    
+    // ── Khởi tạo bộ nhớ 70-30 ──
+    const newFailedQuestionIds = new Set(user.failedQuestionIds || []);
 
     for (const q of activeTest.questions) {
       const studentAns = answers[q.id];
@@ -4648,6 +4973,15 @@ export default function App() {
         const correctVal = normalizeDecimal(q.correctAnswer);
         isCorrect = !isNaN(studentVal) && Math.abs(studentVal - correctVal) < 0.01;
         if (isCorrect) totalScore += 0.25;
+      }
+      
+      // ── Cập nhật bộ nhớ 70-30 ──
+      if (q.id) {
+        if (!isCorrect) {
+          newFailedQuestionIds.add(q.id); // Lưu vào hồ sơ bệnh án
+        } else {
+          newFailedQuestionIds.delete(q.id); // Đã làm đúng, gỡ khỏi hồ sơ
+        }
       }
     }
 
@@ -4682,6 +5016,7 @@ export default function App() {
 
       updatedUser.badges = newBadges;
       updatedUser.notifications = newNotifications;
+      updatedUser.failedQuestionIds = Array.from(newFailedQuestionIds);
       
       if (redZones.length > 0) {
         updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...redZones]));
@@ -4761,10 +5096,10 @@ export default function App() {
         updatedUser.notifications = newNotifications;
       }
 
-      // ── 4. Gộp tất cả vào 1 lần setDoc duy nhất ──
       await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
       setUser(updatedUser);
 
+      setSubmissionResult({ score: totalScore, earnedXP, show: true });
       setResults(attempt);
       setShowVirtualLab(false);
     } catch (e) {
@@ -4960,7 +5295,7 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex relative">
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex flex-col md:flex-row relative">
       <ToastProvider />
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
       {activeSimulationViewer && (
@@ -4979,13 +5314,52 @@ export default function App() {
         setActiveTab={handleSidebarNavigate}
         soundEnabled={soundEnabled}
         setSoundEnabled={setSoundEnabled}
+        isMobileOpen={isMobileMenuOpen}
+        setIsMobileOpen={setIsMobileMenuOpen}
       />
 
+      {/* ══════ MOBILE TOP BAR (hiện trên mobile, ẩn trên desktop) ══════ */}
+      {user && (
+        <div className="md:hidden fixed top-0 left-0 right-0 z-[80] bg-slate-950/95 backdrop-blur-xl border-b border-slate-800/50 safe-area-inset">
+          <div className="flex items-center justify-between px-4 h-[56px]">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="p-2 -ml-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-90"
+                aria-label="Mở menu"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              </button>
+              <span className="font-headline font-black text-white text-lg tracking-tighter">
+                PHYS<span className="text-fuchsia-500 text-glow-neon">8+</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <NotificationCenter 
+                notifications={user.notifications} 
+                onRead={markNotificationAsRead} 
+              />
+              <button 
+                onClick={signOut}
+                className="p-2 rounded-xl text-slate-500 hover:text-red-500 hover:bg-red-600/10 transition-all"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={cn(
-        "flex-1 transition-all duration-300 min-h-screen",
-        user ? (isSidebarCollapsed ? "ml-[80px]" : "ml-[260px]") : ""
+        "flex-1 transition-all duration-300 min-h-screen w-full",
+        user ? (isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]") : "",
+        user ? "pt-[56px] md:pt-0" : ""
       )}>
-        <main className="max-w-7xl mx-auto px-6 py-12">
+        <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
         {!user ? (
           <div className="relative py-20 overflow-hidden">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-red-600/10 blur-[120px] rounded-full -z-10 pointer-events-none" />
@@ -5002,12 +5376,12 @@ export default function App() {
                   Hệ thống luyện thi Vật lý 2025
                 </div>
                 
-                <h1 className="text-6xl md:text-8xl font-black text-white mb-8 leading-[0.9] tracking-tighter">
+                <h1 className="text-4xl sm:text-5xl md:text-8xl font-black text-white mb-6 md:mb-8 leading-[0.9] tracking-tighter">
                   CHINH PHỤC <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-amber-500">8.0+ VẬT LÝ</span>
                 </h1>
                 
-                <p className="text-xl md:text-2xl text-slate-400 mb-12 max-w-2xl mx-auto leading-relaxed font-medium">
+                <p className="text-base sm:text-lg md:text-2xl text-slate-400 mb-8 md:mb-12 max-w-2xl mx-auto leading-relaxed font-medium">
                   Hệ thống luyện thi chiến thuật tích hợp <span className="text-white">AI chẩn đoán sư phạm</span>, 
                   giúp bạn tối ưu hóa điểm số theo cấu trúc đề thi mới nhất của Bộ GD&ĐT.
                 </p>
@@ -5073,6 +5447,96 @@ export default function App() {
                   onSubmit={submitTest}
                   onCancel={() => setActiveTest(null)}
                 />
+              ) : submissionResult?.show ? (
+                <motion.div 
+                  key="victory-modal"
+                  initial={{ opacity: 0, scale: 0.8, y: 50 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -50 }}
+                  transition={{ type: 'spring', damping: 20, stiffness: 100 }}
+                  className="w-full max-w-xl mx-auto flex flex-col pt-10"
+                >
+                  <div className={`relative flex flex-col items-center justify-center p-12 rounded-[3rem] border shadow-2xl overflow-hidden ${
+                    submissionResult.score >= 8.0 
+                      ? 'bg-gradient-to-b from-amber-500/20 to-slate-900 border-amber-500/50 shadow-amber-500/20' 
+                      : submissionResult.score >= 6.0 
+                        ? 'bg-gradient-to-b from-blue-500/20 to-slate-900 border-blue-500/50 shadow-blue-500/20'
+                        : 'bg-gradient-to-b from-red-600/30 to-slate-900 border-red-500/50 shadow-red-600/30'
+                  }`}>
+                    {/* Background Animation Element */}
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
+                    <motion.div 
+                      animate={submissionResult.score < 6.0 ? { scale: [1, 1.1, 1], opacity: [0.3, 0.6, 0.3] } : {}}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                      className={`absolute inset-0 opacity-30 bg-radial-gradient ${submissionResult.score < 6.0 ? 'from-red-600' : 'from-transparent'} to-transparent`}
+                    />
+                    
+                    <div className="relative z-10 flex flex-col items-center w-full">
+                      <motion.div 
+                        initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring' }}
+                        className={`w-32 h-32 rounded-[2rem] flex items-center justify-center shadow-2xl mb-8 ${
+                          submissionResult.score >= 8.0 
+                            ? 'bg-gradient-to-br from-amber-400 to-orange-600 shadow-amber-500/50 text-white' 
+                            : submissionResult.score >= 6.0 
+                              ? 'bg-gradient-to-br from-blue-400 to-indigo-600 shadow-blue-500/50 text-white'
+                              : 'bg-gradient-to-br from-red-500 to-rose-700 shadow-red-600/50 text-white'
+                        }`}
+                      >
+                        {submissionResult.score >= 8.0 ? <Trophy className="w-14 h-14" /> : submissionResult.score >= 6.0 ? <CheckCircle2 className="w-14 h-14" /> : <AlertTriangle className="w-14 h-14" />}
+                      </motion.div>
+
+                      <motion.h2 
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                        className={`text-3xl sm:text-4xl font-black text-center mb-3 uppercase tracking-tight ${
+                           submissionResult.score >= 8.0 ? 'text-amber-400' : submissionResult.score >= 6.0 ? 'text-blue-400' : 'text-red-400'
+                        }`}
+                      >
+                        {submissionResult.score >= 8.0 
+                          ? 'XUẤT SẮC - MASTER!' 
+                          : submissionResult.score >= 6.0 
+                            ? 'KHÁ - ĐÃ HOÀN THÀNH!' 
+                            : '🚨 CẢNH BÁO BỆNH ÁN!'}
+                      </motion.h2>
+
+                      <motion.p 
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
+                        className="text-slate-300 text-center mb-8 text-lg font-medium px-4"
+                      >
+                        {submissionResult.score >= 8.0 
+                          ? 'Mức độ thông hiểu của bạn sặc mùi thủ khoa. Tuyệt vời!' 
+                          : submissionResult.score >= 6.0 
+                            ? 'Làm tốt lắm. Giữ vững phong độ để bứt phá thêm nhé!' 
+                            : 'Hệ thống AI đã phát hiện lỗ hổng nghiêm trọng ở chuyên đề này. Vùng kiến thức này đã được đưa vào Danh sách Cách Ly Đỏ!'}
+                      </motion.p>
+
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5, type: 'spring' }}
+                        className="bg-slate-950/80 border border-slate-700 p-6 rounded-3xl w-full max-w-[280px] flex items-center justify-between shadow-inner mb-10"
+                      >
+                         <div>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1 mb-1">XP Thu Thập</p>
+                            <p className="text-3xl font-black text-amber-400">+{submissionResult.earnedXP} XP</p>
+                         </div>
+                         <div className="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center">
+                            <Star className="w-6 h-6 text-amber-400" />
+                         </div>
+                      </motion.div>
+
+                      <motion.button
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
+                        onClick={() => setSubmissionResult({ ...submissionResult, show: false })}
+                        className={`w-full py-4 sm:py-5 rounded-2xl font-black text-white text-lg transition-all active:scale-95 shadow-xl flex items-center justify-center gap-3 ${
+                           submissionResult.score >= 6.0 
+                             ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20' 
+                             : 'bg-red-600 hover:bg-red-500 shadow-red-600/30 animate-pulse'
+                        }`}
+                      >
+                        {submissionResult.score >= 6.0 ? 'NHẬN THƯỞNG & XEM LỜI GIẢI' : 'CHẤP NHẬN BỆNH ÁN & CHỮA LỖI'}
+                        <ArrowRight className="w-5 h-5" />
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
               ) : (
                 <motion.div 
                   key="results"
@@ -5302,9 +5766,9 @@ export default function App() {
           </div>
         ) : (
           <div className="space-y-12 relative z-10">
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
               <div className="space-y-1">
-                <h2 className="text-4xl font-black text-white tracking-tight">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
                   CHÀO THẦY THUỐC, <span className="text-red-600">{user.displayName.toUpperCase()}</span>
                 </h2>
                 <p className="text-slate-500 font-medium flex items-center gap-2">
@@ -5312,7 +5776,7 @@ export default function App() {
                   Hệ thống đang trực tuyến. Sẵn sàng chẩn đoán kiến thức.
                 </p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="hidden md:flex items-center gap-4">
                 <div className="hidden sm:flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl">
                   <div className="flex flex-col items-end">
                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Huy hiệu</span>
@@ -5344,7 +5808,11 @@ export default function App() {
               <LiveClassExam user={user} />
             )}
 
-            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && (
+            {activeView === 'adaptive' && (
+              <AdaptiveDashboard user={user} attempts={attempts} />
+            )}
+
+            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && activeView !== 'adaptive' && (
               <>
                 <StudentDashboard 
                   user={user} 
@@ -5492,12 +5960,12 @@ export default function App() {
               <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
                 {/* ── Admin Header ── */}
                 <div className="text-center mb-4">
-                  <h2 className="text-2xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
+                  <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
                     CHÀO THẦY THUỐC {user.displayName} — HỆ THỐNG SẴN SÀNG
                   </h2>
-                  <p className="text-slate-500 text-sm mt-2 leading-7">Trung tâm điều khiển Phy8+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
+                  <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-6 sm:leading-7">Trung tâm điều khiển Phy8+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8">
                   {[
                     { label: 'Trạng thái AI', value: 'Sẵn sàng', icon: BrainCircuit, color: 'text-green-500' },
                     { label: 'Tổng số câu hỏi', value: adminStats.isLoading ? null : adminStats.totalQuestions.toLocaleString(), icon: BookOpen, color: 'text-cyan-400' },
@@ -5520,12 +5988,12 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <h3 className="text-2xl font-black flex items-center gap-3 text-gradient-fire font-headline">
-                    <Settings className="text-cyan-400 w-7 h-7" />
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-black flex items-center gap-2 md:gap-3 text-gradient-fire font-headline">
+                    <Settings className="text-cyan-400 w-5 h-5 md:w-7 md:h-7" />
                     HỆ THỐNG QUẢN TRỊ PHYS-8+
                   </h3>
-                  <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full md:w-auto">
+                  <div className="flex overflow-x-auto bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full md:w-auto scrolling-touch hide-scrollbar">
                     {[
                       { id: 'Digitize', label: 'Số hóa đề', icon: History },
                       { id: 'Bank', label: 'Kho câu hỏi', icon: BookOpen },
@@ -5540,7 +6008,7 @@ export default function App() {
                         key={tab.id}
                         onClick={() => setAdminTab(tab.id as any)}
                         className={cn(
-                          "flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                          "flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2",
                           adminTab === tab.id 
                             ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
                             : "text-slate-500 hover:text-slate-300"
@@ -5559,8 +6027,8 @@ export default function App() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3 }}
                 >
-                  {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => setAdminTab('Bank')} />}
-                  {adminTab === 'Bank' && <QuestionBank />}
+                  {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
+                  {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
                   {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} />}
                   {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
                   {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
