@@ -3539,6 +3539,7 @@ const ProExamExperience = ({
 
   const handleSubmit = () => {
     localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem('phys8_active_exam_session'); // Xóa session key
     onSubmit();
   };
 
@@ -4530,6 +4531,66 @@ export default function App() {
   const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean } | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
 
+  // ═══ [SESSION PERSISTENCE] Lưu & khôi phục phiên thi khi bị văng ra ═══
+  const SESSION_KEY = 'phys8_active_exam_session';
+
+  // Lưu phiên thi vào localStorage mỗi khi activeTest hoặc answers thay đổi
+  useEffect(() => {
+    if (activeTest && !results) {
+      try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          topic: activeTest.topic,
+          questions: activeTest.questions,
+          examId: activeTest.examId,
+          answers,
+          currentQuestionIndex,
+          savedAt: Date.now(),
+        }));
+      } catch (e) {
+        console.warn('[Session] Không thể lưu phiên thi:', e);
+      }
+    }
+  }, [activeTest, answers, currentQuestionIndex, results]);
+
+  // Xóa phiên thi khi đã nộp bài (results có giá trị) hoặc hủy bài
+  const clearExamSession = () => {
+    localStorage.removeItem(SESSION_KEY);
+    // Cũng xóa draft key cũ của ProExamExperience
+    if (auth.currentUser?.uid && activeTest?.topic) {
+      localStorage.removeItem(`exam_draft_${auth.currentUser.uid}_${activeTest.topic}`);
+    }
+  };
+
+  // Khôi phục phiên thi sau khi user login lại
+  const restoreExamSession = () => {
+    try {
+      const saved = localStorage.getItem(SESSION_KEY);
+      if (!saved) return false;
+      const session = JSON.parse(saved);
+      // Kiểm tra tính hợp lệ: phải có questions và chưa quá 2 giờ
+      if (!session.questions || !Array.isArray(session.questions) || session.questions.length === 0) {
+        localStorage.removeItem(SESSION_KEY);
+        return false;
+      }
+      const elapsed = Date.now() - (session.savedAt || 0);
+      if (elapsed > 2 * 60 * 60 * 1000) { // Quá 2 giờ → xóa session cũ
+        localStorage.removeItem(SESSION_KEY);
+        return false;
+      }
+      // Khôi phục!
+      setActiveTest({ topic: session.topic, questions: session.questions, examId: session.examId });
+      setAnswers(session.answers || {});
+      setCurrentQuestionIndex(session.currentQuestionIndex || 0);
+      setResults(null);
+      console.info(`[Session] ✅ Đã khôi phục phiên thi: ${session.topic} — ${session.questions.length} câu`);
+      return true;
+    } catch (e) {
+      console.warn('[Session] Lỗi khôi phục phiên thi:', e);
+      localStorage.removeItem(SESSION_KEY);
+      return false;
+    }
+  };
+
   const [simulations, setSimulations] = useState<Simulation[]>([]);
   const [activeSimulationViewer, setActiveSimulationViewer] = useState<Simulation | null>(null);
   
@@ -4688,6 +4749,11 @@ export default function App() {
 
           setUser(currentUserData);
 
+          // ═══ [SESSION RESTORE] Sau khi user đã sẵn sàng → khôi phục phiên thi đang dở ═══
+          if (!activeTest) {
+            restoreExamSession();
+          }
+
           // Real-time user profile
           uSub = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
             if (snap.exists()) {
@@ -4833,6 +4899,27 @@ export default function App() {
   const startTest = async (topic: Topic, examId?: string) => {
     setLoading(true);
     try {
+      // ═══ [SESSION CHECK] Kiểm tra phiên thi đang dở trước khi tạo đề mới ═══
+      const savedSession = localStorage.getItem(SESSION_KEY);
+      if (savedSession && !examId) {
+        try {
+          const session = JSON.parse(savedSession);
+          const elapsed = Date.now() - (session.savedAt || 0);
+          // Nếu cùng topic VÀ chưa quá 2 giờ → khôi phục phiên cũ
+          if (session.topic === topic && session.questions?.length > 0 && elapsed < 2 * 60 * 60 * 1000) {
+            console.info(`[startTest] ♻️ Khôi phục phiên thi đang dở: ${topic}`);
+            setActiveTest({ topic: session.topic, questions: session.questions, examId: session.examId });
+            setAnswers(session.answers || {});
+            setCurrentQuestionIndex(session.currentQuestionIndex || 0);
+            setResults(null);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn('[startTest] Lỗi đọc session cũ, tạo đề mới:', e);
+        }
+      }
+
       if (examId) {
         const examDoc = await getDoc(doc(db, 'exams', examId));
         if (examDoc.exists()) {
@@ -5163,6 +5250,7 @@ export default function App() {
 
       setSubmissionResult({ score: totalScore, earnedXP, show: true });
       setResults(attempt);
+      clearExamSession(); // Xóa session — bài thi đã nộp xong
       setShowVirtualLab(false);
     } catch (e) {
       handleFirestoreError(e, OperationType.CREATE, 'attempts');
@@ -5507,7 +5595,7 @@ export default function App() {
                   answers={answers}
                   onAnswer={handleAnswer}
                   onSubmit={submitTest}
-                  onCancel={() => setActiveTest(null)}
+                  onCancel={() => { clearExamSession(); setActiveTest(null); }}
                 />
               ) : submissionResult?.show ? (
                 <motion.div 
@@ -5797,7 +5885,7 @@ export default function App() {
 
                   <div className="mt-12 flex flex-col md:flex-row gap-4">
                     <button 
-                      onClick={() => setActiveTest(null)}
+                      onClick={() => { clearExamSession(); setActiveTest(null); }}
                       className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
                     >
                       Trang chủ
