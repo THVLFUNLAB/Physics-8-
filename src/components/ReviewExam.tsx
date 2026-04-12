@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
 import { cn } from '../lib/utils';
-import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight } from 'lucide-react';
+import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight, ShieldAlert } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { auth, db, collection, addDoc, Timestamp } from '../firebase';
 import { toast } from './Toast';

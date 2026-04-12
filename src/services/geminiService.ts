@@ -280,7 +280,7 @@ ${PHYSICS_KNOWLEDGE_TREE}
 ## QUY TẮC
 
 【1】NHẬN DIỆN CẤU TRÚC:
-• Có a),b),c),d) chữ thường → part=2 (Đúng/Sai). YÊU CẦU QUAN TRỌNG: KHÔNG ĐƯỢC tự động chuyển đổi thành A., B., C., D. chữ HOA. Nội dung trong mảng \`options\` của Phần 2 CHỈ LẤY KẾT QUẢ/CHỮ BÊN TRONG, nếu AI thấy khó trích xuất thì bắt buộc GIỮ NGUYÊN nhãn a),b),c),d) chữ thường nguyên vẹn. MỘT LẦN NỮA: Phần II KHÔNG ĐƯỢC CHỨA CÁC CHỮ A. B. C. D. TRONG OPTIONS!
+• Có a),b),c),d) chữ thường → part=2 (Đúng/Sai). YÊU CẦU QUAN TRỌNG: KHÔNG ĐƯỢC tự động chuyển đổi thành A., B., C., D. chữ HOA. Nội dung trong mảng \`options\` của Phần 2 BẮT BUỘC PHẢI XÓA BỎ CÁC TIỀN TỐ "a)", "b)", "c)", "d)" Ở ĐẦU CÂU (chỉ lấy mệnh đề thuần túy). MỘT LẦN NỮA: Phần II KHÔNG ĐƯỢC CHỨA CÁC CHỮ A. B. C. D. TRONG OPTIONS!
 • Có A.,B.,C.,D. chữ HOA → part=1 (Trắc nghiệm)
 • Yêu cầu điền số → part=3 (Trả lời ngắn)
 
@@ -504,8 +504,19 @@ export function normalizeQuestions(rawItems: any[]): Question[] {
   const flattened = flattenClusterOutput(rawItems);
   return flattened.map(q => {
     const { value, needsReview } = normalizeCorrectAnswer(q.correctAnswer, q.part);
+    
+    // Tự động dọn dẹp các tiền tố a), b), c), d) hoặc a., b., c., d. nếu AI vẫn sinh ra
+    let cleanedOptions = q.options;
+    if (q.part === 2 && Array.isArray(q.options)) {
+      cleanedOptions = q.options.map(opt => {
+        if (typeof opt !== 'string') return opt;
+        return opt.replace(/^[a-dA-D][\.\)]\s*/, '').trim();
+      });
+    }
+
     return {
       ...q,
+      options: cleanedOptions,
       correctAnswer: value,
       tags: needsReview
         ? [...(q.tags || []), '__needs_answer_review']
