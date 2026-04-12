@@ -15,6 +15,7 @@ const ProjectorLeaderboard: React.FC<ProjectorLeaderboardProps> = ({ classExamId
   const [examTitle, setExamTitle] = useState('');
   const [totalQuestions, setTotalQuestions] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const [participantCount, setParticipantCount] = useState(0);
 
   // Throttle re-renders: only update state every 3 seconds
   const lastUpdateRef = useRef(0);
@@ -27,6 +28,15 @@ const ProjectorLeaderboard: React.FC<ProjectorLeaderboardProps> = ({ classExamId
         setClassExam({ id: snap.id, ...snap.data() } as ClassExam);
       }
     });
+    return unsub;
+  }, [classExamId]);
+
+  // ── Listen participants sub-collection (scalable join count) ──
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'classExams', classExamId, 'participants'),
+      (snap) => setParticipantCount(snap.size)
+    );
     return unsub;
   }, [classExamId]);
 
@@ -132,13 +142,13 @@ const ProjectorLeaderboard: React.FC<ProjectorLeaderboardProps> = ({ classExamId
         {/* Logo */}
         <div className="flex items-center gap-4">
           <span className="font-black text-3xl tracking-tighter">
-            PHYS<span className="text-fuchsia-500">8+</span>
+            PHYS<span className="text-fuchsia-500">9+</span>
           </span>
           <div className="w-px h-10 bg-slate-800" />
           <div>
             <p className="text-lg font-bold text-white leading-tight">{classExam?.title || 'Phòng Thi'}</p>
             <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">
-              {attempts.length} thí sinh • {totalQuestions} câu hỏi
+              {participantCount} đã join • {attempts.length} đang thi • {totalQuestions} câu hỏi
             </p>
           </div>
         </div>
@@ -298,7 +308,7 @@ const ProjectorLeaderboard: React.FC<ProjectorLeaderboardProps> = ({ classExamId
 
       {/* ── Footer ── */}
       <div className="px-8 py-3 border-t border-slate-800/50 flex justify-between items-center text-slate-600 text-xs shrink-0">
-        <span>© 2025 PHYS-8+ | Phòng Thi Tập Trung</span>
+        <span>© 2026 PHYS-9+ | Phòng Thi Tập Trung</span>
         <span className="font-mono">{new Date().toLocaleTimeString('vi-VN')}</span>
       </div>
     </div>

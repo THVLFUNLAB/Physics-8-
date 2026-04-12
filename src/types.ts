@@ -134,8 +134,10 @@ export interface Exam {
   questions: Question[];
   createdAt: any;
   createdBy: string;
-  type: 'Matrix' | 'AI_Diagnosis' | 'Custom';
+  type: 'Matrix' | 'AI_Diagnosis' | 'Custom' | 'Digitized';
   targetStudentId?: string;
+  published?: boolean;       // false = nháp (ẩn với HS), true = phát hành
+  sourceFile?: string;       // Tên file gốc (nếu có)
 }
 
 export interface Attempt {

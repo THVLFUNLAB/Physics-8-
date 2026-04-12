@@ -157,7 +157,7 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts })
           query(collection(db, 'questions'), where('topic', '==', topic))
         );
         qSnap.forEach(d => {
-          const q = { id: d.id, ...d.data() } as Question;
+          const q = { ...d.data(), id: d.id } as Question;
           if ((q.status || 'published') === 'draft') return;
           
           if (q.id && failedIds.has(q.id)) {

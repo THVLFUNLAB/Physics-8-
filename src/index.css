@@ -1,10 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-headline: "Outfit", sans-serif;
+  --font-headline: "Chakra Petch", sans-serif;
 }
 
 @layer base {
@@ -91,7 +91,7 @@
 }
 .prose h1, .prose h2, .prose h3 {
   color: #fff;
-  font-family: "Outfit", sans-serif;
+  font-family: "Chakra Petch", sans-serif;
   letter-spacing: -0.025em;
   margin-top: 1.5rem;
   margin-bottom: 1rem;
@@ -147,3 +147,69 @@
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.8s ease-in-out infinite;
 }
+
+/* ------ RESPONSIVE & MOBILE OPTIMIZATIONS ------ */
+.scrolling-touch {
+  -webkit-overflow-scrolling: touch;
+}
+
+.touch-target {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+/* Ensure images within equations/markdown never overflow mobile screens */
+.katex-display img, .prose img, .responsive-math img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  margin: 0.5rem auto;
+}
+
+/* Fluid Typography base for question content */
+.text-fluid-base {
+  font-size: clamp(1rem, 2vw + 0.5rem, 1.125rem); /* 16px to 18px */
+  line-height: 1.75;
+}
+
+.text-fluid-lg {
+  font-size: clamp(1.125rem, 2.5vw + 0.5rem, 1.25rem); /* 18px to 20px */
+  line-height: 1.75;
+}
+
+/* ══════ MOBILE RESPONSIVE ENHANCEMENTS ══════ */
+
+/* Safe area inset for notch / dynamic island devices */
+.safe-area-inset {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Hide scrollbar but keep scroll functionality (for horizontal tab bars) */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ensure all interactive elements have adequate tap targets on mobile */
+@media (max-width: 767px) {
+  /* Prevent horizontal overflow on mobile */
+  body {
+    overflow-x: hidden;
+  }
+  
+  /* Make cards and containers not overflow */
+  .max-w-7xl {
+    max-width: 100%;
+  }
+
+  /* Recharts / chart containers should not overflow */
+  .recharts-responsive-container {
+    max-width: 100% !important;
+  }
+}
+

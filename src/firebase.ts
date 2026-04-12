@@ -1,18 +1,30 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
+import { initializeFirestore, memoryLocalCache, collection, doc, getDoc, getDocs, getDocsFromServer, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { toast } from './components/Toast';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Initialize Firebase SDK
+// Initialize Firebase SDK — TẮT IndexedDB cache hoàn toàn để tránh "xóa giả"
+// Mọi thao tác đọc/ghi đều đi thẳng đến server, không qua trung gian
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = initializeFirestore(app, {}, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const storage = getStorage(app);
 
 // Auth Helpers
-export const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
+export const signInWithGoogle = async () => {
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: any) {
+    if (err?.code === 'auth/popup-blocked') {
+      // Popup bị chặn → tự động chuyển sang redirect (không cần popup)
+      return signInWithRedirect(auth, googleProvider);
+    }
+    throw err;
+  }
+};
 export const signOut = () => auth.signOut();
 
 /**
@@ -153,6 +165,16 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  
+  // Hiển thị thông báo lỗi thân thiện cho Thầy để thầy biết nguyên nhân (Quota hay Quyền)
+  if (errInfo.error.includes("permission-denied") || errInfo.error.includes("Missing or insufficient permissions")) {
+    toast.error('LỖI QUYỀN TRUY CẬP: Tài khoản không có quyền Admin hoặc Firestore báo lỗi cấp phép.');
+  } else if (errInfo.error.includes("quota") || errInfo.error.includes("Quota exceeded")) {
+    toast.error('LỖI DUNG LƯỢNG: Đã hết giới hạn (Quota) miễn phí của Firebase cho hôm nay! Vui lòng nâng cấp gói hoặc thử lại vào ngày mai.');
+  } else {
+    toast.error('Lỗi kết nối máy chủ: ' + errInfo.error.substring(0, 50) + '...');
+  }
+  
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -203,5 +225,5 @@ export const updateDoc = (ref: any, data: any) => {
 };
 
 export { 
-  collection, doc, getDoc, getDocs, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer
+  collection, doc, getDoc, getDocs, getDocsFromServer, getDocFromServer, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache
 };

@@ -8,7 +8,7 @@ import { Question, ErrorAnalysis } from "../types";
 // - gemini-2.5-flash: Số hóa DOCX (text input) / Phân tích câu trả lời
 // ============================================================
 const MODELS = {
-  DIGITIZE: "gemini-2.5-pro",
+  DIGITIZE: "gemini-2.5-flash",  // ── COST FIX: Flash only (Pro đắt 17x, chất lượng Flash đã đủ)
   ANALYZE:  "gemini-2.5-flash",
 } as const;
 
@@ -35,7 +35,7 @@ export async function analyzeAnswer(
   const ai = getAI();
 
   const prompt = `
-Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-8+.
+Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-9+.
 Nhiệm vụ: Phân tích CỰC KỲ CHÍNH XÁC câu trả lời của học sinh và phân loại sai lầm.
 
 === DỮ LIỆU CÂU HỎI ===
@@ -105,6 +105,32 @@ Kết quả: ${isCorrect ? "✓ ĐÚNG" : "✗ SAI"}
 // ============================================================
 // DIAGNOSE FULL EXAM — Phân tích tổng thể một lần
 // ============================================================
+
+// ── COST FIX: Cache diagnosis results to avoid re-calling AI ──
+function getDiagnosisCache(key: string) {
+  try {
+    const cached = sessionStorage.getItem(`phy8_diag_${key}`);
+    if (cached) return JSON.parse(cached);
+  } catch { /* empty */ }
+  return null;
+}
+
+function setDiagnosisCache(key: string, data: any) {
+  try {
+    sessionStorage.setItem(`phy8_diag_${key}`, JSON.stringify(data));
+  } catch { /* full storage */ }
+}
+
+// ── COST FIX: Strip HTML & truncate to reduce token count ──
+function compressForPrompt(text: string, maxLen = 200): string {
+  return (text || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/!\[.*?\]\(.*?\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, maxLen);
+}
+
 export async function diagnoseUserExam(
   incorrectRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[],
   skippedRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[] = []
@@ -114,7 +140,6 @@ export async function diagnoseUserExam(
   remedialMatrix: { topic: string; count: number }[];
   behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount: number };
 }> {
-  const ai = getAI();
 
   if (incorrectRecords.length === 0 && skippedRecords.length === 0) {
     return {
@@ -125,20 +150,26 @@ export async function diagnoseUserExam(
     };
   }
 
+  // ── COST FIX: Check cache first ──
+  const cacheKey = incorrectRecords.map(r => `${r.question.id}_${JSON.stringify(r.studentAnswer)}`).join('|')
+    + '||' + skippedRecords.length;
+  const cached = getDiagnosisCache(cacheKey);
+  if (cached) {
+    console.info('[Diagnosis] Cache hit — skipping AI call');
+    return cached;
+  }
+
+  const ai = getAI();
+
+  // ── COST FIX: Compressed prompt — strip HTML, truncate content, no explanation → saves ~40% tokens ──
   const prompt = `
-Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-8+.
+Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-9+.
 Học sinh vừa hoàn thành một bài test, kết quả như sau:
 - Câu LÀM SAI (Incorrect): ${incorrectRecords.length}
 - Câu BỎ TRỐNG (Skipped): ${skippedRecords.length}
 
 === DANH SÁCH CÂU SAI ===
-${incorrectRecords.length > 0 ? incorrectRecords.map((r, i) => `
-Lỗi #${i + 1}:
-- Chủ đề: ${r.question.topic} | Mức độ: ${r.question.level}
-- Nội dung: ${r.question.content}
-- Đáp án đúng: ${JSON.stringify(r.question.correctAnswer)}
-- Học sinh chọn: ${JSON.stringify(r.studentAnswer)}
-`).join("\n") : "Không có câu nào làm sai."}
+${incorrectRecords.length > 0 ? incorrectRecords.map((r, i) => `#${i + 1}: [${r.question.topic}|${r.question.level}] ${compressForPrompt(r.question.content)} → Đúng: ${JSON.stringify(r.question.correctAnswer)} | HS: ${JSON.stringify(r.studentAnswer)}`).join("\n") : "Không có câu nào làm sai."}
 
 === YÊU CẦU PHÂN TÍCH CHUẨN ĐOÁN ===
 Dựa vào chuẩn kiến thức GDPT 2018 môn Vật lý:
@@ -197,6 +228,9 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
       result.behavioralAnalysis.skippedCount = skippedRecords.length;
     }
     
+    // ── COST FIX: Cache result for this session ──
+    setDiagnosisCache(cacheKey, result);
+
     return result;
   } catch (error) {
     console.error("Gemini Batch Diagnosis Error:", error);
@@ -213,71 +247,20 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
 // CÂY KIẾN THỨC VẬT LÝ THPT (GDPT 2018)
 // ============================================================
 const PHYSICS_KNOWLEDGE_TREE = `
-=== CÂY KIẾN THỨC VẬT LÝ THPT — CHƯƠNG TRÌNH GDPT 2018 ===
+=== CÂY KIẾN THỨC VẬT LÝ THPT (GDPT 2018) ===
 
-【VẬT LÝ 10】
-• Động học: Chuyển động thẳng đều, biến đổi đều, rơi tự do, chuyển động tròn đều
-• Động lực học: Ba định luật Newton, lực ma sát, lực đàn hồi, lực hướng tâm
-• Năng lượng: Công, công suất, động năng, thế năng, cơ năng, bảo toàn cơ năng
-• Động lượng: Động lượng, xung lực, bảo toàn động lượng, va chạm
+【10】Động học | Động lực học (Newton) | Năng lượng (Công, Cơ năng) | Động lượng
+【11】Dao động cơ (con lắc, cộng hưởng) | Sóng cơ (giao thoa, sóng dừng, sóng âm) | Điện trường (Coulomb, tụ điện) | Dòng điện (Ohm, ghép R)
+【12】Từ trường (lực từ, Lorentz) | Cảm ứng ĐT (Faraday, tự cảm) | Điện XC (RLC, cộng hưởng, MBA) | Sóng ĐT | Quang học (tán sắc, giao thoa) | Vật lí nhiệt (nội năng, NĐLH) | Khí LT (PTTT, đẳng quá trình) | Lượng tử (quang điện) | Hạt nhân (phóng xạ, PƯHN)
 
-【VẬT LÝ 11】
-• Dao động cơ: Dao động điều hòa, con lắc lò xo, con lắc đơn, dao động tắt dần, cộng hưởng
-• Sóng cơ: Sóng ngang, sóng dọc, giao thoa sóng, sóng dừng, sóng âm
-• Điện trường: Lực Coulomb, điện trường, hiệu điện thế, tụ điện
-• Dòng điện: Dòng điện không đổi, định luật Ohm, ghép điện trở, năng lượng điện
+Mức độ: Nhận biết(NB) | Thông hiểu(TH) | Vận dụng(VD) | Vận dụng cao(VDC)
 
-【VẬT LÝ 12】
-• Từ trường: Từ trường, lực từ, cảm ứng từ, lực Lorentz
-• Cảm ứng điện từ: Từ thông, suất điện động cảm ứng, tự cảm
-• Điện xoay chiều: Mạch RLC, cộng hưởng điện, công suất, máy biến áp, truyền tải điện
-• Sóng điện từ: Dao động điện từ, sóng điện từ, thang sóng điện từ
-• Quang học: Tán sắc, giao thoa ánh sáng, nhiễu xạ
-• Vật lí nhiệt: Nội năng, các nguyên lí nhiệt động lực học
-• Khí lí tưởng: Phương trình trạng thái, các đẳng quá trình
-• Lượng tử ánh sáng: Hiện tượng quang điện, thuyết lượng tử, quang phổ
-• Vật lí hạt nhân: Cấu tạo hạt nhân, phóng xạ, phản ứng hạt nhân, năng lượng liên kết
-
-=== MỨC ĐỘ NHẬN THỨC ===
-• Nhận biết (NB): Nhớ, liệt kê, nhận dạng khái niệm
-• Thông hiểu (TH): Giải thích, suy luận, so sánh
-• Vận dụng (VD): Áp dụng công thức, giải bài tập cơ bản
-• Vận dụng cao (VDC): Bài tập phức tạp, tổng hợp nhiều kiến thức
-
-=== QUY TẮC PHÂN LOẠI CHỦ ĐỀ LỚP 12 — BỘ LỌC TỪ KHÓA ĐỘC QUYỀN (BẮT BUỘC) ===
-
-⚠️ STOP-WORDS RULE: Khi phân loại, BỎ QUA HOÀN TOÀN trọng số của các từ phổ quát sau:
-   "công", "năng lượng", "lực", "chuyển động", "nhiệt độ".
-   CHỈ dùng các từ khóa đặc trưng (Exclusive Keywords) dưới đây để ra quyết định dán nhãn.
-
-⚡ LOGIC PHÂN LOẠI IF → ELSE IF (KHẮT KHE, KHÔNG NỘI SUY CẢM TÍNH):
-
-IF câu hỏi chứa BẤT KỲ từ khóa nào trong nhóm sau:
-   ▸ "sự nóng chảy", "sự hoá hơi", "nội năng", "định luật 1 nhiệt động lực học",
-   ▸ "thang Celsius", "thang Kelvin", "độ không tuyệt đối",
-   ▸ "nhiệt dung riêng", "nhiệt nóng chảy riêng", "nhiệt hoá hơi riêng"
-   → GÁN topic = "Vật lí nhiệt" ✅
-
-ELSE IF câu hỏi chứa BẤT KỲ từ khóa nào trong nhóm sau:
-   ▸ "động học phân tử chất khí", "chuyển động Brown", "định luật Boyle",
-   ▸ "định luật Charles", "phương trình trạng thái khí lí tưởng",
-   ▸ "áp suất khí", "hằng số Boltzmann"
-   → GÁN topic = "Khí lí tưởng" ✅
-
-ELSE IF câu hỏi chứa BẤT KỲ từ khóa nào trong nhóm sau:
-   ▸ "đường sức từ", "nam châm", "lực từ", "đoạn dây dẫn mang dòng điện",
-   ▸ "cảm ứng từ B", "tesla", "từ thông", "weber",
-   ▸ "cảm ứng điện từ", "định luật Faraday", "định luật Lenz"
-   → GÁN topic = "Từ trường" ✅
-
-ELSE (không match nhóm nào ở trên):
-   → Tiếp tục dùng CÂY KIẾN THỨC phía trên để xác định chủ đề phù hợp nhất.
-
-📌 VÍ DỤ:
-   • "Tính nội năng của hệ khi nhận nhiệt lượng Q" → có "nội năng" → topic = "Vật lí nhiệt"
-   • "Áp suất khí trong xi-lanh thay đổi khi thể tích giảm" → có "áp suất khí" → topic = "Khí lí tưởng"
-   • "Tính lực từ tác dụng lên đoạn dây dẫn mang dòng điện" → có "lực từ" + "đoạn dây dẫn mang dòng điện" → topic = "Từ trường"
-   • "Tính công của lực F khi vật di chuyển" → "công" và "lực" là stop-words → KHÔNG đủ để phân loại → dùng ngữ cảnh tổng thể
+=== QUY TẮC PHÂN LOẠI CHỦ ĐỀ LỚP 12 ===
+STOP-WORDS (bỏ qua): "công", "năng lượng", "lực", "chuyển động", "nhiệt độ"
+IF chứa: nóng chảy/hoá hơi/nội năng/NĐLH/Celsius/Kelvin/nhiệt dung riêng → topic="Vật lí nhiệt"
+ELSE IF: Brown/Boyle/Charles/PTTT khí/áp suất khí/Boltzmann → topic="Khí lí tưởng"
+ELSE IF: đường sức từ/nam châm/lực từ/tesla/từ thông/Faraday/Lenz → topic="Từ trường"
+ELSE: dùng cây kiến thức phía trên.
 `;
 
 // ============================================================
@@ -286,196 +269,55 @@ ELSE (không match nhóm nào ở trên):
 
 function buildDigitizePromptBase(inputDescription: string, topicHint?: string): string {
   return `
-Bạn là Chuyên gia Số hóa Đề thi Vật lý THPT Cao cấp, với khả năng suy luận sâu.
+Chuyên gia Số hóa Đề thi Vật lý THPT.
 
 ## NHIỆM VỤ
-Đọc và số hóa ${inputDescription} thành cấu trúc JSON câu hỏi chuẩn.
-${topicHint ? `Gợi ý chủ đề: ${topicHint}` : 'Tự nhận diện chủ đề dựa trên nội dung câu hỏi.'}
+Số hóa ${inputDescription} thành JSON.
+${topicHint ? `Gợi ý chủ đề: ${topicHint}` : 'Tự nhận diện chủ đề.'}
 
 ${PHYSICS_KNOWLEDGE_TREE}
 
-## QUY TẮC SỐ HÓA
+## QUY TẮC
 
-【1】 TỰ NHẬN DIỆN CẤU TRÚC ĐỀ (CỰC KỲ QUAN TRỌNG — PHẢI TUÂN THỦ TUYỆT ĐỐI):
-  Đề có thể có nhiều format khác nhau. Hãy dùng CÂY QUYẾT ĐỊNH sau:
+【1】NHẬN DIỆN CẤU TRÚC:
+• Có a),b),c),d) chữ thường → part=2 (Đúng/Sai). YÊU CẦU QUAN TRỌNG: KHÔNG ĐƯỢC tự động chuyển đổi thành A., B., C., D. chữ HOA. Nội dung trong mảng \`options\` của Phần 2 CHỈ LẤY KẾT QUẢ/CHỮ BÊN TRONG, nếu AI thấy khó trích xuất thì bắt buộc GIỮ NGUYÊN nhãn a),b),c),d) chữ thường nguyên vẹn. MỘT LẦN NỮA: Phần II KHÔNG ĐƯỢC CHỨA CÁC CHỮ A. B. C. D. TRONG OPTIONS!
+• Có A.,B.,C.,D. chữ HOA → part=1 (Trắc nghiệm)
+• Yêu cầu điền số → part=3 (Trả lời ngắn)
 
-  ▸ BƯỚC 1: Kiểm tra câu hỏi có các ý con dạng chữ thường a), b), c), d) không?
-    → CÓ: Đây là Part 2 (Đúng/Sai). KHÔNG BAO GIỜ phân loại thành Part 1.
-    → KHÔNG: Tiếp tục Bước 2.
+【2】CORRECTANSWER (LUÔN LÀ STRING, KHÔNG null):
+Part 1: "0"=A, "1"=B, "2"=C, "3"=D. Tìm <u>/<b>/*/✓ hoặc bảng đáp án hoặc tự giải.
+Part 2: "true,true,false,false" (4 giá trị)
+Part 3: "2.45" (đáp số)
+Ưu tiên: <u>gạch chân → <b>đậm → */✓ → bảng đáp án cuối đề → AI tự giải
 
-  ▸ BƯỚC 2: Câu hỏi có các phương án lựa chọn dạng chữ HOA A., B., C., D. không?
-    → CÓ: Đây là Part 1 (Trắc nghiệm nhiều lựa chọn).
-    → KHÔNG: Tiếp tục Bước 3.
+【3】TOPIC/LEVEL/TAGS:
+Nếu có #Chương:/#Bài:/#Dạng: trong text → trích xuất chính xác, XÓA SẠCH khỏi content.
+Nếu không → tự suy luận. topic phải cụ thể ("Dao động cơ", không "Vật lý"). tags >= 2.
 
-  ▸ BƯỚC 3: Câu hỏi yêu cầu điền số / tính toán kết quả?
-    → CÓ: Đây là Part 3 (Trả lời ngắn).
+【6】LaTeX: Δ→$\\Delta$, ω→$\\omega$, phân số→$\\frac{a}{b}$, vector→$\\vec{F}$
 
-  ⚠️ QUY TẮC SẮT ĐÁ — PHẢI GHI NHỚ:
-  • Nếu thấy ý con viết bằng chữ cái THƯỜNG: a), b), c), d) → BẮT BUỘC part = 2 (Đúng/Sai).
-  • Nếu thấy phương án viết bằng chữ cái HOA: A., B., C., D. → BẮT BUỘC part = 1 (Trắc nghiệm).
-  • KHÔNG ĐƯỢC nhầm lẫn hai dạng này, dù nội dung câu hỏi có giống nhau.
+【7】HÌNH: Giữ nguyên marker [IMG_1], [IMG_2] ở cuối content.
 
-  📌 VÍ DỤ CỤ THỂ:
+【8】BẢNG: Có bảng → **[BẢNG SỐ LIỆU]**
 
-  VÍ DỤ PART 1 (Trắc nghiệm — chữ HOA):
-  "Câu 5: Đơn vị đo cường độ dòng điện là:
-   A. Vôn (V)     B. Ampe (A)     C. Oát (W)     D. Ôm (Ω)"
-  → part = 1, options = ["Vôn (V)", "Ampe (A)", "Oát (W)", "Ôm (Ω)"]
+【9】GIẢI: Có lời giải → trích nguyên văn + LaTeX. Không có → "Chưa có lời giải chi tiết."
 
-  VÍ DỤ PART 2 (Đúng/Sai — chữ thường):
-  "Câu 19: Một dây dẫn mang dòng điện đặt trong từ trường đều. Hãy xác định mệnh đề đúng/sai:
-   a) Lực từ tác dụng lên dây dẫn luôn vuông góc với dây.
-   b) Khi đổi chiều dòng điện, lực từ đổi chiều.
-   c) Lực từ tỉ lệ nghịch với cường độ dòng điện.
-   d) Lực từ không phụ thuộc vào chiều dài dây dẫn."
-  → part = 2, options = ["a) Lực từ tác dụng lên...", "b) Khi đổi chiều...", ...], correctAnswer = [true, true, false, false]
-
-  VÍ DỤ PART 2 (dạng KHÔNG có tiêu đề "Đúng/Sai" nhưng VẪN LÀ PART 2):
-  "Câu 20: Cho mạch điện RLC nối tiếp. Xét các phát biểu sau:
-   a) Khi xảy ra cộng hưởng, cường độ dòng điện cực đại.
-   b) Hệ số công suất luôn bằng 1 khi có cộng hưởng.
-   c) Điện áp hai đầu tụ điện luôn trễ pha π/2 so với dòng điện.
-   d) Tần số cộng hưởng phụ thuộc vào điện trở R."
-  → part = 2 (vì có a/b/c/d chữ thường), KHÔNG PHẢI part = 1
-
-【2】 CORRECTANSWER — TỰ ĐỘNG NHẬN DIỆN ĐÁP ÁN (QUAN TRỌNG NHẤT):
-  ⚠️ correctAnswer LUÔN là STRING. KHÔNG BAO GIỜ được null/undefined/rỗng.
-
-  CHIẾN LƯỢC TÌM ĐÁP ÁN (theo thứ tự ưu tiên):
-  1. Tìm tag <u> (gạch chân) quanh chữ cái A/B/C/D hoặc a/b/c/d → đó là đáp án đúng
-  2. Tìm <strong>/<b> (in đậm) quanh chữ cái hoặc phương án
-  3. Tìm dấu sao (*) hoặc dấu tích (✓) trước/sau chữ cái
-  4. Tìm BẢNG ĐÁP ÁN cuối đề: "1.A 2.C 3.B" hoặc bảng dạng "Câu|1|2|3"
-  5. Đọc lời giải → tìm "→ Chọn B", "Đáp án: C"
-  6. Nếu không tìm thấy gì → AI TỰ GIẢI BÀI bằng kiến thức Vật lý
-
-  ━━━ FORMAT OUTPUT (LUÔN LÀ STRING) ━━━
-
-  PART 1 (Trắc nghiệm): correctAnswer = STRING chứa MỘT chữ số 0-3
-    A đúng → "0"  |  B đúng → "1"  |  C đúng → "2"  |  D đúng → "3"
-    VD: Thấy <u>B</u> → correctAnswer = "1"
-    VD: Bảng đáp án Câu 5: D → correctAnswer = "3"
-    VD: AI giải ra chọn C → correctAnswer = "2"
-
-  PART 2 (Đúng/Sai 4 ý): correctAnswer = STRING chứa 4 giá trị true/false cách nhau bằng dấu phẩy
-    VD: a đúng, b đúng, c sai, d sai → correctAnswer = "true,true,false,false"
-    VD: Tìm thấy *a), *c) → correctAnswer = "true,false,true,false"
-
-  PART 3 (Trả lời ngắn): correctAnswer = STRING chứa đáp số (dùng dấu chấm thập phân)
-    VD: correctAnswer = "2.45"  |  correctAnswer = "165"
-
-【3】 TỰ LUẬN CHỦ ĐỀ (topic), MỨC ĐỘ (level), VÀ THẺ (tags) — DỰA TRÊN DỮ LIỆU CÓ SẴN TRONG ĐỀ:
-  NẾU trong văn bản câu hỏi có sẵn các dòng đánh dấu (ví dụ do giáo viên soạn tay):
-   "#Chương: Vật lí nhiệt", "#Bài: Nhiệt hóa hơi", "#Dạng: ...", "Phần III", "Vận dụng"
-  → BẮT BUỘC phải TRÍCH XUẤT chính xác:
-    - Lấy nội dung sau "#Chương:" gán vào trường \`topic\` (VD: "Vật lí nhiệt").
-    - Lấy tự khóa mức độ ("Nhận biết", "Thông hiểu", "Vận dụng", "Vận dụng cao") gán vào trường \`level\`.
-    - Lấy các "#Bài: ...", "#Dạng: ..." gán vào mảng \`tags\` (bỏ dấu # nếu muốn).
-    - ⚠️ XÓA SẠCH CHÚNG KHỎI TRƯỜNG \`content\`. Nội dung câu hỏi phải gọn gàng, KHÔNG ĐƯỢC để dính lại các cụm từ metadata như "#Chương:...", "Vật lí nhiệt - Vận dụng" hay "Phần III".
-
-  NẾU KHÔNG CÓ DẤU HIỆU CÓ SẴN, HÃY TỰ SUY LUẬN:
-  • \`topic\`: Đọc nội dung → gán tên chương cụ thể (VD: "Dao động cơ"). KHÔNG dùng "Vật lý".
-  • \`level\`: Suy luận Nhận biết / Thông hiểu / Vận dụng / Vận dụng cao.
-  • \`tags\`: Tạo ít nhất 2 tag chi tiết liên quan đến dạng bài, hiện tượng, ...
-
-【6】 CÔNG THỨC → LaTeX (TUYỆT ĐỐI KHÔNG BỎ SÓT):
-  • Inline: $F = ma$, $\\\\Delta t$, $v_0$
-  • Block: $$E_k = \\\\frac{1}{2}mv^2$$
-  • Ký hiệu: Δ→$\\\\Delta$, ω→$\\\\omega$, λ→$\\\\lambda$, α→$\\\\alpha$, π→$\\\\pi$
-  • Vector: $\\\\vec{F}$, $\\\\overrightarrow{AB}$
-  • Phân số: $\\\\frac{a}{b}$; Căn: $\\\\sqrt{x}$
-
-【7】 HÌNH ẢNH — GIỮ NGUYÊN MARKER:
-  • Nếu input có marker [IMG_1], [IMG_2]... → GIỮ NGUYÊN trong content, đặt ở CUỐI câu hỏi
-  • KHÔNG xóa, KHÔNG thay đổi, KHÔNG mô tả hình
-  • Ví dụ: "Một vật dao động điều hòa... [IMG_3]"
-
-【8】 BẢNG SỐ LIỆU → PLACEHOLDER:
-  • Có bảng → **[BẢNG SỐ LIỆU — Thầy copy nội dung bảng vào đây]**
-
-【9】 LỜI GIẢI (explanation):
-  • Trích NGUYÊN VĂN lời giải nếu đề có, chuyển LaTeX
-  • Kết thúc: "→ **Đáp án: [kết quả]**"
-  • Nếu đề KHÔNG có lời giải → "Chưa có lời giải chi tiết."
-
-【10】 KIỂM TRA TRƯỚC KHI OUTPUT (BẮT BUỘC — KHÔNG ĐƯỢC BỎ QUA):
-  ✓ correctAnswer hợp lệ cho MỌI câu?
-    - Part 1: phải là SỐ NGUYÊN 0, 1, 2, hoặc 3 (KHÔNG PHẢI chuỗi "A", KHÔNG PHẢI null)
-    - Part 2: phải là MẢNG 4 BOOLEAN [true/false, ...] (KHÔNG PHẢI chuỗi, KHÔNG PHẢI object)
-    - Part 3: phải là CHUỖI chứa số "2.45" (KHÔNG PHẢI null)
-  ✓ Nếu không tìm thấy đáp án trong đề → AI PHẢI TỰ GIẢI để xác định đáp án đúng
-  ✓ topic cụ thể (không chung chung)?
-  ✓ tags >= 2?
-  ✓ LaTeX đầy đủ?
-  ✓ Placeholder đúng?
-  ✓ Câu kép Phần II: groupId đã gán và context chung đã COPY đầy đủ vào CẢ HAI câu?
+【10】KIỂM TRA: correctAnswer hợp lệ? topic cụ thể? tags>=2? LaTeX đủ? groupId cho câu kép?
   `.trim();
 }
 
 // ─── Bổ sung cho câu kép + câu chùm ──────────────────────────────────────
 const PAIRED_AND_CLUSTER_RULE = `
 
-【11】 CÂU KÉP PHẦN II (CỰC KỲ QUAN TRỌNG):
-  Phần II thường có 6 câu, trong đó có các cặp câu (2 câu liền kề cùng dùng chung 1 đề bài):
+【11】CÂU KÉP PHẦN II:
+Hai câu liền kề cùng đề bài → SAO CHÉP nguyên văn đề chung vào content CẢ HAI câu.
+Gán cùng groupId ("g1","g2"...). Câu đơn: không có groupId.
 
-  Ví dụ câu kép:
-  "Một vật dao động điều hòa với A=5cm, f=2Hz. (Đề bài dùng chung cho Câu 19 và Câu 20)
-   Câu 19: [4 ý a,b,c,d về vận tốc]    → correctAnswer = [true/false x4]
-   Câu 20: [4 ý a,b,c,d về gia tốc]    → correctAnswer = [true/false x4]"
-
-  QUY TẮC SẮT ĐÁ khi gặp câu kép:
-  1. SAO CHÉP NGUYÊN VĂN nội dung đề bài chung vào trường "content" của CẢ HAI câu
-     ❌ SAI: Câu 20 có content = "(Xem câu 19)" hoặc bỏ trống
-     ✅ ĐÚNG: Câu 20 có đầy đủ "Một vật dao động điều hòa với A=5cm..." như Câu 19
-  2. GÁN cùng giá trị groupId = "g1" (hoặc "g2", "g3"...) cho cả hai câu trong cặp
-     - Cặp 1: groupId = "g1" cho cả câu 19 và câu 20
-     - Cặp 2: groupId = "g2" cho cả câu 21 và câu 22
-  3. Câu không ghép cặp: KHÔNG có trường groupId (bỏ qua / để undefined)
-
-【12】 CÂU HỎI CHÙM — CLUSTER QUESTIONS (CỰC KỲ QUAN TRỌNG):
-  Một số đề thi có đoạn ngữ cảnh/dữ kiện chung áp dụng cho NHIỀU câu hỏi liền kề.
-
-  ⚡ TRIGGER — Nhận diện khi gặp BẤT KỲ cụm từ nào sau:
-    ▸ "Sử dụng thông tin sau..."
-    ▸ "Dựa vào dữ kiện sau..."
-    ▸ "Dùng dữ liệu sau cho câu X đến câu Y..."
-    ▸ "Cho đoạn thông tin sau...Trả lời câu X, Y"
-    ▸ "Đọc đoạn thông tin sau và trả lời..."
-    ▸ "Một nhà máy / Một vật thể / Một thí nghiệm... (dữ kiện dài) ... Trả lời các câu X→Y"
-    ▸ Hoặc BẤT KỲ đoạn dữ kiện dài nào đi kèm chỉ thị áp dụng cho nhiều câu
-
-  QUY TẮC SẮT ĐÁ:
-  1. GOM TOÀN BỘ đoạn dữ kiện chung vào trường "shared_context" (string)
-  2. Mỗi câu hỏi phụ thuộc → đưa vào mảng "sub_questions"
-  3. Mỗi sub_question là 1 object câu hỏi đầy đủ (part, content, options, correctAnswer, ...)
-  4. item_type = "cluster" để phân biệt với câu đơn (item_type = "single")
-
-  📌 VÍ DỤ OUTPUT:
-  {
-    "item_type": "cluster",
-    "shared_context": "Sử dụng các thông tin sau... Một nhà máy điện hạt nhân dùng nhiên liệu uranium...",
-    "topic": "Vật lí hạt nhân",
-    "sub_questions": [
-      {
-        "part": 1, "content": "Một hạt nhân uranium phân hạch...",
-        "options": ["A","B","C","D"], "correctAnswer": 2,
-        "level": "Vận dụng", "explanation": "...", "tags": ["..."]
-      },
-      {
-        "part": 1, "content": "Nếu nhà máy hoạt động liên tục...",
-        "options": ["A","B","C","D"], "correctAnswer": 1,
-        "level": "Vận dụng cao", "explanation": "...", "tags": ["..."]
-      }
-    ]
-  }
-
-  ⚠️ CÂU ĐƠN (không thuộc cluster):
-  {
-    "item_type": "single",
-    "part": 1, "content": "...", "options": [...], "correctAnswer": 0, ...
-  }
-
-  ⛔ KHÔNG BAO GIỜ TÁCH RIÊNG CÂU CHÙM THÀNH CÂU ĐƠN — MẤT DỮ KIỆN!
+【12】CÂU CHÙM (CLUSTER):
+Nhận diện: "Sử dụng thông tin sau...", "Dựa vào dữ kiện...", đoạn dữ kiện dài cho nhiều câu.
+Output: {"item_type":"cluster", "shared_context":"...", "topic":"...", "sub_questions":[{câu đầy đủ}...]}
+Câu đơn: {"item_type":"single", ...các trường câu hỏi...}
+⛔ KHÔNG tách riêng câu chùm thành câu đơn.
 `;
 
 function buildDigitizePromptFull(inputDescription: string, topicHint?: string): string {
@@ -1014,36 +856,27 @@ export async function digitizeFromPDF(
           }
         };
 
-        // Tối ưu chi phí nhất: Luôn thử dùng Flash 2.5 trước, nếu sập mới dùng Pro dự phòng
-        for (const model of [MODELS.ANALYZE, MODELS.DIGITIZE]) {
-          onProgress?.(
-            model === MODELS.ANALYZE
-              ? `⚡ Flash đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`
-              : `🔄 Chuyển sang Pro dự phòng cho phần ${groupIdx + 1}...`
-          );
+          onProgress?.(`⚡ Flash đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`);
 
           try {
             const response = await retryWithBackoff(() => ai.models.generateContent({
-              model,
+              model: MODELS.ANALYZE,
               contents: [{ role: "user", parts: [pdfPart, { text: prompt }] }],
               config: {
-                // Đã gỡ bỏ tính năng thinkingBudget tốn tiền của thẻ Pro
                 responseMimeType: "application/json",
                 responseSchema: DIGITIZE_SCHEMA,
               }
-            }));
+            }), 4, 5000, // COST FIX: More retries + longer backoff instead of Pro fallback
+              (attempt, max, delaySec) => {
+                onProgress?.(`⏳ Server AI đang bận — tự động kết nối lại (${attempt}/${max}), đợi ${delaySec}s...`);
+              }
+            );
 
             return JSON.parse(response.text || "[]") as Question[];
           } catch (error) {
-            if (isRateLimitError(error) && model === MODELS.ANALYZE) {
-              console.warn(`Flash bị 429 ở phần ${groupIdx + 1}, thử Pro...`);
-              continue;
-            }
             console.error(`PDF Error phần ${groupIdx + 1}:`, error);
             throw error;
           }
-        }
-        throw new Error(`Phần ${groupIdx + 1}: Tất cả model đều thất bại.`);
       })
     );
 
@@ -1089,50 +922,37 @@ export async function digitizeDocument(
   const totalChunks = chunks.length;
   onProgress?.(`📦 Chia thành ${totalChunks} phần. Đang xử lý...`);
 
-  // ── Hàm xử lý 1 chunk — Flash trước, Pro fallback ──
+  // ── Hàm xử lý 1 chunk — Flash only (COST FIX: no Pro fallback) ──
   const processChunk = async (chunk: string, idx: number): Promise<Question[]> => {
     const prompt = buildDigitizePromptFull(
       "nội dung HTML từ file Word (ảnh đã được thay bằng URL Firebase Storage)",
       topicHint
     ) + answerKeyInjection + `\n\n=== NỘI DUNG HTML ĐẦU VÀO ===\n${chunk}`;
 
-    for (const model of [MODELS.ANALYZE, MODELS.DIGITIZE]) {
-      onProgress?.(
-        model === MODELS.ANALYZE
-          ? `⚡ Flash đang xử lý phần ${idx + 1}/${totalChunks}...`
-          : `🔄 Dùng Pro cho phần ${idx + 1}/${totalChunks}...`
-      );
-      try {
-        const response = await retryWithBackoff(
-          () => ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              // Tối ưu chi phí triệt để: Không sử dụng thinkingBudget
-              responseMimeType: "application/json",
-              responseSchema: DIGITIZE_SCHEMA,
-            }
-          }),
-          3,   // maxRetries
-          3000, // baseDelay
-          // ── UI callback khi retry ──
-          (attempt, max, delaySec) => {
-            onProgress?.(`⏳ Server AI đang bận — tự động kết nối lại (${attempt}/${max}), đợi ${delaySec}s...`);
+    onProgress?.(`⚡ Flash đang xử lý phần ${idx + 1}/${totalChunks}...`);
+    try {
+      const response = await retryWithBackoff(
+        () => ai.models.generateContent({
+          model: MODELS.ANALYZE,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: DIGITIZE_SCHEMA,
           }
-        );
-
-        const questions = JSON.parse(response.text || "[]") as Question[];
-        onProgress?.(`✅ Hoàn thành phần ${idx + 1}/${totalChunks} — ${questions.length} câu`);
-        return questions;
-      } catch (error) {
-        if (isTransientError(error) && model === MODELS.ANALYZE) {
-          console.warn(`Flash bị lỗi ở chunk ${idx + 1}, thử Pro...`);
-          continue;
+        }),
+        4,    // maxRetries (more retries instead of Pro fallback)
+        5000, // baseDelay
+        (attempt, max, delaySec) => {
+          onProgress?.(`⏳ Server AI đang bận — tự động kết nối lại (${attempt}/${max}), đợi ${delaySec}s...`);
         }
-        throw error;
-      }
+      );
+
+      const questions = JSON.parse(response.text || "[]") as Question[];
+      onProgress?.(`✅ Hoàn thành phần ${idx + 1}/${totalChunks} — ${questions.length} câu`);
+      return questions;
+    } catch (error) {
+      throw error;
     }
-    throw new Error(`Phần ${idx + 1}: Tất cả model đều thất bại.`);
   };
 
   // ── Xử lý tuần tự theo batch, tối đa MAX_CONCURRENCY song song ──

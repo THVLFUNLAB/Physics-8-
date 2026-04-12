@@ -1,19 +1,20 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  useDashboardStats() — Admin Dashboard Real-time Statistics
- *  Thay thế toàn bộ hardcode bằng Firestore queries thực
+ *  useDashboardStats() — Admin Dashboard Statistics
+ *  Cache-first: getDocs thay vì getCountFromServer → tiết kiệm quota
+ *  Không polling → giảm reads liên tục
  * ═══════════════════════════════════════════════════════════════
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   db,
   collection,
   query,
   where,
-  onSnapshot,
   getDocs,
   Timestamp,
+  orderBy,
   getCountFromServer,
 } from '../firebase';
 
@@ -22,13 +23,20 @@ export interface AdminDashboardStats {
   todayAttempts: number;
   onlineStudents: number;
   isLoading: boolean;
+  /** Gọi lại để đồng bộ header */
+  refetch: () => Promise<void>;
+  /** Tăng/giảm counter local ngay lập tức (optimistic UI). VD: adjustCount(-1) khi xóa */
+  adjustCount: (delta: number) => void;
+  /** Ghi đè counter bằng giá trị chính xác từ nguồn tin cậy */
+  setCount: (n: number) => void;
 }
 
 /**
- * Hook lấy thống kê real-time cho Admin Dashboard.
- * - totalQuestions: onSnapshot trên collection 'questions'
- * - todayAttempts: query 'attempts' có timestamp >= 00:00 hôm nay
- * - onlineStudents: query 'users' có lastActive trong 15 phút gần nhất
+ * Hook lấy thống kê cho Admin Dashboard.
+ * - totalQuestions: getDocs cache-first + count
+ * - todayAttempts: getDocs cache-first 
+ * - onlineStudents: getDocs cache-first
+ * Tất cả đều graceful — nếu lỗi quota/mạng thì giữ giá trị cũ, không crash.
  */
 export function useDashboardStats(): AdminDashboardStats {
   const [totalQuestions, setTotalQuestions] = useState(0);
@@ -36,41 +44,56 @@ export function useDashboardStats(): AdminDashboardStats {
   const [onlineStudents, setOnlineStudents] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // ── 1. Một lần lấy số đếm câu hỏi (giảm read liên tục) ──
-    const fetchTotalQuestions = async () => {
-      try {
-        const snap = await getCountFromServer(collection(db, 'questions'));
-        setTotalQuestions(snap.data().count);
-      } catch (err) {
-        console.error('[useDashboardStats] questions error:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchTotalQuestions();
+  // ── Refetch: Gọi lại để lấy số đếm ──
+  const refetch = useCallback(async () => {
+    try {
+      const qRef = collection(db, 'questions');
+      const countSnap = await getCountFromServer(qRef);
+      setTotalQuestions(countSnap.data().count);
+    } catch (err) {
+      console.warn('[useDashboardStats] refetch error (giữ giá trị cũ):', err);
+    }
+  }, []);
 
-    // ── 2. Đếm số lượt thi hôm nay ──
-    const fetchTodayAttempts = async () => {
+  // ── AdjustCount: Cập nhật optimistic UI ngay lập tức ──
+  const adjustCount = useCallback((delta: number) => {
+    setTotalQuestions(prev => Math.max(0, prev + delta));
+  }, []);
+
+  // ── SetCount: Ghi đè counter từ nguồn tin cậy ──
+  const setCount = useCallback((n: number) => {
+    setTotalQuestions(n);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchAll = async () => {
+      // ── 1. Đếm câu hỏi — dùng getDocs cache-first ──
+      try {
+        const qRef = collection(db, 'questions');
+        const countSnap = await getCountFromServer(qRef);
+        if (isMounted) setTotalQuestions(countSnap.data().count);
+      } catch (err) {
+        console.warn('[useDashboardStats] questions count error:', err);
+      }
+
+      // ── 2. Đếm lượt thi hôm nay ──
       try {
         const todayMidnight = new Date();
         todayMidnight.setHours(0, 0, 0, 0);
         const todayTimestamp = Timestamp.fromDate(todayMidnight);
-
         const attemptsQuery = query(
           collection(db, 'attempts'),
           where('timestamp', '>=', todayTimestamp)
         );
-        const snap = await getCountFromServer(attemptsQuery);
-        setTodayAttempts(snap.data().count);
+        const snap = await getDocs(attemptsQuery);
+        if (isMounted) setTodayAttempts(snap.size);
       } catch (err) {
-        console.error('[useDashboardStats] attempts error:', err);
+        console.warn('[useDashboardStats] attempts error:', err);
       }
-    };
-    fetchTodayAttempts();
 
-    // ── 3. Polling: Học sinh Online (lastActive < 15 phút) ──
-    const fetchOnline = async () => {
+      // ── 3. Học sinh Online (lastActive < 15 phút) — 1 lần duy nhất ──
       try {
         const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
         const onlineQuery = query(
@@ -79,21 +102,20 @@ export function useDashboardStats(): AdminDashboardStats {
           where('lastActive', '>=', Timestamp.fromDate(fifteenMinAgo))
         );
         const snap = await getDocs(onlineQuery);
-        setOnlineStudents(snap.size);
+        if (isMounted) setOnlineStudents(snap.size);
       } catch (err) {
-        console.error('[useDashboardStats] online students error:', err);
+        console.warn('[useDashboardStats] online students error:', err);
       }
+
+      if (isMounted) setIsLoading(false);
     };
 
-    fetchOnline();
-    const onlineInterval = setInterval(fetchOnline, 60_000); // Refresh mỗi phút
+    fetchAll();
 
-    return () => {
-      clearInterval(onlineInterval);
-    };
+    return () => { isMounted = false; };
   }, []);
 
-  return { totalQuestions, todayAttempts, onlineStudents, isLoading };
+  return { totalQuestions, todayAttempts, onlineStudents, isLoading, refetch, adjustCount, setCount };
 }
 
 // ═══════════════════════════════════════════════════════════════

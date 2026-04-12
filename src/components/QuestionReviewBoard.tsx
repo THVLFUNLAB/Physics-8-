@@ -224,7 +224,7 @@ interface MathFieldProps {
 }
 
 const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight = 80 }) => {
-  const [mode, setMode] = useState<'edit' | 'preview'>('preview');
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
   const editorWrapRef = useRef<HTMLDivElement>(null);
   // FIX VĐ3: Cache vị trí cursor — giữ nguyên khi textarea bị blur do click toolbar
   const cursorPosRef = useRef<{ start: number; end: number }>({

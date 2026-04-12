@@ -69,7 +69,7 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return data.uid == request.auth.uid &&
+      return (data.uid == request.auth.uid || isAdmin()) &&
              isValidEmail(data.email) &&
              data.role in ['student', 'admin'] &&
              (data.targetGroup == null || data.targetGroup in ['Chống Sai Ngu', 'Master Physics']) &&
@@ -111,6 +111,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /metadata/{docId=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /motivational_quotes/{quoteId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     match /loginLogs/{logId} {
       allow create: if isAuthenticated();
       allow read: if isAdmin();
@@ -134,13 +144,19 @@ service cloud.firestore {
 
     match /classes/{classId} {
       allow read: if isAuthenticated();
-      allow create, delete: if isAdmin();
+      allow write: if isAdmin();
       allow update: if isAuthenticated(); // Student join/leave
     }
 
     match /classExams/{examId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+
+      // ── Participants sub-collection (scalable join tracking) ──
+      match /participants/{participantId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated() && request.auth.uid == participantId;
+      }
     }
 
     match /classAttempts/{attemptId} {

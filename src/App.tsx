@@ -56,7 +56,6 @@ import {
   ShieldAlert,
   Award,
   Download,
-  Pencil,
   ImagePlus,
   Save,
   X,
@@ -69,7 +68,10 @@ import {
   RotateCcw,
   ArrowLeftRight,
   Flag,
-  FileText
+  FileText,
+  Star,
+  ArrowRight,
+  Pencil
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -99,6 +101,11 @@ import ClassManager from './components/ClassManager';
 import LiveClassExam from './components/LiveClassExam';
 import ProjectorLeaderboard from './components/ProjectorLeaderboard';
 import AdaptiveDashboard from './components/AdaptiveDashboard';
+import { CountdownTimer } from './components/CountdownTimer';
+import { MotivationalQuote } from './components/MotivationalQuote';
+import { BackgroundMusic } from './components/BackgroundMusic';
+import { ExamsList } from './components/ExamsList';
+import ExamLibrary from './components/ExamLibrary';
 
 import { 
   BarChart, 
@@ -1434,12 +1441,12 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     return Array.from(batches.values()).sort((a, b) => b.timestamp - a.timestamp);
   }, [questions]);
 
-  // ── Fetch questions ONE-SHOT — Cache-first để tiết kiệm quota ──
+  // ── Fetch questions ONE-SHOT — Bypass cache để sửa lỗi 0 câu hỏi ──
   const fetchQuestions = async () => {
     setLoading(true);
     try {
       const qRef = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(qRef);
+      const snapshot = await getDocsFromServer(qRef);
       // [FIX] Đặt `id: d.id` SAU `...d.data()` để document ID thật luôn thắng
       // Trước đây: { id: d.id, ...d.data() } → d.data().id ghi đè d.id → saveEdit dùng sai ID
       const qs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Question));
@@ -2620,7 +2627,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
 
   const generateExam = async () => {
     if (allQuestions.length < 28) {
-      toast.error(`Kho câu hỏi hiện tại chỉ có ${allQuestions.length} câu. Cần tối thiểu 28 câu để tạo đề chuẩn 2025.`);
+      toast.error(`Kho câu hỏi hiện tại chỉ có ${allQuestions.length} câu. Cần tối thiểu 28 câu để tạo đề chuẩn 2026.`);
       return;
     }
 
@@ -2786,7 +2793,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
       <div className="flex justify-between items-center">
         <div>
           <h3 className="text-2xl font-black text-white">TRUNG TÂM LUYỆN ĐỀ "TRỊ BỆNH" AI</h3>
-          <p className="text-slate-400 text-sm">Tạo đề thi 28 câu chuẩn cấu hình 2025, cá nhân hóa theo từng học sinh.</p>
+          <p className="text-slate-400 text-sm">Tạo đề thi 28 câu chuẩn cấu hình 2026, cá nhân hóa theo từng học sinh.</p>
         </div>
         <div className="bg-blue-600/10 p-3 rounded-2xl">
           <Trophy className="text-blue-600 w-8 h-8" />
@@ -2876,7 +2883,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
             <BookOpen className="text-slate-700 w-12 h-12" />
           </div>
           <div className="max-w-xs">
-            <h4 className="text-white font-black uppercase tracking-widest">Cấu trúc đề chuẩn 2025</h4>
+            <h4 className="text-white font-black uppercase tracking-widest">Cấu trúc đề chuẩn 2026</h4>
             <p className="text-xs text-slate-500 mt-4 leading-relaxed">
               Hệ thống sẽ tự động bốc tách câu hỏi từ kho dữ liệu để tạo đề thi chuẩn cấu trúc mới nhất của Bộ GD&ĐT.
             </p>
@@ -3169,8 +3176,8 @@ const Navbar = ({ user, onSignOut, onReset, onSignIn }: { user: UserProfile | nu
           <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-slate-950 rounded-full animate-pulse" />
         </div>
         <div className="flex flex-col">
-          <span className="font-black text-xl tracking-tighter text-white leading-none">PHYS-8+</span>
-          <span className="text-[10px] font-bold text-red-600 uppercase tracking-[0.2em] mt-0.5">Pro Edition 2025</span>
+          <span className="font-black text-xl tracking-tighter text-white leading-none">PHYS-9+</span>
+          <span className="text-[10px] font-bold text-red-600 uppercase tracking-[0.2em] mt-0.5">Pro Edition 2026</span>
         </div>
       </div>
       
@@ -4022,7 +4029,7 @@ const UserRankCard = ({ user }: { user: UserProfile }) => {
   );
 };
 
-const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserProfile, attempts: Attempt[], onStartPrescription: (topic: Topic, examId: string) => void }) => {
+const StudentDashboard = ({ user, attempts, onStartPrescription, onStartExam }: { user: UserProfile, attempts: Attempt[], onStartPrescription: (topic: Topic, examId: string) => void, onStartExam: (exam: Exam) => void }) => {
   const studentStats = useStudentStats(user, attempts);
 
   const stats = useMemo(() => {
@@ -4096,6 +4103,18 @@ const StudentDashboard = ({ user, attempts, onStartPrescription }: { user: UserP
           </div>
         </div>
       </div>
+
+      {/* ── Motivational Motivation Area ── */}
+      <div className="flex flex-col items-center justify-center space-y-4 bg-slate-900/80 border border-slate-800 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group mb-8">
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-red-600/5 to-transparent pointer-events-none" />
+        <div className="absolute top-6 right-6 z-20">
+          <BackgroundMusic />
+        </div>
+        <CountdownTimer />
+        <MotivationalQuote />
+      </div>
+
+      <ExamsList onStartExam={onStartExam} />
 
       {/* ── Rank Card ── */}
       <UserRankCard user={user} />
@@ -4460,7 +4479,7 @@ const TopicCard = ({ topic, displayName, isLocked, onClick, color }: { topic: To
       {isLocked 
         ? "Đang trong vùng đỏ. Cần hoàn thành phác đồ điều trị để mở khóa." 
         : topic === 'THPT' 
-          ? "Kiểm tra tổng hợp 4 chương chuẩn theo cấu trúc Bộ GD&ĐT 2025" 
+          ? "Kiểm tra tổng hợp 4 chương chuẩn theo cấu trúc Bộ GD&ĐT 2026" 
           : "Luyện tập cấu trúc 3 phần: Trắc nghiệm, Đúng/Sai, Trả lời ngắn."}
     </p>
 
@@ -4837,12 +4856,12 @@ export default function App() {
     // Header
     doc.setFontSize(10);
     doc.text("SỞ GIÁO DỤC VÀ ĐÀO TẠO", 20, 20);
-    doc.text("TRƯỜNG THPT CHUYÊN PHYS-8+", 20, 25);
+    doc.text("TRƯỜNG THPT CHUYÊN PHYS-9+", 20, 25);
     doc.text("ĐỀ THI CHÍNH THỨC", 20, 30);
     
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.text("KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG NĂM 2025", pageWidth / 2, 45, { align: "center" });
+    doc.text("KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG NĂM 2026", pageWidth / 2, 45, { align: "center" });
     doc.text(`Bài thi: VẬT LÝ - Mã đề: ${Math.floor(Math.random() * 900) + 100}`, pageWidth / 2, 52, { align: "center" });
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
@@ -5485,7 +5504,7 @@ export default function App() {
                 </svg>
               </button>
               <span className="font-headline font-black text-white text-lg tracking-tighter">
-                PHYS<span className="text-fuchsia-500 text-glow-neon">8+</span>
+                PHYS<span className="text-fuchsia-500 text-glow-neon">9+</span>
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -5523,7 +5542,7 @@ export default function App() {
               >
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mb-8">
                   <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
-                  Hệ thống luyện thi Vật lý 2025
+                  Hệ thống luyện thi Vật lý 2026
                 </div>
                 
                 <h1 className="text-4xl sm:text-5xl md:text-8xl font-black text-white mb-6 md:mb-8 leading-[0.9] tracking-tighter">
@@ -5567,7 +5586,7 @@ export default function App() {
                 <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
                   {[
                     { title: 'AI Chẩn đoán', desc: 'Phát hiện chính xác lỗ hổng kiến thức qua từng câu trả lời.', icon: BrainCircuit },
-                    { title: 'Đề thi chuẩn', desc: 'Cập nhật liên tục theo cấu trúc đề thi 2025 của Bộ GD&ĐT.', icon: Target },
+                    { title: 'Đề thi chuẩn', desc: 'Cập nhật liên tục theo cấu trúc đề thi 2026 của Bộ GD&ĐT.', icon: Target },
                     { title: 'Bệnh án học tập', desc: 'Theo dõi tiến trình hồi phục điểm số như một hồ sơ y tế.', icon: Activity },
                   ].map((feature, i) => (
                     <div key={i} className="p-6 bg-slate-900/50 border border-slate-800 rounded-3xl hover:border-red-600/30 transition-colors">
@@ -5968,6 +5987,7 @@ export default function App() {
                   user={user} 
                   attempts={attempts} 
                   onStartPrescription={(topic, examId) => startTest(topic, examId)}
+                  onStartExam={(exam) => startTest(exam.title, exam.id)}
                 />
                 <section id="diagnosis" className="mt-16">
                   <div className="flex justify-between items-center mb-8">
@@ -5992,50 +6012,13 @@ export default function App() {
                   {/* This section is handled by StudentDashboard's Prescription History */}
                 </section>
 
-                <section className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-16">
-                  <div className="lg:col-span-2 space-y-6">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                      <FlaskConical className="text-red-500" />
-                      VIRTUAL LAB & THỰC TẾ
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div 
-                        onClick={() => setActiveSimulation({
-                          title: 'Máy chụp MRI',
-                          description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.',
-                          url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html'
-                        })}
-                        className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group"
-                      >
-                        <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4">
-                          <BrainCircuit className="w-6 h-6" />
-                        </div>
-                        <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
-                        <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
-                      </div>
-                      <div 
-                        onClick={() => setActiveSimulation({
-                          title: 'Định luật Boyle',
-                          description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.',
-                          url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html'
-                        })}
-                        className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group"
-                      >
-                        <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4">
-                          <FlaskConical className="w-6 h-6" />
-                        </div>
-                        <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
-                        <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
-                      </div>
-                    </div>
-                  </div>
-
+                <section className="mt-16">
                   <div className="space-y-6">
                     <h3 className="text-xl font-bold text-white flex items-center gap-2">
                       <Settings className="text-red-500" />
                       CẤU HÌNH CHIẾN THUẬT
                     </h3>
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6">
+                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 max-w-2xl">
                       <div>
                         <p className="text-xs font-bold text-slate-500 uppercase mb-3">Nhóm mục tiêu</p>
                         <div className="flex gap-2">
@@ -6069,8 +6052,49 @@ export default function App() {
                     </div>
                   </div>
                 </section>
+              </>
+            )}
 
-                <section id="resources" className="mt-16 space-y-8">
+            {activeView === 'simulations' && (
+              <div className="space-y-12">
+                <section className="space-y-6">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <FlaskConical className="text-red-500" />
+                    VIRTUAL LAB & THỰC TẾ
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div 
+                      onClick={() => setActiveSimulation({
+                        title: 'Máy chụp MRI',
+                        description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.',
+                        url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html'
+                      })}
+                      className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group"
+                    >
+                      <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4">
+                        <BrainCircuit className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
+                      <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
+                    </div>
+                    <div 
+                      onClick={() => setActiveSimulation({
+                        title: 'Định luật Boyle',
+                        description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.',
+                        url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html'
+                      })}
+                      className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group"
+                    >
+                      <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4">
+                        <FlaskConical className="w-6 h-6" />
+                      </div>
+                      <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
+                      <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section id="resources" className="space-y-8">
                   <div className="flex justify-between items-center">
                     <h3 className="text-xl font-bold text-white flex items-center gap-2">
                       <Beaker className="text-blue-500" />
@@ -6103,7 +6127,7 @@ export default function App() {
                   description={activeSimulation?.description || ''}
                   simulationUrl={activeSimulation?.url || ''}
                 />
-              </>
+              </div>
             )}
 
             {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView) && (
@@ -6113,7 +6137,7 @@ export default function App() {
                   <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
                     CHÀO THẦY THUỐC {user.displayName} — HỆ THỐNG SẴN SÀNG
                   </h2>
-                  <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-6 sm:leading-7">Trung tâm điều khiển Phy8+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
+                  <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-6 sm:leading-7">Trung tâm điều khiển Phy9+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8">
                   {[
@@ -6141,7 +6165,7 @@ export default function App() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
                   <h3 className="text-lg sm:text-xl md:text-2xl font-black flex items-center gap-2 md:gap-3 text-gradient-fire font-headline">
                     <Settings className="text-cyan-400 w-5 h-5 md:w-7 md:h-7" />
-                    HỆ THỐNG QUẢN TRỊ PHYS-8+
+                    HỆ THỐNG QUẢN TRỊ PHYS-9+
                   </h3>
                   <div className="flex overflow-x-auto bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full md:w-auto scrolling-touch hide-scrollbar">
                     {[
@@ -6186,6 +6210,7 @@ export default function App() {
                   {adminTab === 'Reports' && <ReportHub />}
                   {adminTab === 'Classroom' && <ClassManager user={user} />}
                   {adminTab === 'Directory' && <StudentDirectory />}
+                  {adminTab === 'Library' && <ExamLibrary />}
                 </motion.div>
               </section>
             )}
@@ -6194,8 +6219,14 @@ export default function App() {
       </main>
 
       <footer className="border-t border-slate-900 py-12 mt-20">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-slate-500 text-sm">© 2025 PHYS-8+ | Kiến trúc bởi Thầy Hậu & AI Architect</p>
+        <div className="max-w-7xl mx-auto px-6 text-center space-y-4">
+          <p className="text-slate-500 font-bold">© 2026 PHYS-9+ Xây dựng bởi Thầy Hậu Vật lý & AI</p>
+          <div className="flex items-center justify-center gap-6 text-sm font-medium">
+            <a href="https://www.facebook.com/thayhauvatlydian/about?locale=vi_VN" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-500 transition-colors">Facebook</a>
+            <a href="https://www.youtube.com/@thayhauvatlydian7396" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-red-500 transition-colors">YouTube</a>
+            <a href="https://www.tiktok.com/@thayhauvatly" target="_blank" rel="noopener noreferrer" className="text-slate-400 text-slate-400 hover:text-slate-200 transition-colors">TikTok</a>
+            <a href="https://zalo.me/0962662736" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-400 transition-colors">Zalo: 0962662736</a>
+          </div>
         </div>
       </footer>
       </div>

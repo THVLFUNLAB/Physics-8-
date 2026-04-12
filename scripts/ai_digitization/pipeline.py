@@ -88,39 +88,12 @@ def chunk_markdown(md_text: str, questions_per_chunk: int = 5) -> list[str]:
 
 
 def filter_solution_part(md_text: str) -> str:
-    """Nếu đề có 2 phần (Phần Đề và Phần Lời Giải), tự động cắt bỏ Phần Đề để tránh lặp."""
-    # Tìm tất cả các "Câu X:"
-    pattern = r'(?i)\b(?:\*\*|#+\s*)?câu\s+(\d+)\s*[:.]'
-    matches = list(re.finditer(pattern, md_text))
-    
-    if not matches:
-        return md_text
-        
-    last_reset_idx = 0
-    max_q = int(matches[0].group(1))
-    
-    for i in range(1, len(matches)):
-        num = int(matches[i].group(1))
-        # Phát hiện sự kiện reset số thứ tự (Ví dụ: đang Câu 28 mà tụt về Câu 1 hoặc Câu 2)
-        if num < max_q and num <= 3:
-            last_reset_idx = i
-            max_q = num
-        elif num > max_q:
-            max_q = num
-            
-    # Nếu lần reset cuối cùng nắm giữ số lượng câu tương đối (>5 câu), ta cắt cái rụp
-    if last_reset_idx > 0 and len(matches) - last_reset_idx > 5:
-        split_pos = matches[last_reset_idx].start()
-        lookback = max(0, split_pos - 300) # Lùi 1 xíu dính Header "Lời giải" nếu có
-        # Scan header
-        header_match = re.search(r'(?i)(bảng\s*đáp\s*án|lời\s*giải\s*chi\s*tiết|hướng\s*dẫn\s*giải)', md_text[lookback:split_pos])
-        
-        if header_match:
-            split_pos = lookback + header_match.start()
-            
-        print(f"[*] AUTO-TRIM: Phát hiện cấu trúc Đề Kép! Đã cưa đôi tài liệu, từ chối phần thô, chuyển AI đọc {len(matches) - last_reset_idx} câu chốt hạ lấy Lời giải.")
-        return md_text[split_pos:]
-        
+    """
+    Hiện tại, với Gemini 1.5/2.5 Flash context siêu lớn, ta KHÔNG CẦN CẮT BỎ text nữa.
+    Việc ném trọn gói Đề + Lời giải vào API bằng 1-shot (không chunking) sẽ giúp AI 
+    tự động đối chiếu Câu 1 của Đề với Câu 1 của Lời giải để gộp thông tin một cách thông minh,
+    mà không bị mất hình ảnh hay bảng biểu ở phần Đề gốc.
+    """
     return md_text
 
 
@@ -147,67 +120,60 @@ def extract_docx(file_path: str, media_dir: str = "assets/") -> str:
     return md_output
 
 
-# ─── BƯỚC 2: AI TRANSFORMATION (GEMINI 2.5 PRO) ───────────────────────────
-def transform_with_ai(chunks: list[str]) -> list[dict]:
-    print(f"\n[STEP 2] Gửi lên Gemini 2.5 PRO xử lý, tổng: {len(chunks)} chunks...")
+# ─── BƯỚC 2: AI TRANSFORMATION (GEMINI 2.5 FLASH) ─────────────────────────
+def transform_with_ai(md_text: str) -> list[dict]:
+    print(f"\n[STEP 2] Gửi lên Gemini 2.5 FLASH xử lý (1-Shot toàn bộ tài liệu)...")
     
-    # Khởi tạo model với config bắt buộc Schema JSON array => 100% trả đồ chuẩn
+    # Khởi tạo model Flash: Nhanh, cực rẻ, Context 1 triệu token
     model = genai.GenerativeModel(
-        "gemini-2.5-pro",
+        "gemini-2.5-flash",
         system_instruction=(
-            "Bạn là chuyên gia phân tích dữ liệu môn Vật Lý. Hãy chuyển đổi chuỗi văn bản hỗn loạn sau thành "
-            "cấu trúc JSON là mảng các câu hỏi.\n\n"
-            "YÊU CẦU NGHIÊM NGẶT:\n"
-            "1. Phải CHẮC CHẮN GIỮ NGUYÊN nội dung định dạng Toán học LaTeX do Pandoc sinh ra ($...$).\n"
-            "2. Tuyệt đối giữ nguyên đường dẫn ảnh nếu có định dạng Markdown ![](assets/media/...).\n"
-            "3. BẢO TOÀN BẢNG SỐ LIỆU (Markdown Tables): Nếu xuất hiện bảng số liệu thí nghiệm trong đề bài, "
-            "hãy giữ nguyên định dạng Markdown table đó và đặt vào thuộc tính `content` của câu hỏi tương ứng.\n"
-            "4. GIỮ LỜI GIẢI CHI TIẾT: Bóc tách phần Lời giải (Hướng dẫn giải) đưa vào trường `explanation`, "
-            "phải giữ nguyên Markdown và Latex của lời giải.\n"
-            "5. XỬ LÝ CÂU HỎI CHÙM (Dùng chung dữ kiện): Nếu có văn bản/hình ảnh là dữ kiện chung cho 2 hay nhiều câu hỏi liên tiếp (Ví dụ ở Phần III), "
-            "BẠN PHẢI COPY TOÀN BỘ dữ kiện chung đó và DÁN VÀO ĐẦU phần `content` của TẤT CẢ các câu hỏi con thuộc nhóm đó. Mỗi câu phải chứa đủ dữ kiện để có thể đứng hoàn toàn độc lập."
+            "Bạn là chuyên gia phân tích dữ liệu môn Vật Lý. Hãy chuyển đổi chuỗi văn bản (có thể chứa cả Đề và Lời giải) "
+            "thành cấu trúc JSON Array đại diện cho một đề thi.\n\n"
+            "YÊU CẦU CỐT LÕI (TUYỆT ĐỐI TUÂN THỦ):\n"
+            "1. SỐ LƯỢNG CÂU HỎI: Bộ giáo dục 2025 quy định 1 đề Vật Lý có CHÍNH XÁC 28 CÂU (18 câu Phần 1; 4 câu Phần 2; 6 câu Phần 3). "
+            "Bạn PHẢI XUẤT RA ĐÚNG 28 phần tử trong mảng JSON. Tuyệt đối không được tạo ra số lượng khác 28.\n"
+            "2. GỘP ĐỀ VÀ LỜI GIẢI: Vì tài liệu input có thể bị lặp lại phần Đề trước, Phần Lời Giải sau, bạn tự đối chiếu Câu X ở Phần Đề "
+            "với Câu X ở Phần Lời giải để tạo thành MỘT (1) object JSON duy nhất chứa cả `content` lẫn `explanation`.\n"
+            "3. CÂU HỎI ĐÚNG / SAI (Phần 2 gồm 4 câu): Với mỗi câu Đúng/Sai, ĐƯA BỐI CẢNH VÀO `content` VÀ gom 4 phát biểu (a,b,c,d) vào MẢNG `options`. "
+            "TUYỆT ĐỐI KHÔNG TÁCH rời từng phát biểu thành các câu hỏi JSON độc lập. Đây là lý do nghiêm trọng gây ra lỗi xuất dư số câu hỏi.\n"
+            "4. BẢO TOÀN LATEX VÀ HÌNH ẢNH: Giữ nguyên định dạng $...$ cho công thức và ![](assets/media/...) cho ảnh. Nếu ảnh là ngữ cảnh chung của nhiều câu hỏi, "
+            "phải sao chép ảnh đó dán vào đầu `content` của tất cả các câu hỏi thuộc nhóm đó để chúng có thể đứng độc lập.\n"
         ),
         generation_config=genai.GenerationConfig(
             response_mime_type="application/json",
             response_schema=list[QuestionSchema],
-            temperature=0  # Nhiệt độ 0 để model xuất ra dữ liệu deterministic và cực kỳ logic
+            temperature=0  # Deterministic logic
         )
     )
 
     all_questions = []
     
-    for idx, chunk in enumerate(chunks):
-        print(f"  -> Đang gọi AI xử lý Chunk {idx + 1}/{len(chunks)} ...", end="", flush=True)
-        # Thêm cơ chế tự động thử phục hồi (Retry 3 lần) nếu mạng chập chờn
-        for attempt in range(3):
-            try:
-                response = model.generate_content(chunk)
+    print(f"  -> Đang gọi AI xử lý lượng văn bản {len(md_text)} ký tự ...", end="", flush=True)
+    # Thêm cơ chế tự động thử phục hồi
+    for attempt in range(3):
+        try:
+            response = model.generate_content(md_text)
+            
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:]
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3]
+            
+            json_data = json.loads(raw_text.strip(), strict=False)
+            all_questions.extend(json_data)
+            print(" XONG! ✅")
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"\n     ⚠️ Lỗi (Thử lại lần {attempt + 1}/3 sau 5s): {e}... ", end="")
+                sleep(5)
+            else:
+                print(f" ERROR! ❌ Bỏ qua tài liệu do lỗi {e}")
                 
-                # Vì response_mime_type đã cấu hình, text trả về là Array JSON chuẩn
-                # Đọc thẳng bằng json
-                raw_text = response.text.strip()
-                if raw_text.startswith("```json"):
-                    raw_text = raw_text[7:]
-                elif raw_text.startswith("```"):
-                    raw_text = raw_text[3:]
-                if raw_text.endswith("```"):
-                    raw_text = raw_text[:-3]
-                
-                # Sử dụng strict=False để bỏ qua lỗi ký tự điều khiển (control characters) có trong văn bản vật lý
-                json_data = json.loads(raw_text.strip(), strict=False)
-                all_questions.extend(json_data)
-                print(" XONG! ✅")
-                break  # Gọi API thành công thì thoát vòng lặp nhỏ để qua Chunk tiếp theo
-            except Exception as e:
-                if attempt < 2:
-                    print(f"\n     ⚠️ Lỗi mạng (Thử lại lần {attempt + 1}/3 sau 5s): {e}... ", end="")
-                    sleep(5)
-                else:
-                    print(f" ERROR! ❌ Bỏ qua chunk này do lỗi {e}")
-        
-        # Ngủ một chút để không dính rate-limit của Gemini
-        sleep(2)
-        
     return all_questions
 
 
@@ -229,14 +195,11 @@ def process_single_file(file_path: str, chunk_size: int):
         # Step 1: Khui file docx (bung ảnh, biến math -> latex)
         md_text = extract_docx(file_path, "assets/")
         
-        # Step 1.5: Tự động loại bỏ mớ bòng bong nửa trên nếu là đề kép
+        # Step 1.5: [Đã tối ưu] Không cắt phần giải nữa, do ta gộp 1 lần thông minh
         md_text = filter_solution_part(md_text)
         
-        # Step 2.0: Băm nhỏ văn bản Markdown
-        chunks = chunk_markdown(md_text, questions_per_chunk=chunk_size)
-        
-        # Step 2.1: Quăng cho AI Extract sang JSON Array
-        structured_questions = transform_with_ai(chunks)
+        # Step 2: Quăng TOÀN BỘ văn bản cho AI Extract sang JSON Array (Không cắt vụn chunking nữa)
+        structured_questions = transform_with_ai(md_text)
         
         # Step 3: Xuất file
         if structured_questions:

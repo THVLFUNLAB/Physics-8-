@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   db, auth, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, 
-  query, where, onSnapshot, Timestamp, serverTimestamp, arrayUnion, setDoc, writeBatch, orderBy
+  query, where, onSnapshot, Timestamp, serverTimestamp, setDoc, writeBatch, orderBy
 } from '../firebase';
 import { UserProfile, ClassRoom, ClassExam, ClassAttempt, Exam, Question } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -50,6 +50,9 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
   const [liveAttempts, setLiveAttempts] = useState<ClassAttempt[]>([]);
   const [examQuestions, setExamQuestions] = useState<Question[]>([]);
 
+  // ── Participants sub-collection (scalable join tracking) ──
+  const [participantCount, setParticipantCount] = useState(0);
+
   // ── Fetch classes ──
   useEffect(() => {
     const unsub = onSnapshot(
@@ -61,23 +64,29 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
     return unsub;
   }, [user.uid]);
 
-  // ── Fetch exams ──
+  // ── Fetch exams — REAL-TIME (onSnapshot) ──
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'exams'), (snap) => {
-      setExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Exam))
-        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-      );
-    });
+    const unsub = onSnapshot(
+      collection(db, 'exams'),
+      (snap) => {
+        setExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Exam))
+          .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        );
+      }
+    );
     return unsub;
   }, []);
 
-  // ── Fetch class exams ──
+  // ── Fetch class exams — REAL-TIME (onSnapshot) ──
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'classExams'), (snap) => {
-      setClassExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassExam))
-        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-      );
-    });
+    const unsub = onSnapshot(
+      collection(db, 'classExams'),
+      (snap) => {
+        setClassExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassExam))
+          .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        );
+      }
+    );
     return unsub;
   }, []);
 
@@ -92,6 +101,21 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
       query(collection(db, 'classAttempts'), where('classExamId', '==', activeClassExam.id)),
       (snap) => {
         setLiveAttempts(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassAttempt)));
+      }
+    );
+    return unsub;
+  }, [activeClassExam?.id]);
+
+  // ── Live dashboard: listen participants sub-collection (scalable join count) ──
+  useEffect(() => {
+    if (!activeClassExam?.id) {
+      setParticipantCount(0);
+      return;
+    }
+    const unsub = onSnapshot(
+      collection(db, 'classExams', activeClassExam.id, 'participants'),
+      (snap) => {
+        setParticipantCount(snap.size);
       }
     );
     return unsub;
@@ -686,7 +710,7 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                 {/* Stats Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   {[
-                    { label: 'Tổng HS', value: liveStats.total, color: 'text-violet-400', bgColor: 'bg-violet-500/10' },
+                    { label: 'Đã Join', value: participantCount, color: 'text-violet-400', bgColor: 'bg-violet-500/10' },
                     { label: '🟢 Online', value: liveStats.online, color: 'text-green-400', bgColor: 'bg-green-500/10' },
                     { label: 'Đang làm', value: liveStats.inProgress, color: 'text-amber-400', bgColor: 'bg-amber-500/10' },
                     { label: 'Đã nộp', value: liveStats.submitted, color: 'text-blue-400', bgColor: 'bg-blue-500/10' },

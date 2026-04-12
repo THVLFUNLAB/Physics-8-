@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
-  db, auth, collection, doc, getDoc, getDocs, addDoc, updateDoc,
-  query, where, onSnapshot, Timestamp, serverTimestamp, arrayUnion
+  db, auth, collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
+  query, where, onSnapshot, Timestamp, serverTimestamp
 } from '../firebase';
 import { UserProfile, ClassRoom, ClassExam, ClassAttempt, Exam, Question } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -172,16 +172,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       const classData = { id: classDoc.id, ...classDoc.data() } as ClassRoom;
       setClassroom(classData);
 
-      // 2. Auto join class if not already member
-      if (!classData.studentIds.includes(user.uid)) {
-        try {
-          await updateDoc(doc(db, 'classes', classDoc.id), {
-            studentIds: arrayUnion(user.uid),
-          });
-        } catch (updateErr) {
-          console.warn('Contention when updating class studentIds, skipping...', updateErr);
-        }
-      }
+      // 2. Auto join class — SKIP arrayUnion (eliminated concurrency bottleneck)
+      // Student membership is now tracked via participants sub-collection below
 
       // 3. Check for live exam in this class
       const examSnap = await getDocs(
@@ -198,15 +190,28 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       const examData = { id: examDoc.id, ...examDoc.data() } as ClassExam;
       setClassExam(examData);
 
-      // 4. Fetch exam questions
-      const examRef = await getDoc(doc(db, 'exams', examData.examId));
-      if (!examRef.exists()) {
-        setError('Đề thi không tồn tại. Liên hệ thầy/cô.');
-        setIsJoining(false);
-        return;
+      // 4. Fetch exam questions — CACHE-FIRST (F5-proof, saves reads)
+      const cacheKey = `phy8_exam_${examData.examId}`;
+      let examQuestions: Question[] = [];
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          examQuestions = JSON.parse(cached);
+        } catch { /* fallthrough to fetch */ }
       }
-      const exam = examRef.data() as Exam;
-      setQuestions(exam.questions || []);
+      if (examQuestions.length === 0) {
+        const examRef = await getDoc(doc(db, 'exams', examData.examId));
+        if (!examRef.exists()) {
+          setError('Đề thi không tồn tại. Liên hệ thầy/cô.');
+          setIsJoining(false);
+          return;
+        }
+        const exam = examRef.data() as Exam;
+        examQuestions = exam.questions || [];
+        // Cache for F5 resilience
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(examQuestions)); } catch {}
+      }
+      setQuestions(examQuestions);
 
       // 5. Check if student already has an attempt (resume)
       const existingAttempt = await getDocs(
@@ -253,6 +258,19 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
         });
         setAttemptId(attemptRef.id);
         setPhase('exam');
+      }
+
+      // ── Register in participants sub-collection (scalable: 1 doc per student) ──
+      try {
+        await setDoc(doc(db, 'classExams', examDoc.id, 'participants', user.uid), {
+          uid: user.uid,
+          displayName: user.displayName,
+          email: user.email,
+          joinedAt: Timestamp.now(),
+          deviceId: getDeviceId(),
+        });
+      } catch (participantErr) {
+        console.warn('Participant registration (non-blocking):', participantErr);
       }
 
       toast.success(`Đã vào phòng thi: ${classData.name}`);
@@ -500,7 +518,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <span className={cn(
-                  "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest",
+                  "px-3 py-1 rounded-lg text-xs md:text-sm font-black uppercase tracking-widest",
                   currentQuestion.part === 1 ? "bg-blue-600/20 text-blue-400" :
                   currentQuestion.part === 2 ? "bg-fuchsia-600/20 text-fuchsia-400" :
                   "bg-orange-600/20 text-orange-400"
@@ -523,7 +541,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
             </div>
 
             {/* Content */}
-            <div className="text-white text-sm leading-relaxed">
+            <div className="text-white text-fluid-base">
               <MathRenderer content={currentQuestion.content} />
             </div>
 
@@ -535,7 +553,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
                     key={idx}
                     onClick={() => handleAnswer(currentQuestion.id || '', idx)}
                     className={cn(
-                      "w-full p-4 rounded-xl border text-left flex items-center gap-4 transition-all",
+                      "w-full p-4 rounded-xl border text-left flex items-center gap-4 transition-all touch-target",
                       answers[currentQuestion.id || ''] === idx
                         ? "bg-violet-600/15 border-violet-500/50 text-white"
                         : "bg-slate-800/50 border-slate-700 text-slate-300 hover:border-slate-600"
@@ -549,7 +567,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
                     )}>
                       {String.fromCharCode(65 + idx)}
                     </span>
-                    <span className="text-sm"><MathRenderer content={opt} /></span>
+                    <span className="text-base md:text-lg overflow-x-auto"><MathRenderer content={opt} /></span>
                   </button>
                 ))}
               </div>
@@ -563,8 +581,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
                     : [undefined, undefined, undefined, undefined];
                   
                   return (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
-                      <span className="text-sm text-slate-300 flex-1 mr-4">
+                    <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between p-3 md:p-4 gap-3 bg-slate-800/50 border border-slate-700 rounded-xl">
+                      <span className="text-base md:text-lg text-slate-300 flex-1 overflow-x-auto">
                         <MathRenderer content={opt} />
                       </span>
                       <div className="flex gap-2 shrink-0">
@@ -579,7 +597,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
                                 handleAnswer(currentQuestion.id || '', newAns);
                               }}
                               className={cn(
-                                "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                                "px-4 py-3 rounded-lg text-xs md:text-sm font-bold transition-all min-w-[70px] touch-target flex-1 md:flex-none text-center",
                                 currentAnswers[idx] === value
                                   ? (value ? "bg-green-600 text-white" : "bg-red-600 text-white")
                                   : "bg-slate-700 text-slate-400 hover:bg-slate-600"
@@ -598,7 +616,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
 
             {currentQuestion.part === 3 && (
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Nhập đáp án (số)</label>
+                <label className="text-xs md:text-sm font-bold text-slate-500 uppercase tracking-widest">Nhập đáp án (số)</label>
                 <input
                   type="text"
                   inputMode="decimal"

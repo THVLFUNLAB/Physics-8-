@@ -1,0 +1,12 @@
+[
+  {
+    "part": 1,
+    "topic": "Dao động cơ",
+    "level": "Nhận biết",
+    "content": "Con lắc đơn dao động điều hòa với biên độ $A$. Tại vị trí cân bằng, vận tốc của vật có giá trị:",
+    "options": ["Bằng 0", "Cực đại", "Bằng $\\omega A$", "Cả B và C đều đúng"],
+    "correctAnswer": "3",
+    "explanation": "Tại vị trí cân bằng, vận tốc đạt giá trị cực đại $v_{max} = \\omega A$.",
+    "tags": ["con lắc đơn", "vận tốc"]
+  }
+]
