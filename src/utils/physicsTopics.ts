@@ -56,3 +56,32 @@ export const getAllTopics = (): string[] => {
   });
   return Array.from(topics);
 };
+
+/**
+ * Aliases: map tên GDPT 2018 -> các tên cũ có thể tồn tại trong CSDL
+ */
+export const TOPIC_ALIASES: Record<string, string[]> = {
+  "Trường từ (Từ trường)": ["Từ trường", "Trường từ", "Từ trường (Trường từ)"],
+  "Vật lí hạt nhân và phóng xạ": ["Hạt nhân", "Vật lý hạt nhân", "Phóng xạ", "Hạt nhân và phóng xạ", "Vật lí hạt nhân"],
+  "Trường điện (Điện trường)": ["Điện trường", "Trường điện"],
+  "Dòng điện, mạch điện": ["Dòng điện", "Mạch điện"],
+  "Khí lí tưởng": ["Khí lý tưởng", "Chất khí"],
+  "Vật lí nhiệt": ["Vật lý nhiệt", "Nhiệt học", "Nhiệt"],
+  "Công, năng lượng, công suất": ["Công và năng lượng", "Năng lượng"],
+};
+
+/**
+ * Kiểm tra xem q.topic có khớp với tên GDPT 2018 hay không (bao gồm alias)
+ */
+export function matchesTopic(qTopic: string | undefined, gdptName: string): boolean {
+  if (!qTopic) return false;
+  const lower = qTopic.toLowerCase().trim();
+  const canonical = gdptName.toLowerCase().trim();
+  if (lower === canonical) return true;
+  // Check aliases
+  const aliases = TOPIC_ALIASES[gdptName];
+  if (aliases) {
+    return aliases.some(a => a.toLowerCase() === lower);
+  }
+  return false;
+}

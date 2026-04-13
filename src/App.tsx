@@ -33,7 +33,7 @@ import {
 } from './firebase';
 import { UserProfile, Question, ClusterQuestion, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification, LoginLog, Simulation } from './types';
 import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam, normalizeQuestions } from './services/geminiService';
-import { PHYSICS_TOPICS } from './utils/physicsTopics';
+import { PHYSICS_TOPICS, matchesTopic } from './utils/physicsTopics';
 import { 
   LogOut, 
   User as UserIcon, 
@@ -1534,9 +1534,9 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
         const inSub = filterSubTopics.has(q.subTopic || '');
         if (inSub) return true;
         
-        const inTopic = filterTopics.has(q.topic);
-        if (inTopic) {
-           const subTopicsOfThisTopic = PHYSICS_TOPICS.flatMap(g => g.topics).find(t => t.name === q.topic)?.subTopics || [];
+        const matchedTopicName = Array.from(filterTopics).find(tn => matchesTopic(q.topic, tn));
+        if (matchedTopicName) {
+           const subTopicsOfThisTopic = PHYSICS_TOPICS.flatMap(g => g.topics).find(t => t.name === matchedTopicName)?.subTopics || [];
            const hasCheckedSubForThisTopic = subTopicsOfThisTopic.some(sub => filterSubTopics.has(sub));
            if (!hasCheckedSubForThisTopic) return true;
         }
@@ -1988,7 +1988,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
                       {gradeGroup.topics.map(topic => {
                         const isTopicChecked = filterTopics.has(topic.name);
                         const isExpanded = expandedTopics.has(topic.name);
-                        const qCount = questions.filter(q => q.topic === topic.name).length;
+                        const qCount = questions.filter(q => matchesTopic(q.topic, topic.name)).length;
                         if (qCount === 0 && !isTopicChecked && gradeGroup.grade !== 'Khối 12') return null; // Ẩn bớt mục trống
                         
                         return (
@@ -2051,628 +2051,629 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
           </div>
 
           {/* ── CỘT PHẢI: NỘI DUNG ── */}
-          <div className="flex-1 space-y-6 min-w-0">
+          <div className="flex-1 space-y-4 min-w-0">
 
             {/* ── Lọc theo Phần + Mức độ ── */}
             <div className="flex flex-wrap items-center gap-4">
-          {/* Phần */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-3.5 h-3.5 text-slate-500" />
-            {(['All', 1, 2, 3] as const).map(p => (
-              <button
-                key={p}
-                onClick={() => setFilterPart(p)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                  filterPart === p 
-                    ? "bg-white/10 border-white/20 text-white" 
-                    : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
-                )}
-              >
-                {p === 'All' ? 'Tất cả Phần' : `Phần ${p === 1 ? 'I · TNKQ' : p === 2 ? 'II · Đ/S' : 'III · TLN'}`}
-              </button>
-            ))}
-          </div>
-
-          {/* Mức độ (multi-select) */}
-          <div className="flex items-center gap-2">
-            <Target className="w-3.5 h-3.5 text-slate-500" />
-            {(['Nhận biết', 'Thông hiểu', 'Vận dụng', 'Vận dụng cao'] as const).map(level => {
-              const colors: Record<string, string> = {
-                'Nhận biết': 'bg-green-600 border-green-600 text-white',
-                'Thông hiểu': 'bg-blue-600 border-blue-600 text-white',
-                'Vận dụng': 'bg-amber-600 border-amber-600 text-white',
-                'Vận dụng cao': 'bg-red-600 border-red-600 text-white',
-              };
-              return (
-                <button
-                  key={level}
-                  onClick={() => toggleLevel(level)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                    filterLevels.has(level)
-                      ? colors[level]
-                      : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
-                  )}
-                >
-                  {level}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Thời gian upload */}
-          <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-slate-500" />
-            {([
-              { key: 'All', label: 'Tất cả' },
-              { key: '1h', label: '⚡ Vừa upload' },
-              { key: 'today', label: 'Hôm nay' },
-              { key: '7d', label: '7 ngày' },
-              { key: '30d', label: '30 ngày' },
-            ] as const).map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setFilterTime(key)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                  filterTime === key
-                    ? "bg-cyan-600 border-cyan-600 text-white shadow-lg shadow-cyan-600/20"
-                    : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Trạng thái duyệt */}
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />
-            {([
-              { key: 'All', label: 'Mọi trạng thái' },
-              { key: 'published', label: 'Đã duyệt' },
-              { key: 'draft', label: 'Nháp' },
-            ] as const).map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setFilterStatus(key)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
-                  filterStatus === key
-                    ? "bg-fuchsia-600 border-fuchsia-600 text-white shadow-lg shadow-fuchsia-600/20"
-                    : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ══════════ THANH KẾT QUẢ + RESET ══════════ */}
-        <div className="flex items-center justify-between bg-slate-800/40 rounded-xl px-4 py-2.5 border border-slate-800">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={toggleSelectAll}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
-                selectedIds.size === paginatedQuestions.length && paginatedQuestions.length > 0
-                  ? "bg-red-600 border-red-600 text-white"
-                  : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
-              )}
-              disabled={paginatedQuestions.length === 0}
-            >
-              <div className={cn(
-                "w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors",
-                selectedIds.size > 0 ? "border-white bg-white text-red-600" : "border-slate-500"
-              )}>
-                {selectedIds.size > 0 && <Check className="w-2.5 h-2.5" />}
+              {/* Phần */}
+              <div className="flex items-center gap-2">
+                <Filter className="w-3.5 h-3.5 text-slate-500" />
+                {(['All', 1, 2, 3] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setFilterPart(p)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                      filterPart === p 
+                        ? "bg-white/10 border-white/20 text-white" 
+                        : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
+                    )}
+                  >
+                    {p === 'All' ? 'Tất cả Phần' : `Phần ${p === 1 ? 'I · TNKQ' : p === 2 ? 'II · Đ/S' : 'III · TLN'}`}
+                  </button>
+                ))}
               </div>
-              Chọn tất cả ({currentPage})
-            </button>
-            <span className="text-xs text-slate-400 font-bold">
-              {hasActiveFilters ? (
-                <>Tìm thấy <span className="text-red-400 text-sm font-black">{filtered.length}</span> / {questions.length} câu hỏi</>
-              ) : (
-                <>Hiển thị tất cả <span className="text-white font-black">{questions.length}</span> câu hỏi</>
-              )}
-              {totalPages > 1 && (
-                <span className="ml-2 text-slate-500">· Trang {currentPage}/{totalPages}</span>
-              )}
-            </span>
-          </div>
-          {hasActiveFilters && (
-            <button
-              onClick={resetAllFilters}
-              className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 hover:text-amber-300 bg-amber-600/10 hover:bg-amber-600/20 px-3 py-1.5 rounded-lg border border-amber-600/20 transition-all"
-            >
-              <RotateCcw className="w-3 h-3" /> Xóa bộ lọc
-            </button>
-          )}
-        </div>
-      </div>
 
-      {/* ── Danh sách câu hỏi ── */}
-      {loading ? (
-        <div className="py-20 text-center animate-pulse text-slate-500">Đang tải kho dữ liệu...</div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
-          {filtered.length === 0 ? (
-            <div className="py-20 flex flex-col items-center justify-center text-center space-y-6 border-2 border-dashed border-slate-800 rounded-[2.5rem] bg-slate-950/30">
-              <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center border border-slate-800">
-                <BookOpen className="text-slate-700 w-10 h-10" />
+              {/* Mức độ (multi-select) */}
+              <div className="flex items-center gap-2">
+                <Target className="w-3.5 h-3.5 text-slate-500" />
+                {(['Nhận biết', 'Thông hiểu', 'Vận dụng', 'Vận dụng cao'] as const).map(level => {
+                  const colors: Record<string, string> = {
+                    'Nhận biết': 'bg-green-600 border-green-600 text-white',
+                    'Thông hiểu': 'bg-blue-600 border-blue-600 text-white',
+                    'Vận dụng': 'bg-amber-600 border-amber-600 text-white',
+                    'Vận dụng cao': 'bg-red-600 border-red-600 text-white',
+                  };
+                  return (
+                    <button
+                      key={level}
+                      onClick={() => toggleLevel(level)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                        filterLevels.has(level)
+                          ? colors[level]
+                          : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
+                      )}
+                    >
+                      {level}
+                    </button>
+                  );
+                })}
               </div>
-              <div className="max-w-xs">
-                <h4 className="text-white font-bold uppercase tracking-widest">Không có câu hỏi</h4>
-                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                  {filterTopic !== 'All' || filterPart !== 'All' 
-                    ? 'Không tìm thấy câu hỏi nào phù hợp với bộ lọc hiện tại.'
-                    : <>Thầy hãy sử dụng tính năng <span className="text-red-500 font-bold">"Số hóa đề"</span> để bắt đầu xây dựng ngân hàng câu hỏi thông minh.</>
-                  }
-                </p>
+
+              {/* Thời gian upload */}
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-slate-500" />
+                {([
+                  { key: 'All', label: 'Tất cả' },
+                  { key: '1h', label: '⚡ Vừa upload' },
+                  { key: 'today', label: 'Hôm nay' },
+                  { key: '7d', label: '7 ngày' },
+                  { key: '30d', label: '30 ngày' },
+                ] as const).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setFilterTime(key)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                      filterTime === key
+                        ? "bg-cyan-600 border-cyan-600 text-white shadow-lg shadow-cyan-600/20"
+                        : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Trạng thái duyệt */}
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />
+                {([
+                  { key: 'All', label: 'Mọi trạng thái' },
+                  { key: 'published', label: 'Đã duyệt' },
+                  { key: 'draft', label: 'Nháp' },
+                ] as const).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setFilterStatus(key)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all",
+                      filterStatus === key
+                        ? "bg-fuchsia-600 border-fuchsia-600 text-white shadow-lg shadow-fuchsia-600/20"
+                        : "bg-slate-800/50 border-slate-800 text-slate-500 hover:text-slate-300"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
-          ) : (
-            paginatedQuestions.map((q) => {
-              const isSelected = selectedIds.has(q.id!);
-              return (
-              <div key={q.id} className={cn(
-                "bg-slate-950 border p-6 rounded-2xl space-y-4 relative group transition-all",
-                hasImageIssue(q) ? "border-red-600/30" : isSelected ? "border-red-500 bg-slate-900 border-2" : "border-slate-800",
-                editingId === q.id && "ring-2 ring-blue-500/50"
-              )}>
-                
-                {/* ── Checkbox Chọn ── */}
+
+            {/* ══════════ THANH KẾT QUẢ + RESET ══════════ */}
+            <div className="flex items-center justify-between bg-slate-800/40 rounded-xl px-4 py-2.5 border border-slate-800">
+              <div className="flex items-center gap-4">
                 <button
-                  onClick={() => {
-                    const next = new Set(selectedIds);
-                    if (next.has(q.id!)) next.delete(q.id!); else next.add(q.id!);
-                    setSelectedIds(next);
-                  }}
+                  onClick={toggleSelectAll}
                   className={cn(
-                    "absolute top-4 left-4 w-5 h-5 rounded border-2 flex items-center justify-center transition-all focus:outline-none z-10",
-                    isSelected ? "bg-red-600 border-red-600" : "border-slate-600 hover:border-slate-400"
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
+                    selectedIds.size === paginatedQuestions.length && paginatedQuestions.length > 0
+                      ? "bg-red-600 border-red-600 text-white"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
                   )}
+                  disabled={paginatedQuestions.length === 0}
                 >
-                  {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                </button>
-
-                {/* ── Action buttons ── */}
-                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => editingId === q.id ? cancelEdit() : startEdit(q)}
-                    className={cn(
-                      "p-2 rounded-lg transition-all",
-                      editingId === q.id 
-                        ? "bg-slate-700 text-white" 
-                        : "bg-blue-600/10 text-blue-500 hover:bg-blue-600 hover:text-white"
-                    )}
-                    title={editingId === q.id ? 'Hủy sửa' : 'Sửa câu hỏi'}
-                  >
-                    {editingId === q.id ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-                  </button>
-                  <button 
-                    onClick={() => deleteQuestion(q.id!)}
-                    className="p-2 bg-red-600/10 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all"
-                    title="Xóa câu hỏi"
-                  >
-                    <LogOut className="w-4 h-4 rotate-180" />
-                  </button>
-                </div>
-                
-                {/* ── Badges ── */}
-                <div className="flex items-center gap-2 flex-wrap pl-6 md:pl-8">
-                  <span className={cn(
-                    "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded",
-                    q.part === 1 ? "bg-blue-600 text-white" : q.part === 2 ? "bg-amber-600 text-white" : "bg-emerald-600 text-white"
+                  <div className={cn(
+                    "w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors",
+                    selectedIds.size > 0 ? "border-white bg-white text-red-600" : "border-slate-500"
                   )}>
-                    Phần {q.part === 1 ? 'I' : q.part === 2 ? 'II' : 'III'}
-                  </span>
-                  <span className="text-[10px] font-black uppercase tracking-widest bg-slate-800 px-2 py-1 rounded text-slate-400">
-                    {q?.topic || 'Chưa phân loại'} - {q?.level || '—'}
-                  </span>
-                  {q.groupId && (
-                    <span className="text-[10px] font-bold bg-purple-600/20 text-purple-400 px-2 py-1 rounded border border-purple-600/30" title="Câu kép — dùng chung đề bài">
-                      🔗 Cặp {q.groupId}
-                    </span>
+                    {selectedIds.size > 0 && <Check className="w-2.5 h-2.5" />}
+                  </div>
+                  Chọn tất cả ({currentPage})
+                </button>
+                <span className="text-xs text-slate-400 font-bold">
+                  {hasActiveFilters ? (
+                    <>Tìm thấy <span className="text-red-400 text-sm font-black">{filtered.length}</span> / {questions.length} câu hỏi</>
+                  ) : (
+                    <>Hiển thị tất cả <span className="text-white font-black">{questions.length}</span> câu hỏi</>
                   )}
-                  {hasImageIssue(q) && (
-                    <span className="text-[10px] font-bold bg-red-600/20 text-red-400 px-2 py-1 rounded animate-pulse">
-                      ⚠️ Cần bổ sung ảnh
-                    </span>
+                  {totalPages > 1 && (
+                    <span className="ml-2 text-slate-500">· Trang {currentPage}/{totalPages}</span>
                   )}
-                  <button
-                    onClick={() => toggleStatus(q)}
-                    className={cn(
-                      "text-[10px] font-bold px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer hover:opacity-80 border",
-                      (q.status || 'published') === 'draft' 
-                        ? "bg-slate-700/50 text-slate-300 border-slate-600" 
-                        : "bg-emerald-600/20 text-emerald-400 border-emerald-600/30"
-                    )}
-                    title="Bấm để đổi trạng thái"
-                  >
-                    {(q.status || 'published') === 'draft' ? (
-                      <><Clock className="w-3 h-3" /> Đang nháp</>
-                    ) : (
-                      <><CheckCircle2 className="w-3 h-3" /> Đã duyệt</>
-                    )}
-                  </button>
-                </div>
+                </span>
+              </div>
+              {hasActiveFilters && (
+                <button
+                  onClick={resetAllFilters}
+                  className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 hover:text-amber-300 bg-amber-600/10 hover:bg-amber-600/20 px-3 py-1.5 rounded-lg border border-amber-600/20 transition-all"
+                >
+                  <RotateCcw className="w-3 h-3" /> Xóa bộ lọc
+                </button>
+              )}
+            </div>
 
-                {/* ── EDIT FORM ── */}
-                {editingId === q.id ? (
-                  <div className="space-y-4">
-                    {/* Logic Câu Lừa */}
-                    <div className="flex items-center gap-4 mb-2">
-                       <label className="flex items-center gap-3 text-sm font-bold cursor-pointer bg-red-500/10 hover:bg-red-500/20 px-4 py-3 rounded-xl border border-red-500/30 transition-colors w-full sm:w-auto text-red-400">
-                          <input 
-                            type="checkbox" 
-                            checked={editIsTrap} 
-                            onChange={(e) => setEditIsTrap(e.target.checked)} 
-                            className="w-4 h-4 text-red-500 rounded bg-slate-900 border-red-500/50 focus:ring-red-500/50 focus:ring-offset-slate-900 cursor-pointer"
-                          />
-                          <ShieldAlert className="w-5 h-5 flex-shrink-0" />
-                          Đánh dấu đây là "Câu Lừa / Bẫy Sai Ngu"
-                       </label>
+            {/* ── Danh sách câu hỏi ── */}
+            {loading ? (
+              <div className="py-20 text-center animate-pulse text-slate-500">Đang tải kho dữ liệu...</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
+                {filtered.length === 0 ? (
+                  <div className="py-20 flex flex-col items-center justify-center text-center space-y-6 border-2 border-dashed border-slate-800 rounded-[2.5rem] bg-slate-950/30">
+                    <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center border border-slate-800">
+                      <BookOpen className="text-slate-700 w-10 h-10" />
                     </div>
-
-                    {/* Nội dung câu hỏi */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Nội dung câu hỏi</label>
-                        <button 
-                          onClick={() => handleImageInsert('content')}
-                          className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                        >
-                          <ImagePlus className="w-3 h-3" /> Chèn ảnh
-                        </button>
-                      </div>
-                      <textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 font-mono min-h-[120px] focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none resize-y"
-                      />
-                    </div>
-
-                    {/* ── Phần I: Sửa đáp án A/B/C/D ── */}
-                    {q.part === 1 && editOptions.length > 0 && (
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Các phương án (chọn đáp án đúng)</label>
-                        <div className="space-y-2">
-                          {editOptions.map((opt, idx) => (
-                            <div key={idx} className={cn(
-                              "flex items-center gap-3 p-2 rounded-xl border transition-all",
-                              editCorrectAnswer === idx ? "border-green-600/50 bg-green-600/5" : "border-slate-800 bg-slate-900/50"
-                            )}>
-                              <button
-                                onClick={() => setEditCorrectAnswer(idx)}
-                                className={cn(
-                                  "w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-black text-[10px] transition-all",
-                                  editCorrectAnswer === idx
-                                    ? "border-green-500 bg-green-500 text-white"
-                                    : "border-slate-600 text-slate-600 hover:border-green-400"
-                                )}
-                                title="Chọn làm đáp án đúng"
-                              >
-                                {String.fromCharCode(65 + idx)}
-                              </button>
-                              <textarea
-                                value={opt}
-                                onChange={(e) => {
-                                  const newOpts = [...editOptions];
-                                  newOpts[idx] = e.target.value;
-                                  setEditOptions(newOpts);
-                                }}
-                                className="flex-1 bg-transparent text-sm text-slate-200 outline-none border-b border-slate-700 focus:border-blue-500 pb-0.5 font-mono min-h-[40px] resize-none"
-                                placeholder={`Phương án ${String.fromCharCode(65 + idx)}...`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Phần II: Sửa ý a/b/c/d + Đúng/Sai ── */}
-                    {q.part === 2 && editOptions.length > 0 && (
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Các ý a/b/c/d (click để đổi Đúng↔Sai)</label>
-                        <div className="space-y-2">
-                          {editOptions.map((opt, idx) => {
-                            const isTrue = Array.isArray(editCorrectAnswer) ? editCorrectAnswer[idx] === true : false;
-                            return (
-                              <div key={idx} className={cn(
-                                "flex items-start gap-3 p-2 rounded-xl border transition-all",
-                                isTrue ? "border-green-600/50 bg-green-600/5" : "border-red-600/30 bg-red-600/5"
-                              )}>
-                                <button
-                                  onClick={() => {
-                                    if (!Array.isArray(editCorrectAnswer)) return;
-                                    const next = [...editCorrectAnswer];
-                                    next[idx] = !next[idx];
-                                    setEditCorrectAnswer(next);
-                                  }}
-                                  className={cn(
-                                    "mt-0.5 flex-shrink-0 w-14 h-6 rounded-full text-[9px] font-black uppercase border transition-all",
-                                    isTrue
-                                      ? "bg-green-600/20 border-green-600/50 text-green-400"
-                                      : "bg-red-600/20 border-red-600/30 text-red-400"
-                                  )}
-                                  title="Click để đổi Đúng/Sai"
-                                >
-                                  {isTrue ? '✓ Đúng' : '✗ Sai'}
-                                </button>
-                                <span className="text-red-400 font-black text-xs mt-1 flex-shrink-0">
-                                  {String.fromCharCode(97 + idx)}.
-                                </span>
-                                <textarea
-                                  value={opt}
-                                  onChange={(e) => {
-                                    const newOpts = [...editOptions];
-                                    newOpts[idx] = e.target.value;
-                                    setEditOptions(newOpts);
-                                  }}
-                                  className="flex-1 bg-transparent text-sm text-slate-200 outline-none border-b border-slate-700 focus:border-blue-500 min-h-[40px] resize-none font-mono"
-                                  placeholder={`Ý ${String.fromCharCode(97 + idx)}...`}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Phần III: Sửa đáp số ── */}
-                    {q.part === 3 && (
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Đáp án số</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={editCorrectAnswer ?? ''}
-                          onChange={(e) => setEditCorrectAnswer(e.target.value)}
-                          className="w-40 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white font-mono focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none"
-                          placeholder="0.00"
-                        />
-                      </div>
-                    )}
-
-                    {/* Lời giải */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Lời giải</label>
-                        <button 
-                          onClick={() => handleImageInsert('explanation')}
-                          className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                        >
-                          <ImagePlus className="w-3 h-3" /> Chèn ảnh
-                        </button>
-                      </div>
-                      <textarea
-                        value={editExplanation}
-                        onChange={(e) => setEditExplanation(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 font-mono min-h-[80px] focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none resize-y"
-                      />
-                    </div>
-                    {/* Preview */}
-                    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Xem trước nội dung:</p>
-                      <div className="text-sm text-slate-200"><MathRenderer content={editContent} /></div>
-                    </div>
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={() => saveEdit(q)}
-                        disabled={editSaving}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        {editSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                      </button>
-                      <button 
-                        onClick={cancelEdit}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-xl transition-all"
-                      >
-                        <X className="w-3.5 h-3.5" /> Hủy
-                      </button>
+                    <div className="max-w-xs">
+                      <h4 className="text-white font-bold uppercase tracking-widest">Không có câu hỏi</h4>
+                      <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                        {hasActiveFilters
+                          ? 'Không tìm thấy câu hỏi nào phù hợp với bộ lọc hiện tại.'
+                          : <>Thầy hãy sử dụng tính năng <span className="text-red-500 font-bold">"Số hóa đề"</span> để bắt đầu xây dựng ngân hàng câu hỏi thông minh.</>
+                        }
+                      </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="text-slate-200 text-sm leading-relaxed">
-                    <MathRenderer content={q?.content || 'Chưa có nội dung câu hỏi.'} />
-                  </div>
-                )}
-
-                <AnimatePresence>
-                  {expandedId === q.id && editingId !== q.id && (
-                    <motion.div 
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden space-y-6 pt-4 border-t border-slate-800"
-                    >
-                      {q.tags?.includes('__needs_answer_review') && (
-                        <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-3">
-                          <span className="text-amber-400 text-xs font-bold">⚠️ Đáp án chưa chắc chắn — Cần kiểm tra thủ công</span>
-                        </div>
-                      )}
-
-                      {q.part === 1 && q.options && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {q.options.map((opt, idx) => (
-                            <div 
-                              key={idx} 
-                              className={cn(
-                                "p-3 rounded-xl border text-sm flex items-center gap-3",
-                                idx === (q.correctAnswer as number) 
-                                  ? "bg-green-600/10 border-green-600/50 text-green-400" 
-                                  : "bg-slate-900 border-slate-800 text-slate-400"
-                              )}
-                            >
-                              <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-black">
-                                {String.fromCharCode(65 + idx)}
-                              </span>
-                              <div className="text-base md:text-lg flex-1 overflow-x-auto min-w-0 break-words whitespace-normal">
-                                <MathRenderer content={opt} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {q.part === 2 && q.options && (
-                        <div className="space-y-2">
-                          {q.options.map((opt, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl">
-                              <div className="flex items-center gap-3 text-sm text-slate-300">
-                                <span className="text-red-500 font-bold">{String.fromCharCode(97 + idx)}.</span>
-                                <MathRenderer content={opt} />
-                              </div>
-                              <span className={cn(
-                                "text-[10px] font-bold uppercase px-2 py-1 rounded",
-                                (q.correctAnswer as boolean[])[idx] ? "bg-green-600/20 text-green-500" : "bg-red-600/20 text-red-500"
-                              )}>
-                                {(q.correctAnswer as boolean[])[idx] ? 'Đúng' : 'Sai'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {q.part === 3 && (
-                        <div className="p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl flex items-center justify-between">
-                          <span className="text-sm font-bold text-blue-400 uppercase tracking-wider">Đáp án ngắn:</span>
-                          <span className="text-xl font-black text-white">{String(q.correctAnswer).replace('.', ',')}</span>
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                          <BrainCircuit className="w-3 h-3" /> Hướng dẫn giải chi tiết
-                        </p>
-                        <div className="text-sm text-slate-400 italic leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
-                          <MathRenderer content={q?.explanation || 'Chưa có lời giải chi tiết.'} />
-                        </div>
-                      </div>
-
-                      {(q.resources?.length || q.simulationUrl) && (
-                        <div className="space-y-4 pt-4 border-t border-slate-800">
-                          <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                            <Info className="w-3 h-3" /> Học liệu & Mô phỏng đi kèm
-                          </p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {q.simulationUrl && (
-                              <div className="flex items-center gap-3 p-3 bg-red-600/5 border border-red-600/20 rounded-xl">
-                                <FlaskConical className="w-4 h-4 text-red-500" />
-                                <span className="text-xs text-slate-300 font-medium">Có mô phỏng thí nghiệm ảo</span>
-                              </div>
-                            )}
-                            {q.resources?.map((res, ri) => (
-                              <div key={ri} className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
-                                {res.type === 'video' ? <Video className="w-4 h-4 text-red-500" /> : <BookOpen className="w-4 h-4 text-blue-500" />}
-                                <span className="text-xs text-slate-400 truncate">{res.title}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
-                  <div className="flex gap-1 flex-wrap">
-                    {q.tags?.map(tag => (
-                      <span key={tag} className="text-[9px] bg-slate-800 text-slate-500 px-2 py-0.5 rounded-full font-bold">#{tag}</span>
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {/* ── Nút chèn ảnh nhanh — LUÔN HIỆN ── */}
-                    {editingId !== q.id && (
-                      <button 
-                        onClick={() => handleQuickImageInsert(q)}
-                        disabled={quickImgSaving === q.id}
+                  paginatedQuestions.map((q) => {
+                    const isSelected = selectedIds.has(q.id!);
+                    return (
+                    <div key={q.id} className={cn(
+                      "bg-slate-950 border p-6 rounded-2xl space-y-4 relative group transition-all",
+                      hasImageIssue(q) ? "border-red-600/30" : isSelected ? "border-red-500 bg-slate-900 border-2" : "border-slate-800",
+                      editingId === q.id && "ring-2 ring-blue-500/50"
+                    )}>
+                      
+                      {/* ── Checkbox Chọn ── */}
+                      <button
+                        onClick={() => {
+                          const next = new Set(selectedIds);
+                          if (next.has(q.id!)) next.delete(q.id!); else next.add(q.id!);
+                          setSelectedIds(next);
+                        }}
                         className={cn(
-                          "text-[10px] font-bold flex items-center gap-1 transition-colors",
-                          quickImgSaving === q.id
-                            ? "text-amber-400 animate-pulse"
-                            : "text-indigo-400 hover:text-indigo-300"
+                          "absolute top-4 left-4 w-5 h-5 rounded border-2 flex items-center justify-center transition-all focus:outline-none z-10",
+                          isSelected ? "bg-red-600 border-red-600" : "border-slate-600 hover:border-slate-400"
                         )}
                       >
-                        <ImagePlus className="w-3 h-3" />
-                        {quickImgSaving === q.id ? 'Đang lưu...' : 'Chèn ảnh'}
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
                       </button>
-                    )}
-                    {editingId !== q.id && (
-                      <button 
-                        onClick={() => startEdit(q)}
-                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                      >
-                        <Pencil className="w-3 h-3" /> Sửa
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => setExpandedId(expandedId === q.id ? null : q.id!)}
-                      className="text-[10px] font-bold text-red-500 hover:underline"
-                    >
-                      {expandedId === q.id ? 'Thu gọn' : 'Xem chi tiết & Lời giải'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              );
-            })
-          )}
-        </div>
-      )}
 
-      {/* ══════════ PAGINATION ══════════ */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 pt-4 border-t border-slate-800">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="flex items-center gap-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" /> Trước
-          </button>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              let page: number;
-              if (totalPages <= 7) {
-                page = i + 1;
-              } else if (currentPage <= 4) {
-                page = i + 1;
-              } else if (currentPage >= totalPages - 3) {
-                page = totalPages - 6 + i;
-              } else {
-                page = currentPage - 3 + i;
-              }
-              return (
+                      {/* ── Action buttons ── */}
+                      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => editingId === q.id ? cancelEdit() : startEdit(q)}
+                          className={cn(
+                            "p-2 rounded-lg transition-all",
+                            editingId === q.id 
+                              ? "bg-slate-700 text-white" 
+                              : "bg-blue-600/10 text-blue-500 hover:bg-blue-600 hover:text-white"
+                          )}
+                          title={editingId === q.id ? 'Hủy sửa' : 'Sửa câu hỏi'}
+                        >
+                          {editingId === q.id ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                        </button>
+                        <button 
+                          onClick={() => deleteQuestion(q.id!)}
+                          className="p-2 bg-red-600/10 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                          title="Xóa câu hỏi"
+                        >
+                          <LogOut className="w-4 h-4 rotate-180" />
+                        </button>
+                      </div>
+                      
+                      {/* ── Badges ── */}
+                      <div className="flex items-center gap-2 flex-wrap pl-6 md:pl-8">
+                        <span className={cn(
+                          "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded",
+                          q.part === 1 ? "bg-blue-600 text-white" : q.part === 2 ? "bg-amber-600 text-white" : "bg-emerald-600 text-white"
+                        )}>
+                          Phần {q.part === 1 ? 'I' : q.part === 2 ? 'II' : 'III'}
+                        </span>
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-slate-800 px-2 py-1 rounded text-slate-400">
+                          {q?.topic || 'Chưa phân loại'} - {q?.level || '—'}
+                        </span>
+                        {q.groupId && (
+                          <span className="text-[10px] font-bold bg-purple-600/20 text-purple-400 px-2 py-1 rounded border border-purple-600/30" title="Câu kép — dùng chung đề bài">
+                            🔗 Cặp {q.groupId}
+                          </span>
+                        )}
+                        {hasImageIssue(q) && (
+                          <span className="text-[10px] font-bold bg-red-600/20 text-red-400 px-2 py-1 rounded animate-pulse">
+                            ⚠️ Cần bổ sung ảnh
+                          </span>
+                        )}
+                        <button
+                          onClick={() => toggleStatus(q)}
+                          className={cn(
+                            "text-[10px] font-bold px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer hover:opacity-80 border",
+                            (q.status || 'published') === 'draft' 
+                              ? "bg-slate-700/50 text-slate-300 border-slate-600" 
+                              : "bg-emerald-600/20 text-emerald-400 border-emerald-600/30"
+                          )}
+                          title="Bấm để đổi trạng thái"
+                        >
+                          {(q.status || 'published') === 'draft' ? (
+                            <><Clock className="w-3 h-3" /> Đang nháp</>
+                          ) : (
+                            <><CheckCircle2 className="w-3 h-3" /> Đã duyệt</>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* ── EDIT FORM ── */}
+                      {editingId === q.id ? (
+                        <div className="space-y-4">
+                          {/* Logic Câu Lừa */}
+                          <div className="flex items-center gap-4 mb-2">
+                             <label className="flex items-center gap-3 text-sm font-bold cursor-pointer bg-red-500/10 hover:bg-red-500/20 px-4 py-3 rounded-xl border border-red-500/30 transition-colors w-full sm:w-auto text-red-400">
+                                <input 
+                                  type="checkbox" 
+                                  checked={editIsTrap} 
+                                  onChange={(e) => setEditIsTrap(e.target.checked)} 
+                                  className="w-4 h-4 text-red-500 rounded bg-slate-900 border-red-500/50 focus:ring-red-500/50 focus:ring-offset-slate-900 cursor-pointer"
+                                />
+                                <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+                                Đánh dấu đây là "Câu Lừa / Bẫy Sai Ngu"
+                             </label>
+                          </div>
+
+                          {/* Nội dung câu hỏi */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase">Nội dung câu hỏi</label>
+                              <button 
+                                onClick={() => handleImageInsert('content')}
+                                className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                              >
+                                <ImagePlus className="w-3 h-3" /> Chèn ảnh
+                              </button>
+                            </div>
+                            <textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 font-mono min-h-[120px] focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none resize-y"
+                            />
+                          </div>
+
+                          {/* ── Phần I: Sửa đáp án A/B/C/D ── */}
+                          {q.part === 1 && editOptions.length > 0 && (
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Các phương án (chọn đáp án đúng)</label>
+                              <div className="space-y-2">
+                                {editOptions.map((opt, idx) => (
+                                  <div key={idx} className={cn(
+                                    "flex items-center gap-3 p-2 rounded-xl border transition-all",
+                                    editCorrectAnswer === idx ? "border-green-600/50 bg-green-600/5" : "border-slate-800 bg-slate-900/50"
+                                  )}>
+                                    <button
+                                      onClick={() => setEditCorrectAnswer(idx)}
+                                      className={cn(
+                                        "w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-black text-[10px] transition-all",
+                                        editCorrectAnswer === idx
+                                          ? "border-green-500 bg-green-500 text-white"
+                                          : "border-slate-600 text-slate-600 hover:border-green-400"
+                                      )}
+                                      title="Chọn làm đáp án đúng"
+                                    >
+                                      {String.fromCharCode(65 + idx)}
+                                    </button>
+                                    <textarea
+                                      value={opt}
+                                      onChange={(e) => {
+                                        const newOpts = [...editOptions];
+                                        newOpts[idx] = e.target.value;
+                                        setEditOptions(newOpts);
+                                      }}
+                                      className="flex-1 bg-transparent text-sm text-slate-200 outline-none border-b border-slate-700 focus:border-blue-500 pb-0.5 font-mono min-h-[40px] resize-none"
+                                      placeholder={`Phương án ${String.fromCharCode(65 + idx)}...`}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── Phần II: Sửa ý a/b/c/d + Đúng/Sai ── */}
+                          {q.part === 2 && editOptions.length > 0 && (
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Các ý a/b/c/d (click để đổi Đúng↔Sai)</label>
+                              <div className="space-y-2">
+                                {editOptions.map((opt, idx) => {
+                                  const isTrue = Array.isArray(editCorrectAnswer) ? editCorrectAnswer[idx] === true : false;
+                                  return (
+                                    <div key={idx} className={cn(
+                                      "flex items-start gap-3 p-2 rounded-xl border transition-all",
+                                      isTrue ? "border-green-600/50 bg-green-600/5" : "border-red-600/30 bg-red-600/5"
+                                    )}>
+                                      <button
+                                        onClick={() => {
+                                          if (!Array.isArray(editCorrectAnswer)) return;
+                                          const next = [...editCorrectAnswer];
+                                          next[idx] = !next[idx];
+                                          setEditCorrectAnswer(next);
+                                        }}
+                                        className={cn(
+                                          "mt-0.5 flex-shrink-0 w-14 h-6 rounded-full text-[9px] font-black uppercase border transition-all",
+                                          isTrue
+                                            ? "bg-green-600/20 border-green-600/50 text-green-400"
+                                            : "bg-red-600/20 border-red-600/30 text-red-400"
+                                        )}
+                                        title="Click để đổi Đúng/Sai"
+                                      >
+                                        {isTrue ? '✓ Đúng' : '✗ Sai'}
+                                      </button>
+                                      <span className="text-red-400 font-black text-xs mt-1 flex-shrink-0">
+                                        {String.fromCharCode(97 + idx)}.
+                                      </span>
+                                      <textarea
+                                        value={opt}
+                                        onChange={(e) => {
+                                          const newOpts = [...editOptions];
+                                          newOpts[idx] = e.target.value;
+                                          setEditOptions(newOpts);
+                                        }}
+                                        className="flex-1 bg-transparent text-sm text-slate-200 outline-none border-b border-slate-700 focus:border-blue-500 min-h-[40px] resize-none font-mono"
+                                        placeholder={`Ý ${String.fromCharCode(97 + idx)}...`}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ── Phần III: Sửa đáp số ── */}
+                          {q.part === 3 && (
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Đáp án số</label>
+                              <input
+                                type="number"
+                                step="any"
+                                value={editCorrectAnswer ?? ''}
+                                onChange={(e) => setEditCorrectAnswer(e.target.value)}
+                                className="w-40 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white font-mono focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none"
+                                placeholder="0.00"
+                              />
+                            </div>
+                          )}
+
+                          {/* Lời giải */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase">Lời giải</label>
+                              <button 
+                                onClick={() => handleImageInsert('explanation')}
+                                className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                              >
+                                <ImagePlus className="w-3 h-3" /> Chèn ảnh
+                              </button>
+                            </div>
+                            <textarea
+                              value={editExplanation}
+                              onChange={(e) => setEditExplanation(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 font-mono min-h-[80px] focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none resize-y"
+                            />
+                          </div>
+                          {/* Preview */}
+                          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">Xem trước nội dung:</p>
+                            <div className="text-sm text-slate-200"><MathRenderer content={editContent} /></div>
+                          </div>
+                          <div className="flex gap-3">
+                            <button 
+                              onClick={() => saveEdit(q)}
+                              disabled={editSaving}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              {editSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                            </button>
+                            <button 
+                              onClick={cancelEdit}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold rounded-xl transition-all"
+                            >
+                              <X className="w-3.5 h-3.5" /> Hủy
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-slate-200 text-sm leading-relaxed">
+                          <MathRenderer content={q?.content || 'Chưa có nội dung câu hỏi.'} />
+                        </div>
+                      )}
+
+                      <AnimatePresence>
+                        {expandedId === q.id && editingId !== q.id && (
+                          <motion.div 
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden space-y-6 pt-4 border-t border-slate-800"
+                          >
+                            {q.tags?.includes('__needs_answer_review') && (
+                              <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg mb-3">
+                                <span className="text-amber-400 text-xs font-bold">⚠️ Đáp án chưa chắc chắn — Cần kiểm tra thủ công</span>
+                              </div>
+                            )}
+
+                            {q.part === 1 && q.options && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {q.options.map((opt, idx) => (
+                                  <div 
+                                    key={idx} 
+                                    className={cn(
+                                      "p-3 rounded-xl border text-sm flex items-center gap-3",
+                                      idx === (q.correctAnswer as number) 
+                                        ? "bg-green-600/10 border-green-600/50 text-green-400" 
+                                        : "bg-slate-900 border-slate-800 text-slate-400"
+                                    )}
+                                  >
+                                    <span className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-black">
+                                      {String.fromCharCode(65 + idx)}
+                                    </span>
+                                    <div className="text-base md:text-lg flex-1 overflow-x-auto min-w-0 break-words whitespace-normal">
+                                      <MathRenderer content={opt} />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {q.part === 2 && q.options && (
+                              <div className="space-y-2">
+                                {q.options.map((opt, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-3 bg-slate-900 border border-slate-800 rounded-xl">
+                                    <div className="flex items-center gap-3 text-sm text-slate-300">
+                                      <span className="text-red-500 font-bold">{String.fromCharCode(97 + idx)}.</span>
+                                      <MathRenderer content={opt} />
+                                    </div>
+                                    <span className={cn(
+                                      "text-[10px] font-bold uppercase px-2 py-1 rounded",
+                                      (q.correctAnswer as boolean[])[idx] ? "bg-green-600/20 text-green-500" : "bg-red-600/20 text-red-500"
+                                    )}>
+                                      {(q.correctAnswer as boolean[])[idx] ? 'Đúng' : 'Sai'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {q.part === 3 && (
+                              <div className="p-4 bg-blue-600/10 border border-blue-600/30 rounded-xl flex items-center justify-between">
+                                <span className="text-sm font-bold text-blue-400 uppercase tracking-wider">Đáp án ngắn:</span>
+                                <span className="text-xl font-black text-white">{String(q.correctAnswer).replace('.', ',')}</span>
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                                <BrainCircuit className="w-3 h-3" /> Hướng dẫn giải chi tiết
+                              </p>
+                              <div className="text-sm text-slate-400 italic leading-relaxed bg-slate-900/50 p-4 rounded-xl border border-slate-800/50">
+                                <MathRenderer content={q?.explanation || 'Chưa có lời giải chi tiết.'} />
+                              </div>
+                            </div>
+
+                            {(q.resources?.length || q.simulationUrl) && (
+                              <div className="space-y-4 pt-4 border-t border-slate-800">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                                  <Info className="w-3 h-3" /> Học liệu & Mô phỏng đi kèm
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {q.simulationUrl && (
+                                    <div className="flex items-center gap-3 p-3 bg-red-600/5 border border-red-600/20 rounded-xl">
+                                      <FlaskConical className="w-4 h-4 text-red-500" />
+                                      <span className="text-xs text-slate-300 font-medium">Có mô phỏng thí nghiệm ảo</span>
+                                    </div>
+                                  )}
+                                  {q.resources?.map((res, ri) => (
+                                    <div key={ri} className="flex items-center gap-3 p-3 bg-slate-800/50 border border-slate-700 rounded-xl">
+                                      {res.type === 'video' ? <Video className="w-4 h-4 text-red-500" /> : <BookOpen className="w-4 h-4 text-blue-500" />}
+                                      <span className="text-xs text-slate-400 truncate">{res.title}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
+                        <div className="flex gap-1 flex-wrap">
+                          {q.tags?.map(tag => (
+                            <span key={tag} className="text-[9px] bg-slate-800 text-slate-500 px-2 py-0.5 rounded-full font-bold">#{tag}</span>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {/* ── Nút chèn ảnh nhanh — LUÔN HIỆN ── */}
+                          {editingId !== q.id && (
+                            <button 
+                              onClick={() => handleQuickImageInsert(q)}
+                              disabled={quickImgSaving === q.id}
+                              className={cn(
+                                "text-[10px] font-bold flex items-center gap-1 transition-colors",
+                                quickImgSaving === q.id
+                                  ? "text-amber-400 animate-pulse"
+                                  : "text-indigo-400 hover:text-indigo-300"
+                              )}
+                            >
+                              <ImagePlus className="w-3 h-3" />
+                              {quickImgSaving === q.id ? 'Đang lưu...' : 'Chèn ảnh'}
+                            </button>
+                          )}
+                          {editingId !== q.id && (
+                            <button 
+                              onClick={() => startEdit(q)}
+                              className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                            >
+                              <Pencil className="w-3 h-3" /> Sửa
+                            </button>
+                          )}
+                          <button 
+                            onClick={() => setExpandedId(expandedId === q.id ? null : q.id!)}
+                            className="text-[10px] font-bold text-red-500 hover:underline"
+                          >
+                            {expandedId === q.id ? 'Thu gọn' : 'Xem chi tiết & Lời giải'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* ══════════ PAGINATION ══════════ */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 pt-4 border-t border-slate-800">
                 <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={cn(
-                    "w-9 h-9 rounded-xl text-xs font-bold transition-all",
-                    page === currentPage
-                      ? "bg-red-600 text-white shadow-lg shadow-red-600/30"
-                      : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
-                  )}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="flex items-center gap-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 >
-                  {page}
+                  <ChevronLeft className="w-3.5 h-3.5" /> Trước
                 </button>
-              );
-            })}
-          </div>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Sau <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-        </div>
-      </div>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                    let page: number;
+                    if (totalPages <= 7) {
+                      page = i + 1;
+                    } else if (currentPage <= 4) {
+                      page = i + 1;
+                    } else if (currentPage >= totalPages - 3) {
+                      page = totalPages - 6 + i;
+                    } else {
+                      page = currentPage - 3 + i;
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={cn(
+                          "w-9 h-9 rounded-xl text-xs font-bold transition-all",
+                          page === currentPage
+                            ? "bg-red-600 text-white shadow-lg shadow-red-600/30"
+                            : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white"
+                        )}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Sau <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+          </div>{/* end CỘT PHẢI */}
+        </div>{/* end LAYOUT 2 CỘT */}
+      </div>{/* end flex-col gap-4 wrapper */}
 
       {/* ══════════ FLOATING BULK DELETE BAR ══════════ */}
       <AnimatePresence>
