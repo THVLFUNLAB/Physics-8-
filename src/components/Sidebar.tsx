@@ -28,10 +28,10 @@ import { UserProfile } from '../types';
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library'; // Admin tabs
+  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -79,6 +79,7 @@ export const Sidebar = ({
   const adminMenu = [
     { id: 'Digitize' as SidebarTab, label: 'Số Hoá AI', icon: CheckCircle2 },
     { id: 'Bank' as SidebarTab, label: 'Kho Câu Hỏi', icon: BookOpen },
+    { id: 'Matrix' as SidebarTab, label: 'Ma Trận Đề', icon: Target },
     { id: 'Generator' as SidebarTab, label: 'Tạo Đề', icon: Play },
     { id: 'SimLab' as SidebarTab, label: 'Mô Phỏng', icon: Beaker },
     { id: 'Duplicates' as SidebarTab, label: 'Duyệt Trùng', icon: ArrowLeftRight },

@@ -106,6 +106,7 @@ import { MotivationalQuote } from './components/MotivationalQuote';
 import { BackgroundMusic } from './components/BackgroundMusic';
 import { ExamsList } from './components/ExamsList';
 import ExamLibrary from './components/ExamLibrary';
+import ExamMatrixGenerator from './components/ExamMatrixGenerator';
 
 import { 
   BarChart, 
@@ -4526,7 +4527,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory'>('Digitize');
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -6171,6 +6172,7 @@ export default function App() {
                     {[
                       { id: 'Digitize', label: 'Số hóa đề', icon: History },
                       { id: 'Bank', label: 'Kho câu hỏi', icon: BookOpen },
+                      { id: 'Matrix', label: 'Ma Trận Đề', icon: Target },
                       { id: 'Generator', label: 'Tạo đề thi', icon: Play },
                       { id: 'SimLab', label: 'Kho Mô phỏng', icon: Beaker },
                       { id: 'Duplicates', label: 'Trùng lặp', icon: ArrowLeftRight },
@@ -6203,6 +6205,7 @@ export default function App() {
                 >
                   {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
                   {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
+                  {adminTab === 'Matrix' && <ExamMatrixGenerator />}
                   {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} />}
                   {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
                   {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}

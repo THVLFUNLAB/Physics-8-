@@ -496,19 +496,48 @@ function normalizeCorrectAnswer(raw: any, part: number): { value: any; needsRevi
 }
 
 /**
+ * Sanitize LaTeX: Chuyển dấu < thành \lt bên trong $...$ để trình duyệt
+ * không hiểu nhầm là thẻ HTML (nguyên nhân gây mất nội dung đáp án).
+ *
+ * VD: "$v_r < v_l < v_k$" → "$v_r \lt v_l \lt v_k$"
+ *     "$a <= b$"          → "$a \leq b$"
+ *     "nhiệt độ < 100"    → giữ nguyên (nằm ngoài $...$)
+ */
+function sanitizeLatexHtml(text: string): string {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(/\$([^$]+)\$/g, (_m, inner: string) => {
+    let s = inner;
+    s = s.replace(/(?<!\\)<=\s*/g, '\\leq ');
+    s = s.replace(/(?<!\\)>=\s*/g, '\\geq ');
+    s = s.replace(/(?<!\\)<(?!=)/g, '\\lt ');
+    return `$${s}$`;
+  });
+}
+
+/**
  * Normalize toàn bộ mảng Question[] sau khi nhận từ AI.
  * Đảm bảo correctAnswer luôn đúng kiểu cho UI.
  * Gắn tag '__needs_answer_review' nếu không parse được đáp án.
+ * + Sanitize LaTeX HTML: tự động chuyển < → \lt trong $...$
  */
 export function normalizeQuestions(rawItems: any[]): Question[] {
   const flattened = flattenClusterOutput(rawItems);
   return flattened.map(q => {
     const { value, needsReview } = normalizeCorrectAnswer(q.correctAnswer, q.part);
-    
+
+    // ── Sanitize LaTeX HTML: chuyển < → \lt trong $...$ ──
+    const safeContent = sanitizeLatexHtml(q.content || '');
+    const safeExplanation = sanitizeLatexHtml(q.explanation || '');
+    let safeOptions = q.options;
+    if (Array.isArray(q.options)) {
+      safeOptions = q.options.map((opt: any) =>
+        typeof opt === 'string' ? sanitizeLatexHtml(opt) : opt
+      );
+    }
+
     // Tự động dọn dẹp các tiền tố a), b), c), d) hoặc a., b., c., d. nếu AI vẫn sinh ra
-    let cleanedOptions = q.options;
-    if (q.part === 2 && Array.isArray(q.options)) {
-      cleanedOptions = q.options.map(opt => {
+    if (q.part === 2 && Array.isArray(safeOptions)) {
+      safeOptions = safeOptions.map((opt: any) => {
         if (typeof opt !== 'string') return opt;
         return opt.replace(/^[a-dA-D][\.\)]\s*/, '').trim();
       });
@@ -516,7 +545,9 @@ export function normalizeQuestions(rawItems: any[]): Question[] {
 
     return {
       ...q,
-      options: cleanedOptions,
+      content: safeContent,
+      explanation: safeExplanation,
+      options: safeOptions,
       correctAnswer: value,
       tags: needsReview
         ? [...(q.tags || []), '__needs_answer_review']
@@ -974,3 +1005,88 @@ export async function digitizeDocument(
   return normalizeQuestions(results.flat());
 }
 
+// ============================================================
+// PARSE MATRIX IMAGE — AI đọc ảnh/PDF ma trận đề thi
+// ============================================================
+
+export interface ParsedMatrixRow {
+  topic: string;
+  part1: { 'Nhận biết': number; 'Thông hiểu': number; 'Vận dụng': number; 'Vận dụng cao': number };
+  part2: { 'Nhận biết': number; 'Thông hiểu': number; 'Vận dụng': number; 'Vận dụng cao': number };
+  part3: { 'Nhận biết': number; 'Thông hiểu': number; 'Vận dụng': number; 'Vận dụng cao': number };
+}
+
+export interface ParsedMatrixResult {
+  examTitle: string;
+  rows: ParsedMatrixRow[];
+}
+
+export async function parseMatrixImage(
+  file: File,
+  onProgress?: (status: string) => void
+): Promise<ParsedMatrixResult> {
+  const ai = getAI();
+  onProgress?.('📸 Đang đọc file ma trận...');
+
+  const isPDF = file.name.toLowerCase().endsWith('.pdf');
+  const buffer = await file.arrayBuffer();
+  const base64Data = arrayBufferToBase64(buffer);
+  const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/png');
+
+  const prompt = `Bạn là Chuyên gia Giáo dục Vật lý. Đọc ảnh/PDF chứa BẢNG MA TRẬN ĐỀ THI Vật lý THPT và trích xuất thành JSON.
+
+Cấu trúc bảng: CỘT = mức độ (NB, TH, VD, VDC), HÀNG = chủ đề, Ô = số câu.
+Nếu chia theo phần: Phần I/TNKQ→part1, Phần II/Đúng-Sai→part2, Phần III/Trả lời ngắn→part3.
+Nếu KHÔNG chia phần → mặc định tất cả vào part1.
+Ô trống/gạch ngang = 0. Ô chứa điểm: 0.25đ = 1 câu.
+Topic map chuẩn: "Dao động cơ", "Sóng cơ", "Điện xoay chiều", "Sóng điện từ", "Lượng tử ánh sáng", "Quang hình học", "Từ trường", "Cảm ứng điện từ", "Vật lí nhiệt", "Khí lí tưởng", "Vật lí hạt nhân", "Động học chất điểm", "Động lực học", "Năng lượng", "Dòng điện".
+Nếu topic viết tắt/khác biệt, hãy tự map cho đúng.`;
+
+  onProgress?.('🤖 AI đang phân tích bảng ma trận...');
+
+  const levelProps = {
+    'Nhận biết': { type: Type.INTEGER },
+    'Thông hiểu': { type: Type.INTEGER },
+    'Vận dụng': { type: Type.INTEGER },
+    'Vận dụng cao': { type: Type.INTEGER },
+  };
+  const levelRequired = ['Nhận biết', 'Thông hiểu', 'Vận dụng', 'Vận dụng cao'];
+  const partSchema = { type: Type.OBJECT, properties: levelProps, required: levelRequired };
+
+  try {
+    const response = await retryWithBackoff(() => ai.models.generateContent({
+      model: MODELS.ANALYZE,
+      contents: [{ role: 'user', parts: [
+        { inlineData: { mimeType, data: base64Data } },
+        { text: prompt }
+      ]}],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            examTitle: { type: Type.STRING },
+            rows: { type: Type.ARRAY, items: {
+              type: Type.OBJECT,
+              properties: { topic: { type: Type.STRING }, part1: partSchema, part2: partSchema, part3: partSchema },
+              required: ['topic', 'part1', 'part2', 'part3']
+            }}
+          },
+          required: ['examTitle', 'rows']
+        }
+      }
+    }), 3, 3000, (attempt, max, delaySec) => {
+      onProgress?.(`⏳ Server AI bận — thử lại (${attempt}/${max}), đợi ${delaySec}s...`);
+    });
+
+    const parsed = JSON.parse(response.text || '{}') as ParsedMatrixResult;
+    if (!parsed.rows || parsed.rows.length === 0) {
+      throw new Error('AI không nhận diện được bảng ma trận trong file.');
+    }
+    onProgress?.(`✅ Đã nhận diện ${parsed.rows.length} chủ đề từ ma trận!`);
+    return parsed;
+  } catch (error: any) {
+    console.error('[ParseMatrix] Error:', error);
+    throw new Error(`Lỗi đọc ma trận: ${error.message || 'Không xác định'}`);
+  }
+}
