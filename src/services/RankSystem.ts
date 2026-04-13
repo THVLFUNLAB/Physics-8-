@@ -32,7 +32,7 @@ export const RANKS: RankDef[] = [
   {
     id: 2,
     name: 'Bạc Đoàn',
-    minStars: 11,
+    minStars: 50,
     color: 'text-slate-300',
     bgColor: 'from-slate-500/20 to-slate-600/10',
     borderColor: 'border-slate-400/40',
@@ -42,7 +42,7 @@ export const RANKS: RankDef[] = [
   {
     id: 3,
     name: 'Vàng Đoàn',
-    minStars: 31,
+    minStars: 150,
     color: 'text-yellow-400',
     bgColor: 'from-yellow-600/20 to-yellow-700/10',
     borderColor: 'border-yellow-500/40',
@@ -52,7 +52,7 @@ export const RANKS: RankDef[] = [
   {
     id: 4,
     name: 'Bạch Kim',
-    minStars: 61,
+    minStars: 300,
     color: 'text-cyan-300',
     bgColor: 'from-cyan-600/20 to-cyan-700/10',
     borderColor: 'border-cyan-400/40',
@@ -62,7 +62,7 @@ export const RANKS: RankDef[] = [
   {
     id: 5,
     name: 'Kim Cương',
-    minStars: 101,
+    minStars: 500,
     color: 'text-blue-300',
     bgColor: 'from-blue-500/20 to-blue-600/10',
     borderColor: 'border-blue-400/40',
@@ -72,7 +72,7 @@ export const RANKS: RankDef[] = [
   {
     id: 6,
     name: 'Tinh Anh',
-    minStars: 151,
+    minStars: 800,
     color: 'text-purple-400',
     bgColor: 'from-purple-600/20 to-purple-700/10',
     borderColor: 'border-purple-400/40',
@@ -82,7 +82,7 @@ export const RANKS: RankDef[] = [
   {
     id: 7,
     name: 'Cao Thủ',
-    minStars: 221,
+    minStars: 1200,
     color: 'text-rose-400',
     bgColor: 'from-rose-600/20 to-rose-700/10',
     borderColor: 'border-rose-400/40',
@@ -92,7 +92,7 @@ export const RANKS: RankDef[] = [
   {
     id: 8,
     name: 'Thách Đấu',
-    minStars: 301,
+    minStars: 1800,
     color: 'text-red-400',
     bgColor: 'from-red-600/20 to-red-700/10',
     borderColor: 'border-red-500/40',
@@ -102,7 +102,7 @@ export const RANKS: RankDef[] = [
   {
     id: 9,
     name: 'Quán Quân',
-    minStars: 401,
+    minStars: 2500,
     color: 'text-amber-300',
     bgColor: 'from-amber-500/20 to-amber-400/10',
     borderColor: 'border-amber-400/40',
@@ -112,7 +112,7 @@ export const RANKS: RankDef[] = [
   {
     id: 10,
     name: 'Bất Tử',
-    minStars: 551,
+    minStars: 3500,
     color: 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500',
     bgColor: 'from-amber-500/20 via-rose-500/20 to-purple-500/20',
     borderColor: 'border-amber-400/60',

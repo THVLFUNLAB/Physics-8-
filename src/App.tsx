@@ -2053,8 +2053,8 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
           {/* ── CỘT PHẢI: NỘI DUNG ── */}
           <div className="flex-1 space-y-6 min-w-0">
 
-        {/* ── Lọc theo Phần + Mức độ ── */}
-        <div className="flex flex-wrap items-center gap-4">
+            {/* ── Lọc theo Phần + Mức độ ── */}
+            <div className="flex flex-wrap items-center gap-4">
           {/* Phần */}
           <div className="flex items-center gap-2">
             <Filter className="w-3.5 h-3.5 text-slate-500" />
