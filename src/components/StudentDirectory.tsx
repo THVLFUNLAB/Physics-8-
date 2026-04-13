@@ -73,6 +73,42 @@ export const StudentDirectory: React.FC = () => {
     }
   };
 
+  const handleBulkGrantVIP = async () => {
+    if (selectedIds.size === 0) return toast.error('Vui lòng chọn ít nhất 1 học sinh');
+    if (!window.confirm(`Xác nhận cấp đặc quyền VIP Vô cực cho ${selectedIds.size} tài khoản này?`)) return;
+
+    setIsAssigning(true);
+    let successCount = 0;
+    try {
+      // Dùng vòng lặp thay vì writeBatch để xử lý lỗi Quota Limit trực quan hơn
+      const idsArray = Array.from(selectedIds);
+      for (const uid of idsArray) {
+         try {
+            await updateDoc(doc(db, 'users', uid), { 
+              tier: 'vip', 
+              isUnlimited: true,
+              maxAttempts: 150 // Fallback just in case
+            });
+            successCount++;
+         } catch (err: any) {
+            console.error(`Lỗi cấp VIP cho ${uid}:`, err);
+            toast.error(`Lỗi cho 1 tài khoản: ${err?.message || 'Unknown'}`);
+            break; // Dừng lại nếu nghẽn Quota
+         }
+      }
+      
+      if (successCount > 0) {
+        toast.success(`Đã cấp quyền VIP thành công cho ${successCount} học viên!`);
+        setSelectedIds(new Set());
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : 'Lỗi khi cấp quyền VIP');
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredStudents.length && filteredStudents.length > 0) {
       setSelectedIds(new Set());
@@ -145,6 +181,16 @@ export const StudentDirectory: React.FC = () => {
           >
             <Users className="w-4 h-4" /> THÊM VÀO LỚP
           </button>
+          
+          <div className="w-px h-6 bg-slate-700 mx-1 border-r border-slate-700" />
+          
+          <button
+            onClick={handleBulkGrantVIP}
+            disabled={selectedIds.size === 0 || isAssigning}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 rounded-lg font-black text-xs transition-colors flex items-center gap-2"
+          >
+            🌟 CẤP QUYỀN VIP
+          </button>
         </div>
       </div>
 
@@ -163,6 +209,7 @@ export const StudentDirectory: React.FC = () => {
                 </th>
                 <th className="p-4 font-bold border-b border-slate-700">Tài khoản (Email)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Họ và Tên</th>
+                <th className="p-4 font-bold border-b border-slate-700">Hạng Tài Khoản</th>
                 <th className="p-4 font-bold border-b border-slate-700">Lớp (VD: 12A1)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Năm học</th>
               </tr>
@@ -170,7 +217,7 @@ export const StudentDirectory: React.FC = () => {
             <tbody>
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-slate-500">
+                  <td colSpan={6} className="p-8 text-center text-slate-500">
                     Không tìm thấy học sinh nào.
                   </td>
                 </tr>
@@ -207,6 +254,17 @@ export const StudentDirectory: React.FC = () => {
                         }}
                         className="bg-transparent border border-transparent hover:border-slate-700 focus:border-cyan-500 focus:bg-slate-800 rounded px-2 py-1 w-full text-white outline-none transition-all"
                       />
+                    </td>
+                    <td className="p-4">
+                      {student.tier === 'vip' || student.isUnlimited ? (
+                         <span className="bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2 py-1 rounded text-xs">
+                           VIP (∞)
+                         </span>
+                      ) : (
+                         <span className="bg-slate-800 text-slate-400 font-bold px-2 py-1 rounded text-xs">
+                           FREE ({student.usedAttempts || 0}/30)
+                         </span>
+                      )}
                     </td>
                     <td className="p-4">
                       <input

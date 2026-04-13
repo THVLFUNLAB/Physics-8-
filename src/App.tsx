@@ -28,10 +28,12 @@ import {
   writeBatch,
   orderBy,
   getDocFromCache,
-  getDocFromServer
+  getDocFromServer,
+  startExamAttempt
 } from './firebase';
 import { UserProfile, Question, ClusterQuestion, Attempt, Topic, Part, TargetGroup, Exam, ExamMatrix, Prescription, Badge, AppNotification, LoginLog, Simulation } from './types';
-import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam } from './services/geminiService';
+import { analyzeAnswer, digitizeDocument, digitizeFromPDF, diagnoseUserExam, normalizeQuestions } from './services/geminiService';
+import { PHYSICS_TOPICS } from './utils/physicsTopics';
 import { 
   LogOut, 
   User as UserIcon, 
@@ -71,7 +73,8 @@ import {
   FileText,
   Star,
   ArrowRight,
-  Pencil
+  Pencil,
+  Eye
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -240,6 +243,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
   const [showActionModal, setShowActionModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showCreateExamModal, setShowCreateExamModal] = useState(false);
+  const [showReviewBoard, setShowReviewBoard] = useState(false);
   const [newExamTitle, setNewExamTitle] = useState('');
   const [alsoSaveToBank, setAlsoSaveToBank] = useState(true);
   const [isSavingExam, setIsSavingExam] = useState(false);
@@ -296,7 +300,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         }
 
         // Tự động bổ sung các trường bị thiếu từ model/pipeline bên ngoài
-        const finalQuestions = questions.map(q => {
+        const rawQuestions = questions.map(q => {
           let inferredPart = q.part;
           if (!inferredPart) {
             // Nội suy Phần dựa vào cấu trúc đáp án/options
@@ -312,9 +316,14 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
             ...q,
             id: q.id || `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             part: inferredPart,
-            topic: q.topic || topicHint || 'Chưa phân loại'
+            topic: q.topic || topicHint || 'Chưa phân loại',
+            // Map snake_case từ Parser bên ngoài → camelCase cho Firestore
+            yccdCode: q.yccdCode || (q as any).yccd_code || undefined,
           };
         });
+
+        // ═══ FIX: Normalize correctAnswer type + Sanitize LaTeX (đồng bộ với AI pipeline) ═══
+        const finalQuestions = normalizeQuestions(rawQuestions);
         
         setParseErrors([]);
         setImageProgress(null);
@@ -1143,15 +1152,28 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
 
               <div className="space-y-3">
                 <button
-                  onClick={() => { setShowActionModal(false); setShowPreviewModal(true); }}
+                  onClick={() => { setShowActionModal(false); setShowReviewBoard(true); }}
                   className="w-full p-4 bg-fuchsia-600/10 border border-fuchsia-500/30 rounded-2xl hover:bg-fuchsia-600/20 transition-all flex items-center gap-4 group"
                 >
                   <div className="w-12 h-12 bg-fuchsia-600/20 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                    <CheckCircle2 className="w-6 h-6 text-fuchsia-400" />
+                    <Pencil className="w-6 h-6 text-fuchsia-400" />
                   </div>
                   <div className="text-left">
-                    <p className="text-sm font-black text-white">👀 Xem trước từng câu</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">Kiểm tra kết quả nhận diện của AI trước khi lưu.</p>
+                    <p className="text-sm font-black text-white">✏️ Duyệt & Chỉnh sửa từng câu</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Sửa nội dung, chèn ảnh, chỉnh đáp án, phát hiện trùng lặp trước khi lưu.</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setShowActionModal(false); setShowPreviewModal(true); }}
+                  className="w-full p-4 bg-cyan-600/10 border border-cyan-500/30 rounded-2xl hover:bg-cyan-600/20 transition-all flex items-center gap-4 group"
+                >
+                  <div className="w-12 h-12 bg-cyan-600/20 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <Eye className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-white">👀 Xem nhanh (Read-only)</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Lướt nhanh kết quả, không chỉnh sửa.</p>
                   </div>
                 </button>
 
@@ -1311,6 +1333,39 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         )}
       </AnimatePresence>
 
+      {/* ═══ QUESTION REVIEW BOARD — Duyệt & Chỉnh sửa từng câu (Human-in-the-loop) ═══ */}
+      <AnimatePresence>
+        {showReviewBoard && pendingQuestions && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex flex-col"
+            style={{ backgroundColor: 'rgba(15, 23, 42, 0.98)', backdropFilter: 'blur(16px)' }}
+          >
+            <QuestionReviewBoard
+              initialQuestions={pendingQuestions}
+              parseErrors={parseErrors}
+              topic={topicHint || ''}
+              onSync={async (reviewedQuestions) => {
+                setShowReviewBoard(false);
+                setImageProgress('💾 Đang lưu vào Kho Câu Hỏi...');
+                try {
+                  await handleSync(reviewedQuestions, pendingSourceFile);
+                } finally {
+                  setImageProgress(null);
+                  setPendingQuestions(null);
+                }
+              }}
+              onCancel={() => {
+                setShowReviewBoard(false);
+                setShowActionModal(true);
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ═══ CREATE EXAM MODAL — Nhập tên đề thi ═══ */}
       <AnimatePresence>
         {showCreateExamModal && (
@@ -1400,7 +1455,10 @@ const ITEMS_PER_PAGE = 20;
 const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: (delta: number) => void; onQuestionsLoaded?: (count: number) => void }) => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterTopic, setFilterTopic] = useState<Topic | 'All'>('All');
+  const [filterTopics, setFilterTopics] = useState<Set<string>>(new Set());
+  const [filterSubTopics, setFilterSubTopics] = useState<Set<string>>(new Set());
+  const [expandedGrades, setExpandedGrades] = useState<Set<string>>(new Set(['Khối 12']));
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [filterPart, setFilterPart] = useState<Part | 'All'>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // ── Search & Level filter ──
@@ -1470,8 +1528,21 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   const filtered = useMemo(() => {
     let result = questions;
     if (filterBatchId !== 'All') result = result.filter(q => q.uploadBatchId === filterBatchId);
-    // Filter topic
-    if (filterTopic !== 'All') result = result.filter(q => q.topic === filterTopic);
+    // Filter topic + subtopic
+    if (filterTopics.size > 0 || filterSubTopics.size > 0) {
+      result = result.filter(q => {
+        const inSub = filterSubTopics.has(q.subTopic || '');
+        if (inSub) return true;
+        
+        const inTopic = filterTopics.has(q.topic);
+        if (inTopic) {
+           const subTopicsOfThisTopic = PHYSICS_TOPICS.flatMap(g => g.topics).find(t => t.name === q.topic)?.subTopics || [];
+           const hasCheckedSubForThisTopic = subTopicsOfThisTopic.some(sub => filterSubTopics.has(sub));
+           if (!hasCheckedSubForThisTopic) return true;
+        }
+        return false;
+      });
+    }
     // Filter part
     if (filterPart !== 'All') result = result.filter(q => q.part === filterPart);
     // Filter levels (multi-select)
@@ -1518,7 +1589,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
       return tsB - tsA;
     });
     return result;
-  }, [questions, filterTopic, filterPart, filterLevels, filterStatus, filterTime, searchQuery]);
+  }, [questions, filterTopics, filterSubTopics, filterPart, filterLevels, filterStatus, filterTime, searchQuery]);
 
   // ── Pagination ──
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
@@ -1527,11 +1598,12 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     return filtered.slice(start, start + ITEMS_PER_PAGE);
   }, [filtered, currentPage]);
   // Reset page khi filter thay đổi
-  useEffect(() => { setCurrentPage(1); }, [filterTopic, filterPart, filterLevels, filterStatus, filterTime, filterBatchId, searchQuery]);
+  useEffect(() => { setCurrentPage(1); }, [filterTopics, filterSubTopics, filterPart, filterLevels, filterStatus, filterTime, filterBatchId, searchQuery]);
 
-  const hasActiveFilters = filterTopic !== 'All' || filterPart !== 'All' || filterLevels.size > 0 || filterStatus !== 'All' || filterTime !== 'All' || searchQuery.trim() !== '';
+  const hasActiveFilters = filterTopics.size > 0 || filterSubTopics.size > 0 || filterPart !== 'All' || filterLevels.size > 0 || filterStatus !== 'All' || filterTime !== 'All' || searchQuery.trim() !== '';
   const resetAllFilters = () => {
-    setFilterTopic('All');
+    setFilterTopics(new Set());
+    setFilterSubTopics(new Set());
     setFilterPart('All');
     setFilterLevels(new Set());
     setFilterStatus('All');
@@ -1577,23 +1649,17 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     // Giao diện chỉ tiến hành báo đang xoá
     toast.info('Đang xóa câu hỏi...');
 
-    try {
-      // Cách 1: Chờ Server phản hồi thực sự. Cài timeout chặn Firebase pending forever
-      await withTimeout(deleteDoc(doc(db, 'questions', id)), 8000);
-      
-      // CHỈ update mảng khi thực sự THÀNH CÔNG
-      setQuestions(prev => prev.filter(q => q.id !== id));
-      setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
-      onCountChanged?.(-1);
-      toast.success('Xóa câu hỏi thành công!');
-    } catch (error: any) {
-      if (error.message === 'TIMEOUT') {
-        toast.error('🚨 Lỗi Server (Timeout): Quá tải mạng hoặc hết Quota! Giao dịch bị huỷ bỏ.');
-      } else {
-        toast.error('🚨 Lỗi Server: Hành động bị từ chối!');
-        handleFirestoreError(error, OperationType.DELETE, `questions/${id}`);
-      }
-    }
+    // Optimistic UI Update - Xóa ngay trên màn hình
+    setQuestions(prev => prev.filter(q => q.id !== id));
+    setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    onCountChanged?.(-1);
+    toast.success('Xóa câu hỏi thành công (đang đồng bộ)!');
+
+    // Chạy ngầm xoá dữ liệu trên server
+    deleteDoc(doc(db, 'questions', id)).catch(err => {
+        console.error('Lỗi khi xoá ngầm:', err);
+        // Có thể hiện cảnh báo nhỏ nếu cần, nhưng không block flow của người dùng
+    });
   };
 
   const deleteSelectedQuestions = async () => {
@@ -1603,43 +1669,28 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     try {
       const idsArray = Array.from(selectedIds);
       let deletedCount = 0;
-      toast.info(`Bắt đầu xóa từng câu (tổng ${idsArray.length})...`);
+      toast.info(`Đang xóa ${idsArray.length} câu...`);
       
-      // Xóa tuần tự từng câu hỏi một để tránh lỗi batch im lặng (silent failure) do Quota/Permissions
+      // Xóa tuần tự từng câu hỏi bằng Optimistic UI
       for (const id of idsArray) {
-        // Gửi lệnh xóa RAW REST API đi thẳng đến backend, bỏ qua Firebase SDK cache/bug
-        const token = await auth.currentUser?.getIdToken(true);
-        const projectId = "gen-lang-client-0765259986";
-        const databaseId = "ai-studio-bcba3130-d40a-41ac-adf2-90526578a2ea";
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/questions/${id}`;
-        
-        const resp = await fetch(url, {
-           method: 'DELETE',
-           headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (!resp.ok) {
-           const errText = await resp.text();
-           throw new Error(`REST LỖI: ${resp.status} - ${errText}`);
-        }
-        
-        // Cập nhật UI ngay lập tức
+        // Cập nhật UI ngay lập tức cho từng câu
         deletedCount++;
-        const currentIdSet = new Set([id]);
-        setQuestions(prev => prev.filter(q => !currentIdSet.has(q.id!)));
+        setQuestions(prev => prev.filter(q => q.id !== id));
         setSelectedIds(prev => { 
            const newSet = new Set(prev); 
            newSet.delete(id); 
            return newSet; 
         });
+
+        // Xoá ngầm trên Backend
+        deleteDoc(doc(db, 'questions', id)).catch(err => console.error(err));
       }
       
       onCountChanged?.(-deletedCount);
-      toast.success(`✅ Xong! Đã xóa vĩnh viễn ${deletedCount} câu khỏi máy chủ.`);
+      toast.success(`✅ Xong! Đã xóa ${deletedCount} câu (đang đồng bộ ngầm).`);
     } catch (error: any) {
       console.error('[deleteSelectedQuestions] LỖI:', error);
-      window.alert(`🚨 LỖI QUAN TRỌNG KHI XÓA: ${error?.message || 'Lỗi Firebase'}. \n\nKiểm tra lại đường truyền mạng, tài khoản đăng nhập hoặc dung lượng Quota của Firebase.`);
-      toast.error(`Không thể hoàn thành xóa: ${error?.message || 'Lỗi Firebase'}. Kiểm tra Quota hoặc quyền Admin.`);
+      toast.error('Có lỗi xảy ra khi xoá đồng loạt (UI).');
     } finally {
       setIsDeletingBulk(false);
     }
@@ -1733,24 +1784,26 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
         return;
       }
       
-      console.info(`[saveEdit] Đang lưu câu ${q.id} | Size: ${Math.round(payloadSize / 1024)}KB | Part: ${q.part}`);
+      console.info(`[saveEdit] Lưu câu ${q.id} | Size: ${Math.round(payloadSize / 1024)}KB`);
       
-      await withTimeout(updateDoc(doc(db, 'questions', q.id), updateData), 12000);
-      
+      // Optimistic UI Update
       setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, ...updateData } : item));
-      toast.success('✅ Lưu nội dung thành công!');
-      setEditingId(null);
+      toast.success('✅ Đã lưu (đang đồng bộ)!');
+      setEditingId(null); // Tắt form edit ngay
+      
+      // Pushing to Firebase in background without blocking UI
+      updateDoc(doc(db, 'questions', q.id), updateData).catch((error: any) => {
+        console.error('[saveEdit] LỖI đồng bộ ngầm:', error);
+        if (error?.message?.includes('TIMEOUT')) {
+           toast.error('⚠️ Máy chủ phản hồi chậm hoặc hết Quota. Trạng thái đã lưu offline.');
+        } else {
+           toast.error(`⚠️ Lỗi đẩy dữ liệu: ${error?.message}`);
+        }
+      });
+      
     } catch (error: any) {
-      console.error('[saveEdit] LỖI:', { questionId: q.id, error: error?.message, code: error?.code });
-      if (error.message === 'TIMEOUT') {
-         toast.error('🚨 Lỗi Server (Timeout): Máy chủ phản hồi quá chậm. Kiểm tra kết nối mạng và thử lại.');
-      } else if (error?.code === 'not-found' || error?.message?.includes('NOT_FOUND')) {
-         toast.error('🚨 Không tìm thấy câu hỏi trên máy chủ! Có thể đã bị xóa. Hãy làm mới trang.');
-      } else if (error?.code === 'permission-denied') {
-         toast.error('🚨 Không có quyền chỉnh sửa! Kiểm tra tài khoản Admin.');
-      } else {
-         toast.error(`🚨 Lỗi lưu: ${error?.message?.substring(0, 80) || 'Lỗi không xác định'}`);
-      }
+      console.error('[saveEdit] LỖI:', error);
+      toast.error('Lỗi khi chuẩn bị dữ liệu lưu.');
     } finally {
       setEditSaving(false);
     }
@@ -1842,11 +1895,19 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
            /src=["']data:image\/png;base64,ERROR["']/i.test(q.content);
   };
 
-  // ── Lấy danh sách topics từ dữ liệu ──
-  const allTopics = useMemo(() => {
-    const topics = new Set(questions.map(q => q.topic));
-    return Array.from(topics).sort();
-  }, [questions]);
+  // ── Helper cho TreeView ──
+  const toggleGrade = (grade: string) => {
+    setExpandedGrades(prev => { const n = new Set(prev); if(n.has(grade)) n.delete(grade); else n.add(grade); return n; });
+  };
+  const toggleTopicExpand = (topic: string) => {
+    setExpandedTopics(prev => { const n = new Set(prev); if(n.has(topic)) n.delete(topic); else n.add(topic); return n; });
+  };
+  const toggleTopicCheck = (topic: string) => {
+    setFilterTopics(prev => { const n = new Set(prev); if(n.has(topic)) n.delete(topic); else n.add(topic); return n; });
+  };
+  const toggleSubTopicCheck = (sub: string) => {
+    setFilterSubTopics(prev => { const n = new Set(prev); if(n.has(sub)) n.delete(sub); else n.add(sub); return n; });
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6">
@@ -1881,51 +1942,116 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
           </button>
         </div>
 
-        {/* ══════════ THANH TÌM KIẾM ══════════ */}
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 Tìm câu hỏi theo nội dung, lời giải, tag, chủ đề..."
-            className="w-full bg-slate-800/80 border-2 border-slate-700 hover:border-slate-600 focus:border-red-600/60 rounded-2xl pl-12 pr-12 py-3.5 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded-lg transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* ── Lọc theo Chủ đề ── */}
-        <div className="flex flex-wrap gap-2 pb-1">
-          <button
-            onClick={() => setFilterTopic('All')}
-            className={cn(
-              "whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold border transition-all",
-              filterTopic === 'All' ? "bg-red-600 border-red-600 text-white" : "bg-slate-800 border-slate-700 text-slate-400"
-            )}
-          >
-            Tất cả
-          </button>
-          {allTopics.map(t => (
-            <button
-              key={t}
-              onClick={() => setFilterTopic(t)}
-              className={cn(
-                "whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold border transition-all",
-                filterTopic === t ? "bg-red-600 border-red-600 text-white" : "bg-slate-800 border-slate-700 text-slate-400"
+        {/* ══════════ LAYOUT 2 CỘT ══════════ */}
+        <div className="flex flex-col xl:flex-row gap-8">
+          
+          {/* ── CỘT TRÁI: SIDEBAR FILTER THEO BỘ GDPT ── */}
+          <div className="w-full xl:w-80 shrink-0 space-y-4">
+            
+            {/* THANH TÌM KIẾM */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm nội dung, chủ đề, tag..."
+                className="w-full bg-slate-800/80 border-2 border-slate-700 hover:border-slate-600 focus:border-red-600/60 rounded-2xl pl-11 pr-11 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-500 hover:text-white hover:bg-slate-700 rounded-lg transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               )}
-            >
-              {t}
-              <span className="ml-1 opacity-60">({questions.filter(q => q.topic === t).length})</span>
-            </button>
-          ))}
-        </div>
+            </div>
+
+            {/* TREE VIEW BỘ GDPT */}
+            <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 max-h-[800px] overflow-y-auto custom-scrollbar">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">Cấu trúc GDPT 2018</h4>
+              {PHYSICS_TOPICS.map((gradeGroup) => (
+                <div key={gradeGroup.grade} className="mb-3">
+                  <button 
+                    onClick={() => toggleGrade(gradeGroup.grade)}
+                    className="w-full flex items-center justify-between p-2.5 bg-slate-800/80 hover:bg-slate-700/80 rounded-xl transition-all"
+                  >
+                    <span className={cn("font-bold text-sm", gradeGroup.isSpecialized ? "text-amber-400" : "text-slate-200")}>
+                      {gradeGroup.grade}
+                    </span>
+                    <ChevronRight className={cn("w-4 h-4 text-slate-400 transition-transform", expandedGrades.has(gradeGroup.grade) && "rotate-90")} />
+                  </button>
+                  
+                  {expandedGrades.has(gradeGroup.grade) && (
+                    <div className="pl-3 mt-2 border-l-2 border-slate-700/50 space-y-1.5 py-1">
+                      {gradeGroup.topics.map(topic => {
+                        const isTopicChecked = filterTopics.has(topic.name);
+                        const isExpanded = expandedTopics.has(topic.name);
+                        const qCount = questions.filter(q => q.topic === topic.name).length;
+                        if (qCount === 0 && !isTopicChecked && gradeGroup.grade !== 'Khối 12') return null; // Ẩn bớt mục trống
+                        
+                        return (
+                          <div key={topic.name}>
+                            <div className={cn("flex items-center justify-between hover:bg-slate-800/60 p-1.5 rounded-lg transition-colors group", isExpanded && "bg-slate-800/40")}>
+                              <div className="flex flex-1 items-center gap-2">
+                                {topic.subTopics.length > 0 ? (
+                                  <button onClick={() => toggleTopicExpand(topic.name)} className="p-0.5 hover:bg-slate-700 rounded text-slate-500 hover:text-white">
+                                    <ChevronRight className={cn("w-3.5 h-3.5 transition-transform", isExpanded && "rotate-90")} />
+                                  </button>
+                                ) : <span className="w-5 h-5 flex-shrink-0" />}
+                                
+                                <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isTopicChecked}
+                                    onChange={() => toggleTopicCheck(topic.name)}
+                                    className="w-4 h-4 bg-slate-800 border-slate-600 rounded accent-red-600 shrink-0 cursor-pointer"
+                                  />
+                                  <span className={cn("text-xs truncate transition-colors cursor-pointer", isTopicChecked ? "text-red-400 font-bold" : "text-slate-300 group-hover:text-white")}>
+                                    {topic.name}
+                                  </span>
+                                </label>
+                              </div>
+                              <span className="text-[10px] text-slate-500 font-bold ml-2 shrink-0">{qCount}</span>
+                            </div>
+                            
+                            {topic.subTopics.length > 0 && isExpanded && (
+                              <div className="pl-9 mt-1 pr-1 space-y-1">
+                                {topic.subTopics.map(sub => {
+                                  const isSubChecked = filterSubTopics.has(sub);
+                                  const subCount = questions.filter(q => q.subTopic === sub).length;
+                                  return (
+                                    <label key={sub} className="flex items-center justify-between p-1.5 hover:bg-slate-800/60 rounded-lg cursor-pointer group">
+                                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSubChecked}
+                                          onChange={() => toggleSubTopicCheck(sub)}
+                                          className="w-3.5 h-3.5 bg-slate-800 border-slate-600 rounded accent-blue-500 shrink-0 cursor-pointer"
+                                        />
+                                        <span className={cn("text-[11px] leading-snug transition-colors cursor-pointer", isSubChecked ? "text-blue-400 font-bold" : "text-slate-400 group-hover:text-slate-200")}>
+                                          {sub}
+                                        </span>
+                                      </div>
+                                      {subCount > 0 && <span className="text-[9px] text-slate-600 font-bold shrink-0">{subCount}</span>}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── CỘT PHẢI: NỘI DUNG ── */}
+          <div className="flex-1 space-y-6 min-w-0">
 
         {/* ── Lọc theo Phần + Mức độ ── */}
         <div className="flex flex-wrap items-center gap-4">
@@ -2545,6 +2671,8 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
           </button>
         </div>
       )}
+        </div>
+      </div>
 
       {/* ══════════ FLOATING BULK DELETE BAR ══════════ */}
       <AnimatePresence>
@@ -3493,6 +3621,7 @@ const ProExamExperience = ({
   const [cheatWarnings, setCheatWarnings] = useState(0);
   const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
+  const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
@@ -3624,21 +3753,71 @@ const ProExamExperience = ({
         {/* Question Navigation */}
         <aside className="w-80 bg-slate-900/50 border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar hidden lg:block">
           <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6">Danh sách câu hỏi</h4>
-          <div className="grid grid-cols-4 gap-2">
-            {test.questions.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrentIndex(i)}
-                className={cn(
-                  "w-full aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all border",
-                  currentIndex === i ? "bg-blue-600 border-blue-500 text-white shadow-lg" : 
-                  initialAnswers[test.questions[i].id] !== undefined ? "bg-slate-800 border-slate-700 text-slate-300" :
-                  "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
-                )}
-              >
-                {i + 1}
-              </button>
-            ))}
+          <div className="space-y-1">
+            {(() => {
+              // ═══ CLUSTER-AWARE SIDEBAR: Nhóm câu cluster visual ═══
+              const items: React.ReactNode[] = [];
+              let i = 0;
+              while (i < test.questions.length) {
+                const q = test.questions[i];
+                if (q.clusterId) {
+                  // Thu thập tất cả câu cùng cluster liền kề
+                  const clusterStart = i;
+                  const cid = q.clusterId;
+                  while (i < test.questions.length && test.questions[i].clusterId === cid) i++;
+                  const clusterEnd = i;
+                  items.push(
+                    <div key={`cluster-${cid}`} className="relative pl-4 py-1 mb-1 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                      {/* Vertical accent bar */}
+                      <div className="absolute left-0 top-2 bottom-2 w-1 bg-amber-500/40 rounded-full" />
+                      <div className="flex items-center gap-1.5 px-1 py-1 mb-1">
+                        <span className="text-[8px]">🔗</span>
+                        <span className="text-[8px] font-bold text-amber-500/70 uppercase tracking-wider">Câu chùm</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {Array.from({ length: clusterEnd - clusterStart }, (_, ci) => {
+                          const qi = clusterStart + ci;
+                          return (
+                            <button
+                              key={qi}
+                              onClick={() => setCurrentIndex(qi)}
+                              className={cn(
+                                "w-full aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all border",
+                                currentIndex === qi ? "bg-amber-600 border-amber-500 text-white shadow-lg" :
+                                initialAnswers[test.questions[qi].id] !== undefined ? "bg-slate-800 border-slate-700 text-slate-300" :
+                                "bg-slate-950 border-amber-900/30 text-slate-600 hover:border-amber-600/50"
+                              )}
+                            >
+                              {qi + 1}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  // Câu lẻ
+                  const qi = i;
+                  items.push(
+                    <button
+                      key={qi}
+                      onClick={() => setCurrentIndex(qi)}
+                      className={cn(
+                        "w-full aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all border",
+                        currentIndex === qi ? "bg-blue-600 border-blue-500 text-white shadow-lg" :
+                        initialAnswers[test.questions[qi].id] !== undefined ? "bg-slate-800 border-slate-700 text-slate-300" :
+                        "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
+                      )}
+                      style={{ width: 'calc(25% - 6px)', display: 'inline-flex' }}
+                    >
+                      {qi + 1}
+                    </button>
+                  );
+                  i++;
+                }
+              }
+              return <div className="flex flex-wrap gap-2">{items}</div>;
+            })()}
           </div>
 
           <div className="mt-10 p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
@@ -3663,8 +3842,18 @@ const ProExamExperience = ({
             <div className="space-y-6">
               {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung cho câu chùm ═══ */}
               {(() => {
-                const clusterTag = currentQuestion.tags?.find(t => t.startsWith('__cluster_context:'));
-                if (clusterTag && currentQuestion.clusterOrder === 0) {
+                if (!currentQuestion.clusterId) return null;
+                // Tìm ngữ cảnh chung: từ tag __cluster_context hoặc content câu đầu
+                const headQuestion = test.questions.find(
+                  q => q.clusterId === currentQuestion.clusterId && (q.clusterOrder ?? 0) === 0
+                );
+                const clusterTag = headQuestion?.tags?.find(t => t.startsWith('__cluster_context:'));
+                const sharedCtx = clusterTag
+                  ? clusterTag.replace('__cluster_context:', '')
+                  : (currentQuestion.clusterOrder === 0 ? null : headQuestion?.content);
+
+                // Câu đầu (clusterOrder: 0): luôn hiện đầy đủ (đây LÀ dữ kiện chung)
+                if (currentQuestion.clusterOrder === 0 && clusterTag) {
                   const ctx = clusterTag.replace('__cluster_context:', '');
                   return (
                     <div className="bg-amber-950/30 border border-amber-700/40 rounded-2xl p-6 mb-4">
@@ -3678,12 +3867,29 @@ const ProExamExperience = ({
                     </div>
                   );
                 }
-                // Câu thứ 2+ trong cluster → hiển thị badge nhỏ
-                if (currentQuestion.clusterId && (currentQuestion.clusterOrder ?? 0) > 0) {
+
+                // Câu con (clusterOrder > 0): Collapsible inline context
+                if ((currentQuestion.clusterOrder ?? 0) > 0 && sharedCtx) {
                   return (
-                    <div className="text-amber-500/70 text-xs font-bold flex items-center gap-1 mb-2">
-                      <Info className="w-3 h-3" />
-                      📎 Câu này dùng chung dữ kiện với câu trước
+                    <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
+                      <button
+                        onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
+                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 text-amber-500">
+                          <Info className="w-4 h-4" />
+                          <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
+                        </div>
+                        <ChevronRight className={cn(
+                          "w-4 h-4 text-amber-500 transition-transform",
+                          clusterContextCollapsed ? "" : "rotate-90"
+                        )} />
+                      </button>
+                      {!clusterContextCollapsed && (
+                        <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
+                          <MathRenderer content={sharedCtx} />
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -4120,6 +4326,52 @@ const StudentDashboard = ({ user, attempts, onStartPrescription, onStartExam }: 
       {/* ── Rank Card ── */}
       <UserRankCard user={user} />
 
+      {/* ── ATTEMPTS PROGRESS BAR (Monetization) ── */}
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl relative overflow-hidden">
+        {user.tier === 'vip' || user.isUnlimited ? (
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full pointer-events-none" />
+        ) : null}
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2 z-10">
+            <Target className={cn("w-4 h-4", user.tier === 'vip' || user.isUnlimited ? "text-amber-500" : "text-blue-500")} />
+            Lượt Làm Bài (API)
+            {user.tier === 'vip' || user.isUnlimited ? (
+               <span className="ml-2 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest">VIP</span>
+            ) : null}
+          </h3>
+          <span className={cn("text-xs font-black z-10", user.tier === 'vip' || user.isUnlimited ? "text-amber-500 text-lg" : "text-blue-500")}>
+            {user.tier === 'vip' || user.isUnlimited ? '∞' : `${user.usedAttempts || 0} / ${user.maxAttempts || 30}`}
+          </span>
+        </div>
+        <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: user.tier === 'vip' || user.isUnlimited ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / (user.maxAttempts || 30)) * 100)}%` }}
+            transition={{ duration: 1.5, ease: 'easeOut' }}
+            className={cn(
+               "h-full rounded-full bg-gradient-to-r relative",
+               user.tier === 'vip' || user.isUnlimited ? "from-amber-500 via-yellow-400 to-amber-300" : "from-blue-600 via-blue-500 to-cyan-400"
+            )}
+          >
+            {user.tier === 'vip' || user.isUnlimited ? (
+               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
+            ) : null}
+          </motion.div>
+        </div>
+        <div className="flex justify-between mt-2 z-10 relative">
+          <p className="text-[10px] text-slate-500">
+            {user.tier === 'vip' || user.isUnlimited 
+              ? '✨ Quyền lực tuyệt đối! Không giới hạn số đề ôn luyện.'
+              : 'Nâng cấp VIP để mở khóa Vô Hạn lượt thi.'}
+          </p>
+          {user.tier !== 'vip' && !user.isUnlimited && (
+             <a href="https://zalo.me/0962662736?text=Em%20ch%C3%A0o%20Th%E1%BA%A7y%20H%E1%BA%ADu%2C%20em%20mu%E1%BB%91n%20n%C3%A2ng%20c%E1%BA%A5p%20t%C3%A0i%20kho%E1%BA%A3n%20VIP%20PHY8%2B" target="_blank" className="text-[10px] font-bold text-amber-500 hover:text-amber-400 uppercase">
+               Nâng cấp ngay »
+             </a>
+          )}
+        </div>
+      </div>
+
       {/* ── Learning Path Progress Bar ── */}
       {user.learningPath && (
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl">
@@ -4521,9 +4773,60 @@ const DuplicateReviewHubWrapper = () => {
   return <DuplicateReviewHub questions={questions} onDeleteQuestion={handleDelete} />;
 };
 
+const UpgradeModal = ({ onClose }: { onClose: () => void }) => {
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-slate-900 border-2 border-amber-500/30 w-full max-w-md rounded-[2rem] p-8 shadow-2xl flex flex-col items-center text-center overflow-hidden">
+        {/* Glow Effects */}
+        <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 blur-[100px] rounded-full pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-rose-500/10 blur-[100px] rounded-full pointer-events-none" />
+        
+        {/* Icon Header */}
+        <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center mb-6 shadow-lg shadow-amber-500/40 border border-amber-300">
+          <Target className="w-10 h-10 text-white" />
+        </div>
+
+        <h2 className="text-2xl font-black text-white mb-2">Đã hết lượt làm bài!</h2>
+        <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+          Bạn đã sử dụng hết lượt làm bài của tài khoản Miễn phí. Hãy nâng cấp lên hạng <strong className="text-amber-400">VIP</strong> để mở khóa đặc quyền vô cực (Unlimited) và truy cập toàn bộ kho đề thi, lộ trình chuyên sâu!
+        </p>
+
+        {/* Cấu trúc báo giá tượng trưng (nếu muốn) hoặc Call to Action */}
+        <div className="w-full bg-slate-800/50 border border-slate-700/50 rounded-2xl p-4 mb-6">
+          <ul className="text-left text-sm space-y-3">
+            <li className="flex items-center gap-3 text-emerald-400"><CheckCircle2 className="w-4 h-4" /> Không giới hạn lượt thi</li>
+            <li className="flex items-center gap-3 text-emerald-400"><CheckCircle2 className="w-4 h-4" /> Ưu tiên chấm điểm AI siêu tốc</li>
+            <li className="flex items-center gap-3 text-emerald-400"><CheckCircle2 className="w-4 h-4" /> Mở khóa Lộ trình Hổng kiến thức</li>
+          </ul>
+        </div>
+
+        {/* Nút Call to Action */}
+        <a 
+          href="https://zalo.me/0962662736?text=Em%20ch%C3%A0o%20Th%E1%BA%A7y%20H%E1%BA%ADu%2C%20em%20mu%E1%BB%91n%20n%C3%A2ng%20c%E1%BA%A5p%20t%C3%A0i%20kho%E1%BA%A3n%20VIP%20PHY8%2B"
+          target="_blank" 
+          rel="noreferrer"
+          className="w-full relative group overflow-hidden bg-white text-slate-900 font-black rounded-xl p-4 flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300"
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-200/50 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
+          Nâng cấp VIP qua Zalo ngay <ChevronRight className="w-5 h-5" />
+        </a>
+
+        <button 
+          onClick={onClose}
+          className="mt-6 text-xs text-slate-500 font-bold hover:text-white transition-colors"
+        >
+          Đóng cửa sổ
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -4851,74 +5154,161 @@ export default function App() {
   };
 
   const exportExamToPDF = async (exam: Exam) => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
+    const pdfDoc = new jsPDF();
+    const pageWidth = pdfDoc.internal.pageSize.getWidth();
+    const pageHeight = pdfDoc.internal.pageSize.getHeight();
+    const marginBottom = 20;
     
     // Header
-    doc.setFontSize(10);
-    doc.text("SỞ GIÁO DỤC VÀ ĐÀO TẠO", 20, 20);
-    doc.text("TRƯỜNG THPT CHUYÊN PHYS-9+", 20, 25);
-    doc.text("ĐỀ THI CHÍNH THỨC", 20, 30);
+    pdfDoc.setFontSize(10);
+    pdfDoc.text("SỞ GIÁO DỤC VÀ ĐÀO TẠO", 20, 20);
+    pdfDoc.text("TRƯỜNG THPT CHUYÊN PHYS-9+", 20, 25);
+    pdfDoc.text("ĐỀ THI CHÍNH THỨC", 20, 30);
     
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG NĂM 2026", pageWidth / 2, 45, { align: "center" });
-    doc.text(`Bài thi: VẬT LÝ - Mã đề: ${Math.floor(Math.random() * 900) + 100}`, pageWidth / 2, 52, { align: "center" });
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text("Thời gian làm bài: 50 phút, không kể thời gian phát đề", pageWidth / 2, 58, { align: "center" });
+    pdfDoc.setFontSize(12);
+    pdfDoc.setFont("helvetica", "bold");
+    pdfDoc.text("KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG NĂM 2026", pageWidth / 2, 45, { align: "center" });
+    pdfDoc.text(`Bài thi: VẬT LÝ - Mã đề: ${Math.floor(Math.random() * 900) + 100}`, pageWidth / 2, 52, { align: "center" });
+    pdfDoc.setFontSize(10);
+    pdfDoc.setFont("helvetica", "normal");
+    pdfDoc.text("Thời gian làm bài: 50 phút, không kể thời gian phát đề", pageWidth / 2, 58, { align: "center" });
     
-    doc.line(20, 65, pageWidth - 20, 65);
+    pdfDoc.line(20, 65, pageWidth - 20, 65);
     
     let y = 75;
-    
-    // Part I
-    doc.setFont("helvetica", "bold");
-    doc.text("PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn.", 20, y);
-    y += 10;
-    doc.setFont("helvetica", "normal");
-    
-    exam.questions.filter(q => q.part === 1).forEach((q, i) => {
-      if (y > 270) { doc.addPage(); y = 20; }
-      const lines = doc.splitTextToSize(`Câu ${i + 1}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
-      doc.text(lines, 20, y);
-      y += lines.length * 5 + 5;
-      
-      q.options?.forEach((opt, idx) => {
-        const label = String.fromCharCode(65 + idx) + ". ";
-        doc.text(label + opt.replace(/\$|\$\$/g, ''), 30 + (idx % 2 === 0 ? 0 : 80), y);
-        if (idx % 2 === 1) y += 7;
-      });
-      y += 5;
-    });
-    
-    // Part II
-    y += 10;
-    if (y > 270) { doc.addPage(); y = 20; }
-    doc.setFont("helvetica", "bold");
-    doc.text("PHẦN II. Câu trắc nghiệm Đúng/Sai.", 20, y);
-    y += 10;
-    doc.setFont("helvetica", "normal");
-    
-    exam.questions.filter(q => q.part === 2).forEach((q, i) => {
-      if (y > 270) { doc.addPage(); y = 20; }
-      const lines = doc.splitTextToSize(`Câu ${i + 1}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
-      doc.text(lines, 20, y);
-      y += lines.length * 5 + 5;
-      
-      q.options?.forEach((opt, idx) => {
-        const label = String.fromCharCode(97 + idx) + ") ";
-        doc.text(label + opt.replace(/\$|\$\$/g, ''), 30, y);
-        y += 7;
-      });
-      y += 5;
-    });
 
-    doc.save(`${exam.title}.pdf`);
+    // ═══ HELPER: Ước tính chiều cao một câu hỏi ═══
+    const estimateQuestionHeight = (q: Question, label: string): number => {
+      const contentLines = pdfDoc.splitTextToSize(`${label}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
+      let h = contentLines.length * 5 + 5;
+      if (q.options) {
+        h += (q.part === 1 ? Math.ceil(q.options.length / 2) : q.options.length) * 7 + 5;
+      }
+      return h;
+    };
+
+    // ═══ HELPER: Render một câu (trả về y mới) ═══
+    const renderQuestion = (q: Question, label: string, currentY: number): number => {
+      const contentLines = pdfDoc.splitTextToSize(`${label}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
+      pdfDoc.text(contentLines, 20, currentY);
+      currentY += contentLines.length * 5 + 5;
+      if (q.part === 1) {
+        q.options?.forEach((opt, idx) => {
+          pdfDoc.text(String.fromCharCode(65 + idx) + ". " + opt.replace(/\$|\$\$/g, ''), 30 + (idx % 2 === 0 ? 0 : 80), currentY);
+          if (idx % 2 === 1) currentY += 7;
+        });
+        currentY += 5;
+      } else if (q.part === 2) {
+        q.options?.forEach((opt, idx) => {
+          pdfDoc.text(String.fromCharCode(97 + idx) + ") " + opt.replace(/\$|\$\$/g, ''), 30, currentY);
+          currentY += 7;
+        });
+        currentY += 5;
+      }
+      return currentY;
+    };
+
+    // ═══ HELPER: Tạo blocks (câu lẻ + câu chùm) ═══
+    const buildBlocks = (questions: Question[]): (Question | Question[])[] => {
+      const blocks: (Question | Question[])[] = [];
+      const processed = new Set<string>();
+      for (const q of questions) {
+        if (q.clusterId) {
+          if (processed.has(q.clusterId)) continue;
+          processed.add(q.clusterId);
+          blocks.push(questions.filter(cq => cq.clusterId === q.clusterId).sort((a, b) => (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0)));
+        } else {
+          blocks.push(q);
+        }
+      }
+      return blocks;
+    };
+
+    // ═══ RENDER PER PART ═══
+    const renderPart = (partTitle: string, questions: Question[], startIdx: number): number => {
+      y += 10;
+      if (y > pageHeight - marginBottom) { pdfDoc.addPage(); y = 20; }
+      pdfDoc.setFont("helvetica", "bold");
+      pdfDoc.text(partTitle, 20, y);
+      y += 10;
+      pdfDoc.setFont("helvetica", "normal");
+
+      const blocks = buildBlocks(questions);
+      let qCounter = startIdx;
+
+      for (const block of blocks) {
+        if (Array.isArray(block)) {
+          // ═══ CLUSTER BLOCK ═══
+          const clusterTag = block[0]?.tags?.find((t: string) => t.startsWith('__cluster_context:'));
+          const sharedCtx = clusterTag?.replace('__cluster_context:', '');
+          
+          let totalHeight = 0;
+          if (sharedCtx) {
+            const ctxText = sharedCtx.replace(/\$|\$\$/g, '').replace(/<[^>]*>/g, '');
+            totalHeight += pdfDoc.splitTextToSize(`[Dữ kiện chung] ${ctxText}`, pageWidth - 50).length * 5 + 8;
+          }
+          for (let ci = 0; ci < block.length; ci++) {
+            totalHeight += estimateQuestionHeight(block[ci], `Câu ${qCounter + ci + 1}`);
+          }
+
+          // Page-break-inside: avoid — nếu block không vừa trang → addPage trước
+          if (y + totalHeight > pageHeight - marginBottom && y > 40) {
+            pdfDoc.addPage();
+            y = 20;
+          }
+
+          if (sharedCtx) {
+            pdfDoc.setFont("helvetica", "italic");
+            const ctxText = sharedCtx.replace(/\$|\$\$/g, '').replace(/<[^>]*>/g, '');
+            const ctxLines = pdfDoc.splitTextToSize(`[Dữ kiện chung] ${ctxText}`, pageWidth - 50);
+            pdfDoc.text(ctxLines, 25, y);
+            y += ctxLines.length * 5 + 5;
+            pdfDoc.setFont("helvetica", "normal");
+          }
+
+          for (const cq of block) {
+            qCounter++;
+            y = renderQuestion(cq, `Câu ${qCounter}`, y);
+          }
+        } else {
+          qCounter++;
+          if (y > pageHeight - marginBottom) { pdfDoc.addPage(); y = 20; }
+          y = renderQuestion(block, `Câu ${qCounter}`, y);
+        }
+      }
+      return qCounter;
+    };
+
+    let idx = 0;
+    idx = renderPart("PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn.", exam.questions.filter(q => q.part === 1), idx);
+    idx = renderPart("PHẦN II. Câu trắc nghiệm Đúng/Sai.", exam.questions.filter(q => q.part === 2), idx);
+    renderPart("PHẦN III. Câu trắc nghiệm trả lời ngắn.", exam.questions.filter(q => q.part === 3), idx);
+
+    pdfDoc.save(`${exam.title}.pdf`);
   };
   const startTest = async (topic: Topic, examId?: string) => {
+    if (!user) {
+      toast.error("Vui lòng đăng nhập để bắt đầu bài thi.");
+      return;
+    }
+    
     setLoading(true);
+    
     try {
+      // ═══ KIỂM TRA & TRỪ LƯỢT VIP ═══
+      try {
+        await startExamAttempt(user.uid, user.role === 'admin');
+      } catch (err: any) {
+        setLoading(false);
+        if (err.message === 'EXCEEDED_LIMIT') {
+           setShowUpgradeModal(true);
+           return;
+        } else {
+           toast.error("Có lỗi xảy ra khi kiểm tra lượt làm bài: " + (err.message || 'Chưa rõ.'));
+           return;
+        }
+      }
+
       // ═══ [SESSION CHECK] Kiểm tra phiên thi đang dở trước khi tạo đề mới ═══
       const savedSession = localStorage.getItem(SESSION_KEY);
       if (savedSession && !examId) {
@@ -5019,11 +5409,12 @@ export default function App() {
 
       let finalQuestions = [...p1, ...p2, ...p3];
 
-      // ═══ [CLUSTER] Đảm bảo câu chùm luôn đi cùng nhau ═══
+      // ═══ [CLUSTER] Đảm bảo câu chùm luôn đi cùng nhau + BLOCK-SHUFFLE ═══
       const selectedClusterIds = new Set<string>();
       for (const q of finalQuestions) {
         if (q.clusterId) selectedClusterIds.add(q.clusterId);
       }
+      // Kéo siblings vào đề nếu thiếu
       if (selectedClusterIds.size > 0) {
         for (const cid of selectedClusterIds) {
           const siblings = allQuestions.filter(
@@ -5031,13 +5422,7 @@ export default function App() {
           );
           if (siblings.length > 0) finalQuestions.push(...siblings);
         }
-        finalQuestions.sort((a, b) => {
-          if (!a.clusterId && !b.clusterId) return a.part - b.part;
-          if (!a.clusterId) return -1;
-          if (!b.clusterId) return 1;
-          if (a.clusterId === b.clusterId) return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
-          return a.part - b.part;
-        });
+        // Fetch sharedContext từ collection 'clusters'
         for (const cid of selectedClusterIds) {
           try {
             const clusterSnap = await getDoc(doc(db, 'clusters', cid));
@@ -5051,6 +5436,44 @@ export default function App() {
           } catch (err) { console.warn(`[startTest] Cluster ${cid}:`, err); }
         }
       }
+
+      // ═══ BLOCK-SHUFFLE: Nhóm cluster = khối nguyên tử, trộn giữa khối ═══
+      const blockShuffle = (questions: Question[]): Question[] => {
+        const clusterMap = new Map<string, Question[]>();
+        const standalones: Question[] = [];
+        
+        for (const q of questions) {
+          if (q.clusterId) {
+            if (!clusterMap.has(q.clusterId)) clusterMap.set(q.clusterId, []);
+            clusterMap.get(q.clusterId)!.push(q);
+          } else {
+            standalones.push(q);
+          }
+        }
+        
+        // Sort nội bộ cluster theo clusterOrder
+        for (const [, group] of clusterMap) {
+          group.sort((a, b) => (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0));
+        }
+        
+        // Tạo mảng blocks: mỗi câu lẻ = 1 block, mỗi cluster = 1 block (array)
+        const blocks: (Question | Question[])[] = [
+          ...standalones,
+          ...Array.from(clusterMap.values())
+        ];
+        
+        // Shuffle các blocks
+        blocks.sort(() => Math.random() - 0.5);
+        
+        // Mở phẳng
+        return blocks.flatMap(b => Array.isArray(b) ? b : [b]);
+      };
+
+      // Áp dụng block-shuffle theo từng phần (giữ phần I → phần II → phần III)
+      const part1Qs = finalQuestions.filter(q => q.part === 1);
+      const part2Qs = finalQuestions.filter(q => q.part === 2);
+      const part3Qs = finalQuestions.filter(q => q.part === 3);
+      finalQuestions = [...blockShuffle(part1Qs), ...blockShuffle(part2Qs), ...blockShuffle(part3Qs)];
 
       // If no questions in DB, use fallback mock
       if (finalQuestions.length === 0) {
@@ -5467,6 +5890,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex flex-col md:flex-row relative">
       <ToastProvider />
+      {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
       {activeSimulationViewer && (
         <SimulationViewer 

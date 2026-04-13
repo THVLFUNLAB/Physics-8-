@@ -14,7 +14,7 @@ const MODELS = {
 
 // ~20K chars ≈ 10-15 câu/chunk — tránh overload API với đề lớn (100+ câu)
 const MAX_CHUNK_SIZE = 20_000;
-const MAX_CONCURRENCY = 2; // Tối đa 2 chunk song song — giảm áp lực API
+const MAX_CONCURRENCY = 1; // Tối đa 1 chunk song song — giảm áp lực API / chống Rate Limit 429
 
 const getAI = () => {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -249,18 +249,33 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
 const PHYSICS_KNOWLEDGE_TREE = `
 === CÂY KIẾN THỨC VẬT LÝ THPT (GDPT 2018) ===
 
-【10】Động học | Động lực học (Newton) | Năng lượng (Công, Cơ năng) | Động lượng
-【11】Dao động cơ (con lắc, cộng hưởng) | Sóng cơ (giao thoa, sóng dừng, sóng âm) | Điện trường (Coulomb, tụ điện) | Dòng điện (Ohm, ghép R)
-【12】Từ trường (lực từ, Lorentz) | Cảm ứng ĐT (Faraday, tự cảm) | Điện XC (RLC, cộng hưởng, MBA) | Sóng ĐT | Quang học (tán sắc, giao thoa) | Vật lí nhiệt (nội năng, NĐLH) | Khí LT (PTTT, đẳng quá trình) | Lượng tử (quang điện) | Hạt nhân (phóng xạ, PƯHN)
+【Khối 10】
+Mở đầu
+Động học: Mô tả chuyển động | Chuyển động biến đổi
+Động lực học: Ba định luật Newton về chuyển động | Một số lực trong thực tiễn | Cân bằng lực, moment lực | Khối lượng riêng, áp suất chất lỏng
+Công, năng lượng, công suất: Công và năng lượng | Động năng và thế năng | Công suất và hiệu suất
+Động lượng: Định nghĩa động lượng | Bảo toàn động lượng | Động lượng và va chạm
+Chuyển động tròn: Động học của chuyển động tròn đều | Gia tốc hướng tâm và lực hướng tâm
+Biến dạng của vật rắn: Biến dạng kéo và biến dạng nén | Đặc tính của lò xo | Định luật Hooke
+
+【Khối 11】
+Dao động: Dao động điều hoà | Dao động tắt dần, hiện tượng cộng hưởng
+Sóng: Mô tả sóng | Sóng dọc và sóng ngang | Sóng điện từ | Giao thoa sóng kết hợp | Sóng dừng | Đo tốc độ truyền âm
+Trường điện (Điện trường): Lực điện tương tác giữa các điện tích | Khái niệm điện trường | Điện trường đều | Điện thế và thế năng điện | Tụ điện và điện dung
+Dòng điện, mạch điện: Cường độ dòng điện | Mạch điện và điện trở | Năng lượng điện, công suất điện
+
+【Khối 12】
+Vật lí nhiệt: Sự chuyển thể | Nội năng, định luật 1 của nhiệt động lực học | Thang nhiệt độ, nhiệt kế | Nhiệt dung riêng, nhiệt nóng chảy riêng, nhiệt hoá hơi riêng
+Khí lí tưởng: Mô hình động học phân tử chất khí | Phương trình trạng thái | Áp suất khí theo mô hình động học phân tử | Động năng phân tử
+Trường từ (Từ trường): Khái niệm từ trường | Lực từ tác dụng lên đoạn dây dẫn mang dòng điện; Cảm ứng từ | Từ thông; Cảm ứng điện từ
+Vật lí hạt nhân và phóng xạ: Cấu trúc hạt nhân | Độ hụt khối và năng lượng liên kết hạt nhân | Sự phóng xạ và chu kì bán rã
+
+【Khối Chuyên đề】
+Chuyên đề Lớp 10: Vật lí trong một số ngành nghề | Trái Đất và bầu trời | Vật lí với giáo dục về bảo vệ môi trường
+Chuyên đề Lớp 11: Trường hấp dẫn | Truyền thông tin bằng sóng vô tuyến | Mở đầu về điện tử học
+Chuyên đề Lớp 12: Dòng điện xoay chiều | Một số ứng dụng vật lí trong chẩn đoán y học | Vật lí lượng tử
 
 Mức độ: Nhận biết(NB) | Thông hiểu(TH) | Vận dụng(VD) | Vận dụng cao(VDC)
-
-=== QUY TẮC PHÂN LOẠI CHỦ ĐỀ LỚP 12 ===
-STOP-WORDS (bỏ qua): "công", "năng lượng", "lực", "chuyển động", "nhiệt độ"
-IF chứa: nóng chảy/hoá hơi/nội năng/NĐLH/Celsius/Kelvin/nhiệt dung riêng → topic="Vật lí nhiệt"
-ELSE IF: Brown/Boyle/Charles/PTTT khí/áp suất khí/Boltzmann → topic="Khí lí tưởng"
-ELSE IF: đường sức từ/nam châm/lực từ/tesla/từ thông/Faraday/Lenz → topic="Từ trường"
-ELSE: dùng cây kiến thức phía trên.
 `;
 
 // ============================================================
@@ -290,9 +305,11 @@ Part 2: "true,true,false,false" (4 giá trị)
 Part 3: "2.45" (đáp số)
 Ưu tiên: <u>gạch chân → <b>đậm → */✓ → bảng đáp án cuối đề → AI tự giải
 
-【3】TOPIC/LEVEL/TAGS:
+【3】TOPIC/LEVEL/TAGS/SUB_TOPIC:
+Trường "topic": CHỈ ĐƯỢC ĐIỀN TÊN MỤC LỚN (Ví dụ: "Trường từ (Từ trường)", "Động học").
+Trường "sub_topic": CHỈ ĐƯỢC ĐIỀN TÊN MỤC CHI TIẾT (Ví dụ: "Từ thông; Cảm ứng điện từ", "Chuyển động biến đổi"). Nếu mục lớn không có phân nhánh thì để trống.
 Nếu có #Chương:/#Bài:/#Dạng: trong text → trích xuất chính xác, XÓA SẠCH khỏi content.
-Nếu không → tự suy luận. topic phải cụ thể ("Dao động cơ", không "Vật lý"). tags >= 2.
+Nếu không → tự suy luận dựa theo CÂY KIẾN THỨC VẬT LÝ THPT ở trên. tags >= 2.
 
 【6】LaTeX: Δ→$\\Delta$, ω→$\\omega$, phân số→$\\frac{a}{b}$, vector→$\\vec{F}$
 
@@ -328,6 +345,7 @@ function buildDigitizePromptFull(inputDescription: string, topicHint?: string): 
 const QUESTION_ITEM_PROPERTIES = {
   part:          { type: Type.INTEGER },
   topic:         { type: Type.STRING },
+  sub_topic:     { type: Type.STRING },
   level:         { type: Type.STRING },
   content:       { type: Type.STRING },
   options:       { type: Type.ARRAY, items: { type: Type.STRING } },
@@ -583,6 +601,7 @@ function flattenClusterOutput(rawItems: any[]): Question[] {
         result.push({
           part: sq.part ?? 1,
           topic: sq.topic || clusterTopic,
+          subTopic: sq.sub_topic || sq.subTopic,
           level: sq.level || 'Thông hiểu',
           content: sq.content || '',
           options: sq.options,
@@ -606,8 +625,11 @@ function flattenClusterOutput(rawItems: any[]): Question[] {
       );
     } else {
       // ═══ SINGLE ═══
-      const { item_type, itemType: _it, shared_context, sub_questions, ...questionFields } = item;
-      result.push(questionFields as Question);
+      const { item_type, itemType: _it, shared_context, sub_questions, sub_topic, subTopic, ...questionFields } = item;
+      result.push({
+        ...questionFields,
+        subTopic: sub_topic || subTopic,
+      } as Question);
     }
   }
 
@@ -648,7 +670,7 @@ function isTransientError(error: any): boolean {
 
 /**
  * Auto-retry với exponential backoff cho lỗi tạm thời (503, 429).
- * Tối đa 3 lần, delay: 3s → 5s → 10s.
+ * Nếu là 429 (Rate Limit) thì chờ lâu hơn (10s, 20s, 30s...).
  * @param onRetry callback để cập nhật UI khi đang retry
  */
 async function retryWithBackoff<T>(
@@ -662,8 +684,13 @@ async function retryWithBackoff<T>(
       return await fn();
     } catch (error) {
       if (attempt < maxRetries && isTransientError(error)) {
-        const delaySec = [3, 5, 10][attempt] ?? 10;
-        console.warn(`[Gemini] Lỗi tạm thời (lần ${attempt + 1}/${maxRetries}), thử lại sau ${delaySec}s...`);
+        const isRateLimit = isRateLimitError(error);
+        // Nếu bị Rate limit → chờ lâu hơn để reset token (Free API)
+        const delaySec = isRateLimit 
+          ? ([10, 20, 30, 40][attempt] ?? 30) 
+          : ([3, 5, 10, 15][attempt] ?? 10);
+
+        console.warn(`[Gemini] Lỗi tạm thời (lần ${attempt + 1}/${maxRetries}), thử lại sau ${delaySec}s... Error:`, String(error));
         onRetry?.(attempt + 1, maxRetries, delaySec);
         await new Promise(r => setTimeout(r, delaySec * 1000));
         continue;
@@ -881,8 +908,8 @@ export async function digitizeFromPDF(
 
   onProgress?.(`PDF có ${pageGroups.length} phần. Đang xử lý song song...`);
 
-  // Xử lý từng nhóm trang — chạy song song tối đa 3 nhóm cùng lúc
-  const CONCURRENCY = 3;
+  // Xử lý từng nhóm trang — CHẠY TUẦN TỰ (1 nhóm/lần) để chống ngộp API
+  const CONCURRENCY = 1;
   const allQuestions: Question[] = [];
 
   for (let batch = 0; batch < pageGroups.length; batch += CONCURRENCY) {

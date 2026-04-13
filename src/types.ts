@@ -58,6 +58,11 @@ export interface UserProfile {
   streak?: number;                 // Số ngày học liên tục
   lastStreakDate?: string;         // "YYYY-MM-DD" ngày cuối tính streak
   stars?: number;                  // Tổng sao tích lũy (Rank System)
+  // ── Monetization ──
+  tier?: 'free' | 'vip';           // Hạng tài khoản
+  usedAttempts?: number;           // Số lượt thi đã dùng
+  maxAttempts?: number;            // Giới hạn lượt thi (Free: 30)
+  isUnlimited?: boolean;           // Cờ VIP không giới hạn
   // ── Learning Path ──
   learningPath?: {
     completedTopics: string[];
@@ -88,7 +93,9 @@ export interface Question {
   id?: string;
   part: Part;
   topic: Topic;
+  subTopic?: string;
   level: QuestionLevel;
+  yccdCode?: string;             // Mã Yêu cầu cần đạt (GDPT 2018)
   content: string;
   options?: string[]; // For Part I & II
   correctAnswer: any; // Part I: index, Part II: boolean[], Part III: number

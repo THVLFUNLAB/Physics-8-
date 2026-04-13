@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
 import { cn } from '../lib/utils';
-import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight, ShieldAlert } from 'lucide-react';
+import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight, ShieldAlert, Link2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { auth, db, collection, addDoc, Timestamp } from '../firebase';
 import { toast } from './Toast';
@@ -24,6 +24,7 @@ export const ReviewExam = ({
   const [reportMessage, setReportMessage] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
 
   const handleReportSubmit = async () => {
     if (!currentQuestion?.id || !auth.currentUser) return;
@@ -93,27 +94,77 @@ export const ReviewExam = ({
         {/* Navigation */}
         <aside className="w-80 bg-slate-900/50 border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar hidden lg:block">
           <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6 font-headline">BẢNG CÂU HỎI</h4>
-          <div className="grid grid-cols-4 gap-2">
-            {test.questions.map((q, i) => {
-              const isCorrect = checkCorrectness(q, answers[q.id || '']);
-              return (
-                <button
-                  key={i}
-                  onClick={() => setCurrentIndex(i)}
-                  className={cn(
-                    "w-full aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all border",
-                    currentIndex === i ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
-                    isCorrect 
-                      ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" 
-                      : answers[q.id || ''] !== undefined 
-                        ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
-                        : "bg-slate-800 border-slate-700 text-slate-500" // Not answered
-                  )}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
+          <div className="space-y-1">
+            {(() => {
+              const items: React.ReactNode[] = [];
+              let i = 0;
+              while (i < test.questions.length) {
+                const q = test.questions[i];
+                if (q.clusterId) {
+                  const clusterStart = i;
+                  const cid = q.clusterId;
+                  while (i < test.questions.length && test.questions[i].clusterId === cid) i++;
+                  const clusterEnd = i;
+                  items.push(
+                    <div key={`cluster-${cid}`} className="relative pl-4 py-1 mb-1 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                      <div className="absolute left-0 top-2 bottom-2 w-1 bg-amber-500/40 rounded-full" />
+                      <div className="flex items-center gap-1.5 px-1 py-1 mb-1">
+                        <span className="text-[8px]">🔗</span>
+                        <span className="text-[8px] font-bold text-amber-500/70 uppercase tracking-wider">Chùm</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {Array.from({ length: clusterEnd - clusterStart }, (_, ci) => {
+                          const qi = clusterStart + ci;
+                          const qq = test.questions[qi];
+                          const isCorrect = checkCorrectness(qq, answers[qq.id || '']);
+                          return (
+                            <button
+                              key={qi}
+                              onClick={() => setCurrentIndex(qi)}
+                              className={cn(
+                                "w-full aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all border",
+                                currentIndex === qi ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
+                                isCorrect
+                                  ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
+                                  : answers[qq.id || ''] !== undefined
+                                    ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
+                                    : "bg-slate-800 border-amber-900/30 text-slate-500"
+                              )}
+                            >
+                              {qi + 1}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  const qi = i;
+                  const qq = test.questions[qi];
+                  const isCorrect = checkCorrectness(qq, answers[qq.id || '']);
+                  items.push(
+                    <button
+                      key={qi}
+                      onClick={() => setCurrentIndex(qi)}
+                      className={cn(
+                        "w-full aspect-square rounded-xl flex items-center justify-center text-xs font-black transition-all border",
+                        currentIndex === qi ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
+                        isCorrect
+                          ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
+                          : answers[qq.id || ''] !== undefined
+                            ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
+                            : "bg-slate-800 border-slate-700 text-slate-500"
+                      )}
+                      style={{ width: 'calc(25% - 6px)', display: 'inline-flex' }}
+                    >
+                      {qi + 1}
+                    </button>
+                  );
+                  i++;
+                }
+              }
+              return <div className="flex flex-wrap gap-2">{items}</div>;
+            })()}
           </div>
         </aside>
 
@@ -188,8 +239,16 @@ export const ReviewExam = ({
             <div className="space-y-6">
               {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung ═══ */}
               {(() => {
-                const clusterTag = currentQuestion.tags?.find(t => t.startsWith('__cluster_context:'));
-                if (clusterTag && currentQuestion.clusterOrder === 0) {
+                if (!currentQuestion.clusterId) return null;
+                const headQuestion = test.questions.find(
+                  q => q.clusterId === currentQuestion.clusterId && (q.clusterOrder ?? 0) === 0
+                );
+                const clusterTag = headQuestion?.tags?.find(t => t.startsWith('__cluster_context:'));
+                const sharedCtx = clusterTag
+                  ? clusterTag.replace('__cluster_context:', '')
+                  : (currentQuestion.clusterOrder === 0 ? null : headQuestion?.content);
+
+                if (currentQuestion.clusterOrder === 0 && clusterTag) {
                   const ctx = clusterTag.replace('__cluster_context:', '');
                   return (
                     <div className="bg-amber-950/30 border border-amber-700/40 rounded-2xl p-6 mb-4">
@@ -203,11 +262,28 @@ export const ReviewExam = ({
                     </div>
                   );
                 }
-                if (currentQuestion.clusterId && (currentQuestion.clusterOrder ?? 0) > 0) {
+
+                if ((currentQuestion.clusterOrder ?? 0) > 0 && sharedCtx) {
                   return (
-                    <div className="text-amber-500/70 text-xs font-bold flex items-center gap-1 mb-2">
-                      <Info className="w-3 h-3" />
-                      📎 Câu này dùng chung dữ kiện với câu trước
+                    <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
+                      <button
+                        onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
+                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 text-amber-500">
+                          <Info className="w-4 h-4" />
+                          <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
+                        </div>
+                        <ChevronRight className={cn(
+                          "w-4 h-4 text-amber-500 transition-transform",
+                          clusterContextCollapsed ? "" : "rotate-90"
+                        )} />
+                      </button>
+                      {!clusterContextCollapsed && (
+                        <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
+                          <MathRenderer content={sharedCtx} />
+                        </div>
+                      )}
                     </div>
                   );
                 }

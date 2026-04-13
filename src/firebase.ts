@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
-import { initializeFirestore, memoryLocalCache, collection, doc, getDoc, getDocs, getDocsFromServer, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache } from 'firebase/firestore';
+import { initializeFirestore, memoryLocalCache, collection, doc, getDoc, getDocs, getDocsFromServer, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache, runTransaction } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from './components/Toast';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -221,9 +221,47 @@ export const addDoc = (ref: any, data: any) => {
 };
 
 export const updateDoc = (ref: any, data: any) => {
-  return originalUpdateDoc(ref, sanitizePayload(data));
+  return Promise.race([
+    originalUpdateDoc(ref, sanitizePayload(data)),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Quá thời gian kết nối. Máy chủ AI đang bận hoặc quá tải (Quota).")), 10000)
+    )
+  ]);
+};
+
+/**
+ * Ghi nhận một lượt làm bài kiểm tra.
+ * Admin được Miễn đếm lượt. VIP là Vô cực (không giới hạn).
+ * Transaction đảm bảo an toàn nếu nhiều phiên truy cập cùng lúc.
+ */
+export const startExamAttempt = async (userId: string, isAdmin: boolean) => {
+  if (isAdmin) return true; // Admin bypass hoàn toàn
+  
+  const userRef = doc(db, 'users', userId);
+  return await runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) {
+      throw new Error("Không tìm thấy hồ sơ người dùng.");
+    }
+    const data = userDoc.data();
+    
+    // VIP vô cực -> Bỏ qua quá trình khóa hoặc tăng đếm
+    if (data.tier === 'vip' || data.isUnlimited) {
+      return true;
+    }
+
+    const used = data.usedAttempts || 0;
+    const max = data.maxAttempts || 30; // Mặc định Free là 30
+    
+    if (used >= max) {
+      throw new Error("EXCEEDED_LIMIT");
+    }
+    
+    transaction.update(userRef, { usedAttempts: used + 1 });
+    return true;
+  });
 };
 
 export { 
-  collection, doc, getDoc, getDocs, getDocsFromServer, getDocFromServer, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache
+  collection, doc, getDoc, getDocs, getDocsFromServer, getDocFromServer, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache, runTransaction
 };
