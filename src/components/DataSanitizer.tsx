@@ -37,6 +37,8 @@ interface CorruptedItem {
 const ERROR_LABELS: Record<ErrorType, { label: string; color: string; icon: typeof ShieldAlert }> = {
   invalid_structure: { label: 'Lỗi cấu trúc',      color: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/30', icon: PackageOpen },
   missing_metadata:  { label: 'Thiếu Metadata',   color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',   icon: ShieldAlert },
+  raw_json: { label: 'JSON thô', color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/30', icon: FileWarning },
+  empty_content: { label: 'Trống rỗng', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', icon: AlertTriangle },
 };
 
 // ═══════════════════════════════════════════════════

@@ -136,8 +136,8 @@ export default function ExamMatrixGenerator() {
 
     // Check API key availability
     try {
-      if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
-        await window.aistudio.openSelectKey();
+      if ((window as any).aistudio && !(await (window as any).aistudio.hasSelectedApiKey())) {
+        await (window as any).aistudio.openSelectKey();
       }
     } catch (err) {
       console.warn('Error checking API key:', err);

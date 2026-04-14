@@ -302,3 +302,5 @@ export const StudentDirectory: React.FC = () => {
     </div>
   );
 };
+
+export default StudentDirectory;

@@ -542,3 +542,5 @@ export const SimulationAdminBoard = ({ onPlay }: { onPlay?: (sim: Simulation) =>
     </div>
   );
 };
+
+export default SimulationAdminBoard;

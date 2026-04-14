@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { PDFDocument } from "pdf-lib";
 import { Question, ErrorAnalysis } from "../types";
+import { safeJSONParse } from "../utils/jsonSanitizer";
 
 // ============================================================
 // MODEL CONFIGURATION
@@ -17,7 +18,7 @@ const MAX_CHUNK_SIZE = 20_000;
 const MAX_CONCURRENCY = 1; // Tối đa 1 chunk song song — giảm áp lực API / chống Rate Limit 429
 
 const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("VITE_GEMINI_API_KEY is not defined. Please check your environment settings.");
   }
@@ -87,8 +88,10 @@ Kết quả: ${isCorrect ? "✓ ĐÚNG" : "✗ SAI"}
     });
 
     const rawText = response.text || "{}";
-    const cleanText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanText);
+    return safeJSONParse(rawText, {
+      analysis: { type: 'Lỗi kỹ thuật', reason: 'Không thể phân tích phản hồi AI.', advice: 'Hãy thử lại.' },
+      feedback: ''
+    });
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     return {
@@ -220,11 +223,15 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
     });
 
     const rawText = response.text || "{}";
-    const cleanText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const result = JSON.parse(cleanText);
+    const result = safeJSONParse(rawText, {
+      redZones: [],
+      feedback: 'Không thể phân tích dữ liệu lúc này.',
+      remedialMatrix: [],
+      behavioralAnalysis: { carelessCount: 0, fundamentalCount: 0, skippedCount: 0 }
+    }) as { feedback: string; redZones: string[]; remedialMatrix: { topic: string; count: number; }[]; behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount?: number; }; };
     
     // Đảm bảo có skippedCount trong kết quả trả về
-    if (!result.behavioralAnalysis.skippedCount) {
+    if (result.behavioralAnalysis && result.behavioralAnalysis.skippedCount === undefined) {
       result.behavioralAnalysis.skippedCount = skippedRecords.length;
     }
     
@@ -941,7 +948,7 @@ export async function digitizeFromPDF(
               }
             );
 
-            return JSON.parse(response.text || "[]") as Question[];
+            return safeJSONParse(response.text || "[]", [] as Question[]);
           } catch (error) {
             console.error(`PDF Error phần ${groupIdx + 1}:`, error);
             throw error;
@@ -1016,7 +1023,7 @@ export async function digitizeDocument(
         }
       );
 
-      const questions = JSON.parse(response.text || "[]") as Question[];
+      const questions = safeJSONParse(response.text || "[]", [] as Question[]);
       onProgress?.(`✅ Hoàn thành phần ${idx + 1}/${totalChunks} — ${questions.length} câu`);
       return questions;
     } catch (error) {
@@ -1106,7 +1113,7 @@ Nếu topic viết tắt/khác biệt, hãy tự map cho đúng.`;
       onProgress?.(`⏳ Server AI bận — thử lại (${attempt}/${max}), đợi ${delaySec}s...`);
     });
 
-    const parsed = JSON.parse(response.text || '{}') as ParsedMatrixResult;
+    const parsed = safeJSONParse(response.text || '{}', { examTitle: '', rows: [] } as ParsedMatrixResult);
     if (!parsed.rows || parsed.rows.length === 0) {
       throw new Error('AI không nhận diện được bảng ma trận trong file.');
     }

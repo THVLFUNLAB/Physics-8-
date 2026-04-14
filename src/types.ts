@@ -230,6 +230,8 @@ export interface ClassAttempt {
   startedAt: any;
   submittedAt?: any;
   status: 'in_progress' | 'submitted';
-  deviceId: string;      // fingerprint thiết bị → phát hiện multi-device
-  lastPing: any;         // Heartbeat timestamp → đếm online chính xác
+  deviceId: string;      // fingerprint thiết bị để phát hiện multi-device
+  lastPing: any;         // Heartbeat timestamp để đếm online chính xác
 }
+
+export type SidebarTab = string;
