@@ -108,14 +108,15 @@ export const Sidebar = ({
       <div className="p-4 flex items-center justify-between border-b border-slate-800/50 h-[72px]">
         <AnimatePresence>
           {!isCollapsed && (
-            <motion.div 
+            <motion.button 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="font-headline font-black text-white text-xl tracking-tighter"
+              onClick={() => handleTabClick('dashboard')}
+              className="font-headline font-black text-white text-xl tracking-tighter cursor-pointer hover:opacity-80 transition-opacity text-left"
             >
               PHYS<span className="text-fuchsia-500 text-glow-neon">9+</span>
-            </motion.div>
+            </motion.button>
           )}
         </AnimatePresence>
         {/* Desktop: collapse/expand toggle. Mobile: close button */}

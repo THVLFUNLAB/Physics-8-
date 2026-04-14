@@ -24,7 +24,7 @@ import { cn } from '../lib/utils';
 // Constants — Danh sách topic chuẩn Vật lý THPT
 const ALL_TOPICS: Topic[] = [
   'Dao động cơ', 'Sóng cơ', 'Điện xoay chiều', 'Sóng điện từ', 'Lượng tử ánh sáng', 'Quang hình học', 'Lý thuyết tương đối',
-  'Từ trường', 'Cảm ứng điện từ', 'Vật lí nhiệt', 'Khí lí tưởng', 'Vật lí hạt nhân', 'Động học chất điểm', 'Động lực học', 'Năng lượng', 'Dòng điện'
+  'Từ trường', 'Cảm ứng điện từ', 'Vật lí nhiệt', 'Khí lí tưởng', 'Vật lí hạt nhân', 'Động học chất điểm', 'Động lực học', 'Năng lượng', 'Dòng điện', 'Chuyên đề học tập', 'Lớp 10', 'Lớp 11'
 ];
 
 type LevelCount = {
@@ -118,6 +118,49 @@ export default function ExamMatrixGenerator() {
     }
     return newArr;
   }
+
+  // Preset BGD 2025
+  const applyBGD2025 = () => {
+    setExamTitle('Đề Tham Khảo BGD 2025 - Vật Lí');
+    setTopicsConfig([
+      {
+        id: Math.random().toString(),
+        topic: 'Vật lí nhiệt',
+        part1: { 'Nhận biết': 2, 'Thông hiểu': 1, 'Vận dụng': 1, 'Vận dụng cao': 0 },
+        part2: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 }, 
+        part3: { 'Nhận biết': 0, 'Thông hiểu': 0, 'Vận dụng': 0, 'Vận dụng cao': 0 }
+      },
+      {
+        id: Math.random().toString(),
+        topic: 'Khí lí tưởng',
+        part1: { 'Nhận biết': 2, 'Thông hiểu': 0, 'Vận dụng': 1, 'Vận dụng cao': 0 },
+        part2: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part3: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 1, 'Vận dụng cao': 0 }
+      },
+      {
+        id: Math.random().toString(),
+        topic: 'Từ trường',
+        part1: { 'Nhận biết': 4, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part2: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part3: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 1, 'Vận dụng cao': 0 }
+      },
+      {
+        id: Math.random().toString(),
+        topic: 'Vật lí hạt nhân',
+        part1: { 'Nhận biết': 3, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part2: { 'Nhận biết': 0, 'Thông hiểu': 1, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part3: { 'Nhận biết': 0, 'Thông hiểu': 0, 'Vận dụng': 2, 'Vận dụng cao': 0 }
+      },
+      {
+        id: Math.random().toString(),
+        topic: 'Chuyên đề học tập',
+        part1: { 'Nhận biết': 1, 'Thông hiểu': 0, 'Vận dụng': 1, 'Vận dụng cao': 0 },
+        part2: { 'Nhận biết': 0, 'Thông hiểu': 0, 'Vận dụng': 0, 'Vận dụng cao': 0 },
+        part3: { 'Nhận biết': 0, 'Thông hiểu': 0, 'Vận dụng': 0, 'Vận dụng cao': 0 }
+      }
+    ]);
+    toast.success('Đã áp dụng cấu trúc Ma trận BGD 2025!');
+  };
 
   // ═══════════════════════════════════════════════════════════════
   //  UPLOAD MA TRẬN — AI đọc ảnh/PDF và auto-fill form
@@ -384,6 +427,17 @@ export default function ExamMatrixGenerator() {
               </div>
             </>
           )}
+        </div>
+
+        {/* Nút Preset BGD 2025 */}
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={applyBGD2025}
+            className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-sm font-bold rounded-xl shadow-lg transform transition-all active:scale-95 flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            Áp dụng Ma trận BGD 2025
+          </button>
         </div>
       </div>
 
