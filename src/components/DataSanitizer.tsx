@@ -25,7 +25,7 @@ import {
 //  ERROR TYPES
 // ═══════════════════════════════════════════════════
 
-type ErrorType = 'raw_json' | 'empty_content' | 'invalid_structure';
+type ErrorType = 'raw_json' | 'empty_content' | 'invalid_structure' | 'missing_metadata';
 
 interface CorruptedItem {
   id: string;
@@ -35,9 +35,8 @@ interface CorruptedItem {
 }
 
 const ERROR_LABELS: Record<ErrorType, { label: string; color: string; icon: typeof ShieldAlert }> = {
-  raw_json:          { label: 'Chuỗi JSON thô',   color: 'text-red-400 bg-red-500/10 border-red-500/30',       icon: FileWarning },
-  empty_content:     { label: 'Mất nội dung',      color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', icon: AlertTriangle },
   invalid_structure: { label: 'Lỗi cấu trúc',      color: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/30', icon: PackageOpen },
+  missing_metadata:  { label: 'Thiếu Metadata',   color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',   icon: ShieldAlert },
 };
 
 // ═══════════════════════════════════════════════════
@@ -110,6 +109,15 @@ function detectErrors(id: string, data: any): CorruptedItem | null {
       type: 'invalid_structure',
       label: 'Thiếu correctAnswer',
       detail: 'Trường correctAnswer bị null hoặc undefined.',
+    });
+  }
+
+  // ── 5. Kiểm tra Metadata (Rất quan trọng để hiển thị trong Kho Câu Hỏi) ──
+  if (!data?.createdAt) {
+    errors.push({
+      type: 'missing_metadata',
+      label: 'Thiếu thời gian khởi tạo',
+      detail: 'Thiếu trường createdAt. Điều này khiến Firestore ẩn câu hỏi khi dùng lệnh sắp xếp (orderBy).',
     });
   }
 
@@ -271,7 +279,7 @@ const DataSanitizer = () => {
 
   // ── Stats ──
   const stats = useMemo(() => {
-    const byType = { raw_json: 0, empty_content: 0, invalid_structure: 0 };
+    const byType: Record<ErrorType, number> = { raw_json: 0, empty_content: 0, invalid_structure: 0, missing_metadata: 0 };
     for (const c of corrupted) {
       for (const e of c.errors) {
         byType[e.type]++;
@@ -279,6 +287,32 @@ const DataSanitizer = () => {
     }
     return byType;
   }, [corrupted]);
+
+  // ── Bulk Fix Metadata ──
+  const handleBulkFixMetadata = useCallback(async () => {
+    const targets = corrupted.filter(c => selected.has(c.id) && c.errors.some(e => e.type === 'missing_metadata'));
+    if (targets.length === 0) return;
+
+    if (!window.confirm(`Bạn có muốn tự động bổ sung trường createdAt cho ${targets.length} câu hỏi đang chọn?`)) return;
+
+    setDeleting(true); // Dùng chung state loading cho bulk actions
+    let fixed = 0;
+    const { serverTimestamp } = await import('firebase/firestore');
+
+    for (const item of targets) {
+      try {
+        await updateDoc(doc(db, 'questions', item.id), { createdAt: serverTimestamp() });
+        fixed++;
+      } catch (err) {
+        console.error(`Fix metadata failed for ${item.id}:`, err);
+      }
+    }
+
+    // Cập nhật UI: Quét lại để xóa khỏi danh sách lỗi
+    await handleScan(); 
+    setDeleting(false);
+    alert(`✅ Đã bổ sung metadata thành công cho ${fixed} câu hỏi!`);
+  }, [corrupted, selected, handleScan]);
 
   // ═══════════════════════════════════
   //  RENDER

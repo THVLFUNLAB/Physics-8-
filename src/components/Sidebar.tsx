@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Home, 
   BookOpen, 
+  BarChart3,
   History, 
   CheckCircle2, 
   Play, 
@@ -28,10 +29,10 @@ import { UserProfile } from '../types';
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library'; // Admin tabs
+  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -88,6 +89,7 @@ export const Sidebar = ({
     { id: 'Library' as SidebarTab, label: 'Thư Mục Đề Thi', icon: FolderOpen },
     { id: 'Classroom' as SidebarTab, label: 'Phòng Thi', icon: Users },
     { id: 'Directory' as SidebarTab, label: 'Danh Bạ Học Viên', icon: Contact },
+    { id: 'Tracking' as SidebarTab, label: 'Theo Dõi Tiến Độ', icon: BarChart3 },
   ];
 
   if (!user) return null;

@@ -74,7 +74,8 @@ import {
   Star,
   ArrowRight,
   Pencil,
-  Eye
+  Eye,
+  BarChart3
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -110,6 +111,7 @@ import { BackgroundMusic } from './components/BackgroundMusic';
 import { ExamsList } from './components/ExamsList';
 import ExamLibrary from './components/ExamLibrary';
 import ExamMatrixGenerator from './components/ExamMatrixGenerator';
+import TeacherDashboard from './components/TeacherDashboard';
 
 import { 
   BarChart, 
@@ -1501,19 +1503,38 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   }, [questions]);
 
   // ── Fetch questions ONE-SHOT — Bypass cache để sửa lỗi 0 câu hỏi ──
+  // [FIX 14/04] Bỏ orderBy('createdAt') vì Firestore sẽ ẨN tất cả documents thiếu trường đó.
+  // Thay vào đó: tải TOÀN BỘ rồi sort bằng JS trên client.
   const fetchQuestions = async () => {
     setLoading(true);
     try {
-      const qRef = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
+      console.info('[fetchQuestions] 🔄 Đang truy vấn Firestore (không orderBy)...');
+      const qRef = query(collection(db, 'questions'));
       const snapshot = await getDocsFromServer(qRef);
+      console.info(`[fetchQuestions] 📊 Firestore trả về: ${snapshot.size} documents`);
+      
+      if (snapshot.size === 0) {
+        console.warn('[fetchQuestions] ⚠️ Database TRỐNG — chưa có câu hỏi nào trong collection "questions".');
+        console.warn('[fetchQuestions] 💡 Hãy thử số hóa 1 file PDF/Word để tạo câu hỏi đầu tiên.');
+      }
+
       // [FIX] Đặt `id: d.id` SAU `...d.data()` để document ID thật luôn thắng
-      // Trước đây: { id: d.id, ...d.data() } → d.data().id ghi đè d.id → saveEdit dùng sai ID
       const qs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Question));
+      
+      // Sort giảm dần theo thời gian trên client (mới nhất trước)
+      // Fallback: câu hỏi thiếu createdAt sẽ xuống cuối danh sách
+      qs.sort((a, b) => {
+        const tA = (a.createdAt as any)?.toMillis?.() || (a.createdAt as any)?.seconds * 1000 || 0;
+        const tB = (b.createdAt as any)?.toMillis?.() || (b.createdAt as any)?.seconds * 1000 || 0;
+        return tB - tA;
+      });
+
       setQuestions(qs);
       // Đồng bộ số lượng thực tế lên Header Dashboard
       onQuestionsLoaded?.(qs.length);
+      console.info(`[fetchQuestions] ✅ Đã load ${qs.length} câu hỏi thành công.`);
     } catch (error) {
-      console.warn('[fetchQuestions] Lỗi khi tải câu hỏi:', error);
+      console.error('[fetchQuestions] ❌ Lỗi khi tải câu hỏi:', error);
       // Không throw — giữ UI hoạt động
     } finally {
       setLoading(false);
@@ -4831,7 +4852,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library'>('Digitize');
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -6604,6 +6625,7 @@ export default function App() {
                       { id: 'Sanitizer', label: 'Bảo trì', icon: ShieldAlert },
                       { id: 'Reports', label: 'Báo lỗi', icon: Flag },
                       { id: 'Classroom', label: 'Phòng Thi', icon: Activity },
+                      { id: 'Tracking', label: 'Theo dõi HS', icon: BarChart3 },
                     ].map(tab => (
                       <button
                         key={tab.id}
@@ -6639,6 +6661,7 @@ export default function App() {
                   {adminTab === 'Classroom' && <ClassManager user={user} />}
                   {adminTab === 'Directory' && <StudentDirectory />}
                   {adminTab === 'Library' && <ExamLibrary />}
+                  {adminTab === 'Tracking' && <TeacherDashboard />}
                 </motion.div>
               </section>
             )}
