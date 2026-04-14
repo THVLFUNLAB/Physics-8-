@@ -1024,16 +1024,31 @@ const QuestionReviewBoard: React.FC<QuestionReviewBoardProps> = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {questions.map((q, i) => (
-            <QuestionCard
-              key={`${q.part}-${i}`}
-              question={q}
-              index={i}
-              onChange={(updated) => handleChange(i, updated)}
-              onRemove={() => handleRemove(i)}
-              duplicateWarning={duplicateMap.get(i) ?? null}
-            />
-          ))}
+          {questions.map((q, i) => {
+            const contextTag = q.tags?.find(t => t.startsWith('__cluster_context:'))?.replace('__cluster_context:', '');
+            const isFirstInCluster = q.clusterOrder === 1 || (contextTag && (i === 0 || questions[i-1]?.clusterId !== q.clusterId));
+            
+            return (
+              <React.Fragment key={`${q.part}-${i}`}>
+                {contextTag && isFirstInCluster && (
+                  <div className="bg-purple-900/20 border-l-4 border-purple-500 p-4 rounded-xl mb-4 mt-6 shadow-xl relative overflow-hidden">
+                     <div className="absolute top-0 right-0 p-3 opacity-20"><BrainCircuit className="w-16 h-16 text-purple-400" /></div>
+                     <p className="text-[10px] items-center gap-2 flex font-black text-purple-400 uppercase tracking-widest mb-2"><span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>DỮ KIỆN DÙNG CHUNG (CÂU CHÙM)</p>
+                     <div className="text-sm text-purple-100 relative z-10 leading-relaxed font-medium">
+                        <MathRenderer content={contextTag} />
+                     </div>
+                  </div>
+                )}
+                <QuestionCard
+                  question={q}
+                  index={i}
+                  onChange={(updated) => handleChange(i, updated)}
+                  onRemove={() => handleRemove(i)}
+                  duplicateWarning={duplicateMap.get(i) ?? null}
+                />
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 

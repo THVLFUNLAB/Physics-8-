@@ -17,7 +17,7 @@ import MathRenderer from '../lib/MathRenderer';
 import {
   FolderOpen, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
   FileText, Clock, CheckCircle2, AlertTriangle, Search, X,
-  BookOpen, BrainCircuit, Zap, Filter
+  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save
 } from 'lucide-react';
 
 // ── Exam type labels ──
@@ -41,6 +41,8 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'published' | 'draft'>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
 
   // ── Real-time listener ──
   useEffect(() => {
@@ -108,6 +110,33 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
       toast.error('Lỗi cập nhật trạng thái đề thi.');
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  // ── Rename Exam ──
+  const handleStartEdit = (exam: Exam, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (exam.id) {
+      setEditingId(exam.id);
+      setEditTitle(exam.title || '');
+    }
+  };
+
+  const handleSaveEdit = async (exam: Exam, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!exam.id || !editTitle.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'exams', exam.id), { title: editTitle.trim() });
+      toast.success('Đã lưu tên đề thi mới.');
+    } catch (err) {
+      console.error('[ExamLibrary] Rename error:', err);
+      toast.error('Lỗi khi đổi tên đề thi.');
+    } finally {
+      setEditingId(null);
+      setEditTitle('');
     }
   };
 
@@ -270,9 +299,47 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
 
                     {/* Title */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-black text-white truncate">
-                        {exam.title || 'Đề không tên'}
-                      </p>
+                      {editingId === exam.id ? (
+                        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={e => setEditTitle(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleSaveEdit(exam, e as any);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            className="bg-slate-800 border border-fuchsia-500/50 text-white text-sm font-black rounded-lg px-3 py-1 focus:outline-none w-full max-w-sm"
+                            autoFocus
+                          />
+                          <button
+                            onClick={e => handleSaveEdit(exam, e)}
+                            className="p-1.5 text-emerald-400 hover:bg-emerald-400/20 rounded-lg transition-colors"
+                          >
+                            <Save className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditingId(null); }}
+                            className="p-1.5 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-black text-white truncate" title={exam.title}>
+                            {exam.title || 'Đề không tên'}
+                          </p>
+                          <button
+                            onClick={e => handleStartEdit(exam, e)}
+                            className="p-1 text-slate-500 hover:text-fuchsia-400 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-slate-800"
+                            title="Đổi tên đề thi"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                      
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <Clock className="w-3 h-3" />

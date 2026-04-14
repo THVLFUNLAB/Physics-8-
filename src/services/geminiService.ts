@@ -338,10 +338,13 @@ Hai câu liền kề cùng đề bài → SAO CHÉP nguyên văn đề chung và
 Gán cùng groupId ("g1","g2"...). Câu đơn: không có groupId.
 
 【12】CÂU CHÙM (CLUSTER):
-Nhận diện: "Sử dụng thông tin sau...", "Dựa vào dữ kiện...", đoạn dữ kiện dài cho nhiều câu.
-Output: {"item_type":"cluster", "shared_context":"...", "topic":"...", "sub_questions":[{câu đầy đủ}...]}
+Nhận diện: Các câu hỏi có chung một đoạn dữ kiện (Ví dụ: "Sử dụng thông tin sau cho Câu 5 và Câu 6...", "Dựa vào dữ kiện...").
+Output: {"item_type":"cluster", "shared_context":"...", "topic":"...", "sub_questions":[{các trường của câu hỏi}...]}
+⛔ LƯU Ý TỐI QUAN TRỌNG: 
+- "shared_context" chứa NGUYÊN VĂN đoạn dữ kiện dùng chung.
+- Mảng "sub_questions" chứa danh sách các câu hỏi con. Trong mỗi câu con, "content" PHẢI SAO CHÉP CHÍNH XÁC NGUYÊN VĂN câu hỏi từ đề gốc. KHÔNG ĐƯỢC tự ghép "shared_context" vào nội dung câu con. TUYỆT ĐỐI KHÔNG TỰ Ý CHẾ BIẾN LẠI HOẶC THAY ĐỔI CÁC THÔNG SỐ VẬT LÝ để biến câu con thành câu độc lập. Nội dung câu con phải y hệt như bản gốc.
 Câu đơn: {"item_type":"single", ...các trường câu hỏi...}
-⛔ KHÔNG tách riêng câu chùm thành câu đơn.
+⛔ KHÔNG tách riêng câu chùm thành câu đơn độc lập bằng cách chế toán lại bài toán.
 `;
 
 function buildDigitizePromptFull(inputDescription: string, topicHint?: string): string {

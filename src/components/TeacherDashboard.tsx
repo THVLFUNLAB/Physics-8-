@@ -25,7 +25,8 @@ import {
   orderBy,
   Timestamp,
 } from '../firebase';
-import { UserProfile, Exam, Attempt } from '../types';
+import { UserProfile, Exam, Attempt, Question } from '../types';
+import { ReviewExam } from './ReviewExam';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { SkeletonText, SkeletonNumber } from './SkeletonLoader';
@@ -55,6 +56,7 @@ interface CellData {
   status: CellStatus;
   score?: number;        // Điểm (thang 10), chỉ có khi completed
   attemptCount?: number; // Số lần thử
+  bestAttempt?: Attempt; // Thêm Attempt tốt nhất để hiển thị bài làm
 }
 
 /** Dữ liệu 1 hàng (1 Học sinh) trong ma trận */
@@ -154,6 +156,7 @@ const TeacherDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'progress' | 'score'>('name');
   const [sortAsc, setSortAsc] = useState(true);
+  const [reviewingData, setReviewingData] = useState<{ test: { topic: string, questions: Question[] }, answers: Record<string, any> } | null>(null);
 
   // ═══════════════════════════════════════════════════════════
   //  DATA FETCHING (tối ưu: 3 queries total)
@@ -258,6 +261,7 @@ const TeacherDashboard: React.FC = () => {
             status: 'completed',
             score: bestAttempt.score,
             attemptCount: examAttempts.length,
+            bestAttempt: bestAttempt,
           };
         }
       });
@@ -682,11 +686,28 @@ const TeacherDashboard: React.FC = () => {
                         )}
                       </td>
                       {/* ── CELLS: Traffic Light ── */}
-                      {exams.map(exam => (
-                        <td key={exam.id} className="p-2 text-center">
-                          <StatusBadge cell={row.cells[exam.id!] || { status: 'not_started' }} />
-                        </td>
-                      ))}
+                      {exams.map(exam => {
+                        const cell = row.cells[exam.id!] || { status: 'not_started' };
+                        return (
+                          <td 
+                            key={exam.id} 
+                            className={cn(
+                              "p-2 text-center",
+                              cell.status === 'completed' && "cursor-pointer hover:bg-slate-800/80 transition-colors rounded-xl"
+                            )}
+                            onClick={() => {
+                              if (cell.status === 'completed' && cell.bestAttempt && exam.questions) {
+                                setReviewingData({
+                                  test: { topic: exam.title, questions: exam.questions },
+                                  answers: cell.bestAttempt.answers || {}
+                                });
+                              }
+                            }}
+                          >
+                            <StatusBadge cell={cell} />
+                          </td>
+                        );
+                      })}
                     </motion.tr>
                   ))}
                 </AnimatePresence>
@@ -703,6 +724,15 @@ const TeacherDashboard: React.FC = () => {
             <span>{exams.length} đề thi đã phát hành</span>
           </div>
         </div>
+      )}
+
+      {/* ══════ MODAL REVIEW BÀI THI ══════ */}
+      {reviewingData && (
+        <ReviewExam
+          test={reviewingData.test as any}
+          answers={reviewingData.answers}
+          onBack={() => setReviewingData(null)}
+        />
       )}
     </div>
   );

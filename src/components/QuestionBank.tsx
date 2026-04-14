@@ -867,6 +867,11 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
                             🔗 Cặp {q.groupId}
                           </span>
                         )}
+                        {q.clusterId && (
+                          <span className="text-[10px] font-bold bg-fuchsia-600/20 text-fuchsia-400 px-2 py-1 rounded border border-fuchsia-600/30" title="Câu chùm">
+                            📦 Thuộc Câu Chùm
+                          </span>
+                        )}
                         {hasImageIssue(q) && (
                           <span className="text-[10px] font-bold bg-red-600/20 text-red-400 px-2 py-1 rounded animate-pulse">
                             ⚠️ Cần bổ sung ảnh
