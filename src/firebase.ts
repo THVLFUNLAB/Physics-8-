@@ -7,7 +7,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK — TẮT IndexedDB cache hoàn toàn để tránh "xóa giả"
 // Mọi thao tác đọc/ghi đều đi thẳng đến server, không qua trung gian
-const app = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 // [FIX 14/04] Chuyển sang database (default) — hưởng đầy đủ Blaze plan
 // Database AI Studio cũ bị khóa free tier quota dù đã trả tiền Blaze
 const dbId = (firebaseConfig as any).firestoreDatabaseId;

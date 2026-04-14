@@ -10,15 +10,18 @@ export function sanitizeJSONText(rawString: string): string {
   // 1. Strip ```json ... ``` wrappers
   let text = rawString.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
+  // 1.5 Strip AI Studio Citation Markers (VD: [cite_start], [cite: 2220, 2221])
+  text = text.replace(/\[cite_start\]/gi, '').replace(/\[cite:[^\]]+\]/gi, '');
+
   // 2. Fix LaTeX backslashes INSIDE JSON string values
   //    Tìm mọi string value trong JSON và double-escape backslashes
   //    chưa được escape (trừ các escape sequences hợp lệ: \n, \t, \\, \", \/, \b, \f, \r, \uXXXX)
   text = text.replace(
     /"(?:[^"\\]|\\.)*"/g,
     (match) => {
-      // Bên trong mỗi JSON string, tìm \ không theo sau bởi escape hợp lệ
+      // Bên trong mỗi JSON string, tìm \ không theo sau bởi escape hợp lệ và không đứng sau TRƯỚC nó
       return match.replace(
-        /\\(?!["\\/bfnrtu])/g,
+        /(?<!\\)\\(?!["\\/bfnrtu])/g,
         '\\\\'
       );
     }
@@ -40,12 +43,7 @@ export function safeJSONParse<T>(raw: string, fallback: T): T {
     console.warn('[safeJSONParse] Lần 1 thất bại, thử aggressive fix...', e1);
     try {
       // Aggressive: replace ALL single backslashes inside string values
-      const aggressive = raw
-        .replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim()
-        .replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
-          return match.replace(/\\/g, '\\\\');
-        })
-        .replace(/,\s*([\]}])/g, '$1');
+      const aggressive = sanitizeJSONText(raw); // Đã có lookbehind fix, không cần nhân đôi mọi backslash
       return JSON.parse(aggressive);
     } catch (e2) {
       console.error('[safeJSONParse] Parse thất bại hoàn toàn:', e2);

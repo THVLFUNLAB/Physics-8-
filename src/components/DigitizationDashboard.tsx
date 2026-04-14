@@ -7,6 +7,7 @@ import { digitizeDocument, digitizeFromPDF, normalizeQuestions } from '../servic
 import { parseAzotaExam, ParseError } from '../services/AzotaParser';
 import { processDocxFile } from '../services/DocxReader';
 import { sanitizeQuestion, stripLargeBase64, stripUndefined } from '../utils/sanitizers';
+import { safeJSONParse } from '../utils/jsonSanitizer';
 import { toast } from './Toast';
 import MathRenderer from '../lib/MathRenderer';
 import QuestionReviewBoard from './QuestionReviewBoard';
@@ -83,7 +84,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         const text = await file.text();
         let questions: Question[];
         try {
-          questions = JSON.parse(text);
+          questions = safeJSONParse(text, []);
+          if (!Array.isArray(questions) || questions.length === 0) {
+            throw new Error("File tải lên không có định dạng Mảng JSON hợp lệ.");
+          }
         } catch (e) {
           throw new Error('File JSON bị lỗi định dạng.');
         }

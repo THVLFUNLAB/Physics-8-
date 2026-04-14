@@ -21,7 +21,8 @@ import {
   Contact,
   BrainCircuit,
   FolderOpen,
-  X
+  X,
+  Database
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
@@ -32,7 +33,7 @@ export type SidebarTab =
   | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Migration'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -90,6 +91,7 @@ export const Sidebar = ({
     { id: 'Classroom' as SidebarTab, label: 'Phòng Thi', icon: Users },
     { id: 'Directory' as SidebarTab, label: 'Danh Bạ Học Viên', icon: Contact },
     { id: 'Tracking' as SidebarTab, label: 'Theo Dõi Tiến Độ', icon: BarChart3 },
+    { id: 'Migration' as SidebarTab, label: 'Chuyển Đổi Dữ Liệu', icon: Database },
   ];
 
   if (!user) return null;

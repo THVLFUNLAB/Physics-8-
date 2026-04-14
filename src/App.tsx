@@ -61,6 +61,7 @@ const StudentDirectory = lazy(() => import('./components/StudentDirectory'));
 const ExamLibrary = lazy(() => import('./components/ExamLibrary'));
 const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 const LiveClassExam = lazy(() => import('./components/LiveClassExam'));
+const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
 const SimulationViewer = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default })));
@@ -95,8 +96,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Migration'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Migration'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -1458,6 +1459,7 @@ export default function App() {
                     {adminTab === 'Directory' && <StudentDirectory />}
                     {adminTab === 'Library' && <ExamLibrary />}
                     {adminTab === 'Tracking' && <TeacherDashboard />}
+                    {adminTab === 'Migration' && <DatabaseMigrationTool />}
                   </LazyWrap>
                 </motion.div>
               </section>
