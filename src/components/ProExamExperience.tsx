@@ -315,17 +315,17 @@ export const ProExamExperience = ({
                 {currentQuestion.part === 1 && currentQuestion.options?.map((opt, idx) => (
                   <button
                     key={idx}
-                    onClick={() => onAnswer(currentQuestion.id, idx)}
+                    onClick={() => onAnswer(currentQuestion.id || '', idx)}
                     className={cn(
                       "w-full p-4 md:p-6 rounded-2xl border text-left transition-all flex flex-row items-center gap-4 md:gap-6 group touch-target",
-                      initialAnswers[currentQuestion.id] === idx 
+                      initialAnswers[currentQuestion.id || ''] === idx 
                         ? "bg-blue-600/10 border-blue-600 shadow-lg shadow-blue-900/10" 
                         : "bg-slate-900 border-slate-800 hover:border-slate-600"
                     )}
                   >
                     <span className={cn(
                       "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm transition-colors",
-                      initialAnswers[currentQuestion.id] === idx ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500 group-hover:bg-slate-700"
+                      initialAnswers[currentQuestion.id || ''] === idx ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-500 group-hover:bg-slate-700"
                     )}>
                       {String.fromCharCode(65 + idx)}
                     </span>
@@ -347,14 +347,15 @@ export const ProExamExperience = ({
                             <button
                               key={val.toString()}
                               onClick={() => {
-                                const current = initialAnswers[currentQuestion.id] || [null, null, null, null];
+                                const raw = initialAnswers[currentQuestion.id || ''];
+                                const current = Array.isArray(raw) ? raw : [null, null, null, null];
                                 const next = [...current];
                                 next[idx] = val;
-                                onAnswer(currentQuestion.id, next);
+                                onAnswer(currentQuestion.id || '', next);
                               }}
                               className={cn(
                                 "px-4 py-3 md:px-6 md:py-2 rounded-xl text-xs md:text-sm font-black uppercase tracking-widest transition-all border touch-target flex-1 md:flex-none text-center min-w-[70px]",
-                                (initialAnswers[currentQuestion.id] || [])[idx] === val
+                                (Array.isArray(initialAnswers[currentQuestion.id || '']) ? initialAnswers[currentQuestion.id || ''] : [])[idx] === val
                                   ? (val ? "bg-green-600 border-green-500 text-white" : "bg-red-600 border-red-500 text-white")
                                   : "bg-slate-950 border-slate-800 text-slate-600 hover:border-slate-600"
                               )}
@@ -374,11 +375,11 @@ export const ProExamExperience = ({
                     <input 
                       type="text"
                       inputMode="decimal"
-                      value={initialAnswers[currentQuestion.id] ?? ''}
+                      value={initialAnswers[currentQuestion.id || ''] ?? ''}
                       onChange={(e) => {
                         const val = e.target.value;
                         if (/^-?\d*[,.]?\d*$/.test(val)) {
-                          onAnswer(currentQuestion.id, val);
+                          onAnswer(currentQuestion.id || '', val);
                         }
                       }}
                       onWheel={(e) => e.currentTarget.blur()}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, query, where, getDocs, updateDoc, doc, getDoc, setDoc, addDoc, Timestamp } from '../firebase';
+import { db, collection, query, where, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, addDoc, Timestamp } from '../firebase';
 import { Question, ReportedQuestion, UserProfile } from '../types';
-import { Flag, Check, X, AlertTriangle, Edit3, Trash2, ArrowRight } from 'lucide-react';
+import { Flag, Check, X, AlertTriangle, Edit3, Trash2, ArrowRight, MoreVertical, CheckCircle2, Eraser } from 'lucide-react';
 import MathRenderer from '../lib/MathRenderer';
 import { cn } from '../lib/utils';
 import MDEditor from '@uiw/react-md-editor';
@@ -15,6 +15,8 @@ export default function ReportHub() {
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; report: ReportedQuestion & { questionData?: Question } } | null>(null);
 
   const fetchReports = async () => {
     setLoading(true);
@@ -49,6 +51,60 @@ export default function ReportHub() {
       setEditingQuestion({ ...report.questionData });
       setActiveReportId(report.id || null);
     }
+  };
+
+  // ── Xóa 1 report ──
+  const handleDeleteReport = async (reportId: string) => {
+    if (deletingId) return;
+    setDeletingId(reportId);
+    try {
+      await deleteDoc(doc(db, 'reportedQuestions', reportId));
+      setReports(prev => prev.filter(r => r.id !== reportId));
+    } catch (e) {
+      console.error('[ReportHub] Delete error:', e);
+      alert('Lỗi khi xóa báo lỗi.');
+    } finally {
+      setDeletingId(null);
+      setContextMenu(null);
+    }
+  };
+
+  // ── Đánh dấu đã xử lý (không cần fix) ──
+  const handleMarkResolved = async (reportId: string) => {
+    try {
+      await updateDoc(doc(db, 'reportedQuestions', reportId), {
+        status: 'resolved',
+        resolvedAt: Timestamp.now()
+      });
+      setReports(prev => prev.filter(r => r.id !== reportId));
+      setContextMenu(null);
+    } catch (e) {
+      console.error('[ReportHub] Resolve error:', e);
+    }
+  };
+
+  // ── Dọn sạch: Xóa tất cả report mà câu hỏi gốc đã bị xóa ──
+  const handleCleanupStale = async () => {
+    const stale = reports.filter(r => !r.questionData);
+    if (stale.length === 0) { alert('Không có báo lỗi rác nào.'); return; }
+    if (!window.confirm(`Xóa ${stale.length} báo lỗi có câu hỏi đã bị xóa?`)) return;
+    setDeletingId('__cleanup__');
+    try {
+      for (const r of stale) {
+        if (r.id) await deleteDoc(doc(db, 'reportedQuestions', r.id));
+      }
+      setReports(prev => prev.filter(r => r.questionData));
+    } catch (e) {
+      console.error('[ReportHub] Cleanup error:', e);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // ── Context menu handler ──
+  const handleContextMenu = (e: React.MouseEvent, report: ReportedQuestion & { questionData?: Question }) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, report });
   };
 
   const handleSaveAndResolve = async () => {
@@ -163,10 +219,24 @@ export default function ReportHub() {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-black text-white flex items-center gap-3 tracking-tight font-headline">
-        <Flag className="text-amber-500 w-8 h-8" />
-        DUYỆT BÁO LỖI (REPORT HUB)
-      </h2>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <h2 className="text-3xl font-black text-white flex items-center gap-3 tracking-tight font-headline">
+          <Flag className="text-amber-500 w-8 h-8" />
+          DUYỆT BÁO LỖI (REPORT HUB)
+        </h2>
+
+        {/* Nút dọn rác */}
+        {reports.some(r => !r.questionData) && (
+          <button
+            onClick={handleCleanupStale}
+            disabled={deletingId === '__cleanup__'}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-rose-600/10 border border-rose-600/30 text-rose-400 hover:bg-rose-600/20 transition-all"
+          >
+            <Eraser className={cn('w-4 h-4', deletingId === '__cleanup__' && 'animate-spin')} />
+            {deletingId === '__cleanup__' ? 'Đang dọn...' : `🧹 Dọn ${reports.filter(r => !r.questionData).length} báo lỗi rác`}
+          </button>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex justify-center p-12">
@@ -181,12 +251,30 @@ export default function ReportHub() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {reports.map((report) => (
-            <div key={report.id} className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 flex flex-col">
+            <div key={report.id}
+              className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 flex flex-col group"
+              onContextMenu={(e) => handleContextMenu(e, report)}
+            >
               <div className="flex justify-between items-start mb-4">
                 <span className="bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-amber-500/20">
                   {report.reason}
                 </span>
-                <span className="text-xs text-slate-500 font-bold">{new Date().toLocaleDateString('vi-VN')}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 font-bold">{new Date().toLocaleDateString('vi-VN')}</span>
+                  {/* Nút xóa nhanh */}
+                  <button
+                    onClick={() => report.id && handleDeleteReport(report.id)}
+                    disabled={deletingId === report.id}
+                    className="p-1 text-slate-600 hover:text-rose-500 hover:bg-rose-600/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Xóa báo lỗi này"
+                  >
+                    {deletingId === report.id ? (
+                      <div className="w-3.5 h-3.5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
               
               <div className="text-sm font-bold text-slate-300 mb-2">Học sinh: <span className="text-white">{report.studentName}</span></div>
@@ -211,13 +299,22 @@ export default function ReportHub() {
                 <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-slate-950 to-transparent pointer-events-none" />
               </div>
 
-              <button 
-                onClick={() => handleEditClick(report)}
-                disabled={!report.questionData}
-                className="w-full bg-slate-800 hover:bg-amber-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center disabled:opacity-50"
-              >
-                <Edit3 className="w-4 h-4" /> Xem & Fix Lỗi
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => handleEditClick(report)}
+                  disabled={!report.questionData}
+                  className="flex-1 bg-slate-800 hover:bg-amber-600 text-white py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center disabled:opacity-50"
+                >
+                  <Edit3 className="w-4 h-4" /> Xem & Fix Lỗi
+                </button>
+                <button
+                  onClick={() => report.id && handleMarkResolved(report.id)}
+                  className="bg-slate-800 hover:bg-emerald-600 text-slate-400 hover:text-white px-4 py-3 rounded-xl transition-all"
+                  title="Đánh dấu đã xử lý"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -309,6 +406,43 @@ export default function ReportHub() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ══════ CONTEXT MENU (Chuột phải) ══════ */}
+      {contextMenu && (
+        <>
+          {/* Backdrop để đóng menu */}
+          <div className="fixed inset-0 z-[300]" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-[301] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl shadow-black/50 py-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-150"
+            style={{ left: Math.min(contextMenu.x, window.innerWidth - 220), top: Math.min(contextMenu.y, window.innerHeight - 200) }}
+          >
+            {contextMenu.report.questionData && (
+              <button
+                onClick={() => { handleEditClick(contextMenu.report); setContextMenu(null); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors text-left"
+              >
+                <Edit3 className="w-4 h-4 text-amber-500" />
+                Xem & Fix Lỗi
+              </button>
+            )}
+            <button
+              onClick={() => contextMenu.report.id && handleMarkResolved(contextMenu.report.id)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-emerald-400 transition-colors text-left"
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              Đánh dấu đã xử lý
+            </button>
+            <div className="border-t border-slate-800 my-1" />
+            <button
+              onClick={() => contextMenu.report.id && handleDeleteReport(contextMenu.report.id)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-rose-600/10 hover:text-rose-400 transition-colors text-left"
+            >
+              <Trash2 className="w-4 h-4 text-rose-500" />
+              Xóa báo lỗi
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

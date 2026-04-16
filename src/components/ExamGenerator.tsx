@@ -175,6 +175,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
         questions: selected,
         createdAt: Timestamp.now(),
         createdBy: user.uid,
+        published: false,
         type: genType === 'AI' ? 'AI_Diagnosis' : 'Matrix',
         targetStudentId: selectedStudent?.uid
       };

@@ -5,6 +5,7 @@ import { toast } from './Toast';
 import { Contact, Search, Save, CheckSquare, Square, Users, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
+import { StudentMicroProfiler } from './StudentMicroProfiler';
 
 export const StudentDirectory: React.FC = () => {
   const [students, setStudents] = useState<UserProfile[]>([]);
@@ -16,9 +17,13 @@ export const StudentDirectory: React.FC = () => {
   const [selectedClassToAssign, setSelectedClassToAssign] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
-  // Fetch students
+  // Micro Profiler
+  const [profilerOpen, setProfilerOpen] = useState(false);
+  const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<UserProfile | null>(null);
+
+  // Fetch students & assistants
   useEffect(() => {
-    const q = query(collection(db, 'users'), where('role', '==', 'student'));
+    const q = query(collection(db, 'users'));
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
       setStudents(data.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
@@ -35,7 +40,7 @@ export const StudentDirectory: React.FC = () => {
   }, []);
 
   // Inline edit handler
-  const handleUpdateStudent = async (uid: string, field: 'displayName' | 'className' | 'schoolYear', value: string) => {
+  const handleUpdateStudent = async (uid: string, field: 'displayName' | 'className' | 'schoolYear' | 'role', value: string) => {
     try {
       await updateDoc(doc(db, 'users', uid), { [field]: value.trim() });
       toast.success('Đã cập nhật thông tin học viên');
@@ -124,11 +129,12 @@ export const StudentDirectory: React.FC = () => {
     setSelectedIds(next);
   };
 
-  const filteredStudents = students.filter(s => 
-    s.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    s.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.className?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStudents = students.filter(s => {
+    const term = searchTerm.toLowerCase();
+    return String(s.displayName || '').toLowerCase().includes(term) || 
+           String(s.email || '').toLowerCase().includes(term) ||
+           String(s.className || '').toLowerCase().includes(term);
+  });
 
   return (
     <div className="space-y-6">
@@ -209,6 +215,8 @@ export const StudentDirectory: React.FC = () => {
                 </th>
                 <th className="p-4 font-bold border-b border-slate-700">Tài khoản (Email)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Họ và Tên</th>
+                <th className="p-4 font-bold border-b border-slate-700">Vai trò</th>
+                <th className="p-4 font-bold border-b border-slate-700">Lượt làm bài</th>
                 <th className="p-4 font-bold border-b border-slate-700">Hạng Tài Khoản</th>
                 <th className="p-4 font-bold border-b border-slate-700">Lớp (VD: 12A1)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Năm học</th>
@@ -232,37 +240,66 @@ export const StudentDirectory: React.FC = () => {
                       </button>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => {
+                          setSelectedStudentForProfile(student);
+                          setProfilerOpen(true);
+                        }}
+                        className="flex items-center gap-3 text-left hover:bg-slate-800/50 p-1.5 rounded-lg transition-all group-hover:pl-2 w-full"
+                      >
                         {student.photoURL ? (
                           <img src={student.photoURL} alt="Avatar" className="w-8 h-8 rounded-full" />
                         ) : (
                           <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-white text-xs">
-                            {student.email[0].toUpperCase()}
+                            {student.email?.[0]?.toUpperCase() || '?'}
                           </div>
                         )}
-                        <span className="text-slate-300 font-medium">{student.email}</span>
+                        <span className="text-slate-300 font-medium group-hover:text-cyan-400 transition-colors">{student.email || 'Không rõ Email'}</span>
+                      </button>
+                    </td>
+                    <td className="p-4">
+                      <button
+                        onClick={() => {
+                          setSelectedStudentForProfile(student);
+                          setProfilerOpen(true);
+                        }}
+                        className="text-left font-bold text-white hover:text-cyan-400 transition-colors"
+                      >
+                        {student.displayName || "Chưa có tên"}
+                      </button>
+                    </td>
+                    <td className="p-4">
+                      <select
+                        value={student.role || 'student'}
+                        onChange={e => {
+                          if (e.target.value !== student.role) {
+                            handleUpdateStudent(student.uid, 'role', e.target.value);
+                          }
+                        }}
+                        className={cn(
+                          "bg-transparent border border-transparent hover:border-slate-700 outline-none rounded p-1 text-sm font-bold transition-all",
+                          student.role === 'assistant' ? "text-fuchsia-400 focus:bg-fuchsia-900/40" : "text-slate-300 focus:bg-slate-800"
+                        )}
+                      >
+                        <option value="student">Học sinh</option>
+                        <option value="assistant">Trợ giảng</option>
+                        <option value="admin">Giáo viên / Admin</option>
+                      </select>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-cyan-400 font-black text-lg">{student.usedAttempts || 0}</span>
+                        <span className="text-slate-500 text-xs mt-1">lượt</span>
                       </div>
                     </td>
                     <td className="p-4">
-                      <input
-                        type="text"
-                        defaultValue={student.displayName}
-                        onBlur={e => {
-                          if (e.target.value !== student.displayName) {
-                            handleUpdateStudent(student.uid, 'displayName', e.target.value);
-                          }
-                        }}
-                        className="bg-transparent border border-transparent hover:border-slate-700 focus:border-cyan-500 focus:bg-slate-800 rounded px-2 py-1 w-full text-white outline-none transition-all"
-                      />
-                    </td>
-                    <td className="p-4">
                       {student.tier === 'vip' || student.isUnlimited ? (
-                         <span className="bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2 py-1 rounded text-xs">
+                         <span className="bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2 py-1 rounded text-xs shadow-lg shadow-amber-500/20">
                            VIP (∞)
                          </span>
                       ) : (
-                         <span className="bg-slate-800 text-slate-400 font-bold px-2 py-1 rounded text-xs">
-                           FREE ({student.usedAttempts || 0}/30)
+                         <span className="bg-slate-800 text-slate-400 font-bold px-2 py-1 rounded text-xs border border-slate-700">
+                           FREE
                          </span>
                       )}
                     </td>
@@ -299,6 +336,13 @@ export const StudentDirectory: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Side Drawer Component */}
+      <StudentMicroProfiler
+        isOpen={profilerOpen}
+        onClose={() => setProfilerOpen(false)}
+        student={selectedStudentForProfile}
+      />
     </div>
   );
 };

@@ -346,6 +346,7 @@ export default function ExamMatrixGenerator() {
         }),
         createdAt: Timestamp.now(),
         createdBy: auth.currentUser?.uid || 'admin',
+        published: false,
         type: 'Matrix',
       };
 

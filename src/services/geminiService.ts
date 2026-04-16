@@ -228,7 +228,7 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
       feedback: 'Không thể phân tích dữ liệu lúc này.',
       remedialMatrix: [],
       behavioralAnalysis: { carelessCount: 0, fundamentalCount: 0, skippedCount: 0 }
-    }) as { feedback: string; redZones: string[]; remedialMatrix: { topic: string; count: number; }[]; behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount?: number; }; };
+    }) as { feedback: string; redZones: string[]; remedialMatrix: { topic: string; count: number; }[]; behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount: number; }; };
     
     // Đảm bảo có skippedCount trong kết quả trả về
     if (result.behavioralAnalysis && result.behavioralAnalysis.skippedCount === undefined) {

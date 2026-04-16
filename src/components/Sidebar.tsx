@@ -22,7 +22,9 @@ import {
   BrainCircuit,
   FolderOpen,
   X,
-  Database
+  Database,
+  Send,
+  GraduationCap
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
@@ -30,10 +32,10 @@ import { UserProfile } from '../types';
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking'; // Admin tabs
+  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Migration'] as const;
+export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -91,6 +93,8 @@ export const Sidebar = ({
     { id: 'Classroom' as SidebarTab, label: 'Phòng Thi', icon: Users },
     { id: 'Directory' as SidebarTab, label: 'Danh Bạ Học Viên', icon: Contact },
     { id: 'Tracking' as SidebarTab, label: 'Theo Dõi Tiến Độ', icon: BarChart3 },
+    { id: 'Campaign' as SidebarTab, label: 'Tâm Thư AI', icon: Send },
+    { id: 'YCCD' as SidebarTab, label: 'Phân loại YCCĐ', icon: GraduationCap },
     { id: 'Migration' as SidebarTab, label: 'Chuyển Đổi Dữ Liệu', icon: Database },
   ];
 

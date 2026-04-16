@@ -287,8 +287,8 @@ const TeacherDashboard: React.FC = () => {
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       rows = rows.filter(r =>
-        r.student.displayName?.toLowerCase().includes(q) ||
-        r.student.email?.toLowerCase().includes(q)
+        String(r.student.displayName || '').toLowerCase().includes(q) ||
+        String(r.student.email || '').toLowerCase().includes(q)
       );
     }
 

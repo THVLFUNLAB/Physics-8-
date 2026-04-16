@@ -4,7 +4,7 @@
 export type Topic = string;
 export type QuestionLevel = 'Nhận biết' | 'Thông hiểu' | 'Vận dụng' | 'Vận dụng cao';
 export type Part = 1 | 2 | 3;
-export type Role = 'student' | 'admin';
+export type Role = 'student' | 'admin' | 'assistant';
 export type TargetGroup = 'Chống Sai Ngu' | 'Master Physics';
 
 export interface Prescription {
@@ -164,6 +164,7 @@ export interface Attempt {
       fundamentalCount: number;
     };
   };
+  personal_ai_diagnosis?: string;
   timestamp: any;
 }
 
@@ -235,3 +236,53 @@ export interface ClassAttempt {
 }
 
 export type SidebarTab = string;
+
+// ═══ Module 5: Khảo thí Offline & Macro Analytics ═══
+
+export interface OfflineSessionStudentRecord {
+  studentId: string;
+  studentName?: string;
+  classCode?: string;
+  answers: Record<string, string>; // e.g. { "q1": "A", "q2": "C" }
+  score: number;
+}
+
+export interface OfflineSession {
+  id?: string;
+  examId: string;           // Ref → exams collection
+  examTitle: string;        // Tên đề
+  assistantId: string;      // UID trợ giảng nhập liệu
+  createdAt: any;           // Timestamp thời điểm tạo/lưu
+  records: OfflineSessionStudentRecord[]; // Mảng tổng kết quả 1 document
+}
+
+export interface ExamReport {
+  id?: string; // id = examId
+  examId: string;
+  totalParticipants: number;
+  averageScore: number;
+  scoreDistribution: Record<string, number>; // "0-2": 5, "2-4": 15...
+  questionStats: Record<string, {
+    correct: number;
+    wrong: number;
+    accuracy: number;
+  }>;
+  weakTopics: {
+    topic: string;
+    averagePerformance: string; // e.g. "40%"
+  }[];
+  ai_treatment_plan?: string;
+  computedAt: any;
+}
+
+// ═══ Module 7: Chiến dịch Tâm Thư AI (Admin → Student) ═══
+
+export interface CampaignMessage {
+  id?: string;
+  studentId: string;         // UID học sinh nhận thư
+  studentName: string;       // Tên hiển thị
+  content: string;           // Nội dung tâm thư (Markdown)
+  isRead: boolean;           // false = chưa đọc, true = đã "Quyết tâm"
+  campaignId: string;        // ID đợt phát động (group batch)
+  createdAt: any;            // Timestamp server
+}

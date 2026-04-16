@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { SearchableYCCDDropdown } from './common/SearchableYCCDDropdown';
+import { getYCCDShortLabel } from '../data/yccdData';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import {
@@ -50,6 +52,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   const [editCorrectAnswer, setEditCorrectAnswer] = useState<any>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [quickImgSaving, setQuickImgSaving] = useState<string | null>(null);
+  const [editYccdCode, setEditYccdCode] = useState<string>('');
 
   // ── Thêm state cho Bulk Delete & Batch Filter ──
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -141,7 +144,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     // Filter status (treat undefined as published)
     if (filterStatus !== 'All') {
       result = result.filter(q => {
-        const status = q.status || 'published';
+        const status = q.status || 'draft';
         return status === filterStatus;
       });
     }
@@ -298,7 +301,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   const toggleStatus = async (q: Question) => {
     if (!q.id) return;
     try {
-      const newStatus = (q.status || 'published') === 'published' ? 'draft' : 'published';
+      const newStatus = (q.status || 'draft') === 'published' ? 'draft' : 'published';
       
       // Cách 1: Chờ hoàn thành mới báo UI
       await withTimeout(updateDoc(doc(db, 'questions', q.id), { status: newStatus }), 8000);
@@ -331,6 +334,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
       setEditCorrectAnswer(q.correctAnswer ?? (q.part === 1 ? 0 : 0));
     }
     setEditIsTrap(q.isTrap || false);
+    setEditYccdCode(q.yccdCode || '');
     setExpandedId(q.id!);
   };
 
@@ -341,6 +345,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     setEditOptions([]);
     setEditCorrectAnswer(null);
     setEditIsTrap(false);
+    setEditYccdCode('');
   };
 
   const saveEdit = async (q: Question) => {
@@ -355,8 +360,9 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
       const updateData: any = stripUndefined({
         content: editContent || '',
         explanation: editExplanation || '',
-        status: q.status || 'published',
-        isTrap: editIsTrap
+        status: q.status || 'draft',
+        isTrap: editIsTrap,
+        yccdCode: editYccdCode || '',
       });
       if (q.part === 1 || q.part === 2) {
         // Đảm bảo options array không chứa undefined — thay bằng '' để giữ đúng index
@@ -881,23 +887,37 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
                           onClick={() => toggleStatus(q)}
                           className={cn(
                             "text-[10px] font-bold px-2 py-1 rounded transition-all flex items-center gap-1 cursor-pointer hover:opacity-80 border",
-                            (q.status || 'published') === 'draft' 
+                            (q.status || 'draft') === 'draft' 
                               ? "bg-slate-700/50 text-slate-300 border-slate-600" 
                               : "bg-emerald-600/20 text-emerald-400 border-emerald-600/30"
                           )}
                           title="Bấm để đổi trạng thái"
                         >
-                          {(q.status || 'published') === 'draft' ? (
+                          {(q.status || 'draft') === 'draft' ? (
                             <><Clock className="w-3 h-3" /> Đang nháp</>
                           ) : (
                             <><CheckCircle2 className="w-3 h-3" /> Đã duyệt</>
                           )}
                         </button>
+                        {q.yccdCode && (
+                          <span className="text-[10px] font-bold bg-cyan-600/15 text-cyan-400 px-2 py-1 rounded border border-cyan-600/30 max-w-[250px] truncate" title={getYCCDShortLabel(q.yccdCode)}>
+                            📋 {q.yccdCode}
+                          </span>
+                        )}
                       </div>
 
                       {/* ── EDIT FORM ── */}
                       {editingId === q.id ? (
                         <div className="space-y-4">
+                          {/* YCCĐ Selector — hiển thị đầu tiên */}
+                          <div className="bg-cyan-950/20 border border-cyan-600/20 rounded-xl p-4">
+                            <label className="text-[10px] font-bold text-cyan-400 uppercase block mb-2">📋 Yêu cầu cần đạt (YCCĐ) — GDPT 2018</label>
+                            <SearchableYCCDDropdown
+                              value={editYccdCode}
+                              onChange={(code) => setEditYccdCode(code)}
+                            />
+                          </div>
+
                           {/* Logic Câu Lừa */}
                           <div className="flex items-center gap-4 mb-2">
                              <label className="flex items-center gap-3 text-sm font-bold cursor-pointer bg-red-500/10 hover:bg-red-500/20 px-4 py-3 rounded-xl border border-red-500/30 transition-colors w-full sm:w-auto text-red-400">

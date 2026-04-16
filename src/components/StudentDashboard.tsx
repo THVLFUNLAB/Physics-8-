@@ -21,6 +21,7 @@ import { MotivationalQuote } from './MotivationalQuote';
 import { BackgroundMusic } from './BackgroundMusic';
 import { ExamsList } from './ExamsList';
 import KnowledgeGapGallery from './KnowledgeGapGallery';
+import TeacherMessageModal from './TeacherMessageModal';
 import { toast } from './Toast';
 
 export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartExam }: { user: UserProfile, attempts: Attempt[], onStartPrescription: (topic: Topic, examId: string) => void, onStartExam: (exam: Exam) => void }) => {
@@ -55,6 +56,8 @@ export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartE
 
   return (
     <div className="space-y-10">
+      {/* ── Tâm Thư AI Modal (Auto-popup nếu có thư chưa đọc) ── */}
+      <TeacherMessageModal studentId={user.uid} />
       {/* ── Header: Avatar + Info + Streak ── */}
       <div className="relative overflow-hidden bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-4 sm:p-6 md:p-8 rounded-2xl md:rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 shadow-2xl">
         <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-600/10 blur-3xl rounded-full -translate-y-1/2 translate-x-1/4 pointer-events-none" />

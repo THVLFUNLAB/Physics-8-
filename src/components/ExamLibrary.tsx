@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  db, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, Timestamp
+  db, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, getDoc, getDocs, Timestamp
 } from '../firebase';
 import { Exam, Question } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,8 +17,10 @@ import MathRenderer from '../lib/MathRenderer';
 import {
   FolderOpen, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
   FileText, Clock, CheckCircle2, AlertTriangle, Search, X,
-  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save
+  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw
 } from 'lucide-react';
+import { useReactToPrint } from 'react-to-print';
+import { PrintableExamView } from './PrintableExamView';
 
 // ── Exam type labels ──
 const TYPE_LABELS: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -43,6 +45,28 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [syncingId, setSyncingId] = useState<string | null>(null); // null | examId | '__all__'
+  
+  // ── Print State ──
+  const printRef = React.useRef<HTMLDivElement>(null);
+  const [printingExam, setPrintingExam] = useState<Exam | null>(null);
+
+  const handlePrintParams = useReactToPrint({
+    contentRef: printRef, // useReactToPrint v3 uses contentRef
+    // @ts-ignore - TS might complain depending on react-to-print version
+    onBeforeGetContent: () => {
+      // Xác nhận fix: Delay 800ms để đảm bảo MathRenderer (KaTeX) và Ảnh render xong
+      // trước khi mở hộp thoại Print của trình duyệt.
+      return new Promise<void>((resolve) => setTimeout(resolve, 800));
+    },
+    onAfterPrint: () => setPrintingExam(null),
+  });
+
+  useEffect(() => {
+    if (printingExam && printRef.current) {
+      handlePrintParams();
+    }
+  }, [printingExam, handlePrintParams]);
 
   // ── Real-time listener ──
   useEffect(() => {
@@ -94,17 +118,45 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
     return { total: exams.length, published, draft, totalQuestions };
   }, [exams]);
 
-  // ── Toggle Published ──
+  // ── Toggle Published (AUTO-SYNC khi xuất bản) ──
   const handleTogglePublish = async (exam: Exam) => {
     if (!exam.id || togglingId) return;
-    const newStatus = !(exam.published === true);
+    const willPublish = !(exam.published === true);
     setTogglingId(exam.id);
     try {
-      await updateDoc(doc(db, 'exams', exam.id), { published: newStatus });
-      toast.success(newStatus
-        ? `✅ Đề "${exam.title}" đã được PHÁT HÀNH cho học sinh.`
-        : `🔒 Đề "${exam.title}" đã được ẨN khỏi trang học sinh.`
-      );
+      if (willPublish && exam.questions?.length) {
+        // ═══ AUTO-SYNC TỪ KHO TRƯỚC KHI XUẤT BẢN ═══
+        const updatedQuestions = [...exam.questions];
+        let syncedCount = 0;
+
+        for (let i = 0; i < updatedQuestions.length; i++) {
+          const q = updatedQuestions[i];
+          if (!q.id) continue;
+          try {
+            const bankDoc = await getDoc(doc(db, 'questions', q.id));
+            if (!bankDoc.exists()) continue;
+            const bankQ = bankDoc.data() as Question;
+            // Chỉ lấy câu đã duyệt
+            if ((bankQ.status || 'draft') === 'draft') continue;
+            updatedQuestions[i] = { ...bankQ, id: q.id };
+            syncedCount++;
+          } catch { /* skip */ }
+        }
+
+        await updateDoc(doc(db, 'exams', exam.id), {
+          published: true,
+          questions: updatedQuestions,
+          lastSyncedAt: Timestamp.now()
+        });
+        toast.success(
+          `✅ Đề "${exam.title}" đã được XUẤT BẢN!` +
+          (syncedCount > 0 ? ` (Đã đồng bộ ${syncedCount} câu mới nhất từ Kho)` : '')
+        );
+      } else {
+        // Ẩn đề — chỉ toggle published
+        await updateDoc(doc(db, 'exams', exam.id), { published: false });
+        toast.success(`🔒 Đề "${exam.title}" đã được ẨN khỏi trang học sinh.`);
+      }
     } catch (err) {
       console.error('[ExamLibrary] Toggle publish error:', err);
       toast.error('Lỗi cập nhật trạng thái đề thi.');
@@ -157,6 +209,119 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
     }
   };
 
+  // ══════════════════════════════════════════════════════════════════
+  // ── ĐỒNG BỘ TỪ KHO NGÂN HÀNG (Chỉ câu đã duyệt) ──
+  // ══════════════════════════════════════════════════════════════════
+
+  /** Đồng bộ 1 đề thi: lấy bản mới nhất từ kho `questions`, chỉ cập nhật câu 'published'. */
+  const handleSyncFromBank = async (exam: Exam) => {
+    if (!exam.id || syncingId) return;
+    setSyncingId(exam.id);
+    try {
+      const updatedQuestions = [...exam.questions];
+      let syncedCount = 0;
+      let skippedDraft = 0;
+      let notFound = 0;
+
+      for (let i = 0; i < updatedQuestions.length; i++) {
+        const q = updatedQuestions[i];
+        if (!q.id) { notFound++; continue; }
+
+        try {
+          const bankDoc = await getDoc(doc(db, 'questions', q.id));
+          if (!bankDoc.exists()) { notFound++; continue; }
+
+          const bankQuestion = bankDoc.data() as Question;
+
+          // ⛔ CHỈ ĐỒNG BỘ CÂU ĐÃ DUYỆT (published) — mặc định 'published' nếu chưa gán status
+          if ((bankQuestion.status || 'published') === 'draft') {
+            skippedDraft++;
+            continue;
+          }
+
+          // Thay thế bằng bản mới nhất, giữ nguyên ID
+          updatedQuestions[i] = { ...bankQuestion, id: q.id };
+          syncedCount++;
+        } catch (fetchErr) {
+          console.warn(`[Sync] Lỗi đọc câu ${q.id}:`, fetchErr);
+        }
+      }
+
+      if (syncedCount > 0) {
+        await updateDoc(doc(db, 'exams', exam.id), { questions: updatedQuestions });
+        toast.success(
+          `✅ Đã cập nhật ${syncedCount} câu đã duyệt vào đề "${exam.title}".` +
+          (skippedDraft > 0 ? ` (${skippedDraft} câu chưa duyệt — bỏ qua)` : '')
+        );
+      } else {
+        toast.info(
+          `Đề "${exam.title}" — không có câu nào cần cập nhật.` +
+          (skippedDraft > 0 ? ` (${skippedDraft} câu chưa duyệt — bỏ qua)` : '')
+        );
+      }
+    } catch (err) {
+      console.error('[Sync] Error:', err);
+      toast.error('Lỗi khi đồng bộ đề thi. Vui lòng thử lại.');
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  /** Đồng bộ TẤT CẢ đề thi cùng lúc. */
+  const handleSyncAll = async () => {
+    if (syncingId) return;
+    if (!window.confirm(
+      `🔄 Đồng bộ TẤT CẢ ${exams.length} đề thi từ Kho Ngân Hàng?\n\n` +
+      `Chỉ những câu hỏi ĐÃ DUYỆT (published) mới được cập nhật.\n` +
+      `Câu chưa duyệt sẽ được giữ nguyên phiên bản cũ.`
+    )) return;
+
+    setSyncingId('__all__');
+    let totalSynced = 0;
+    let totalExamsUpdated = 0;
+
+    try {
+      for (const exam of exams) {
+        if (!exam.id || !exam.questions?.length) continue;
+
+        const updatedQuestions = [...exam.questions];
+        let examSynced = 0;
+
+        for (let i = 0; i < updatedQuestions.length; i++) {
+          const q = updatedQuestions[i];
+          if (!q.id) continue;
+
+          try {
+            const bankDoc = await getDoc(doc(db, 'questions', q.id));
+            if (!bankDoc.exists()) continue;
+            const bankQuestion = bankDoc.data() as Question;
+            if ((bankQuestion.status || 'published') === 'draft') continue;
+
+            updatedQuestions[i] = { ...bankQuestion, id: q.id };
+            examSynced++;
+          } catch { /* skip */ }
+        }
+
+        if (examSynced > 0) {
+          await updateDoc(doc(db, 'exams', exam.id), { questions: updatedQuestions });
+          totalExamsUpdated++;
+          totalSynced += examSynced;
+        }
+      }
+
+      if (totalSynced > 0) {
+        toast.success(`✅ Hoàn tất! Đã cập nhật ${totalSynced} câu hỏi trên ${totalExamsUpdated} đề thi.`);
+      } else {
+        toast.info('Tất cả đề thi đã đồng bộ — không có câu nào cần cập nhật.');
+      }
+    } catch (err) {
+      console.error('[SyncAll] Error:', err);
+      toast.error('Lỗi khi đồng bộ hàng loạt.');
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
   // ── Format date ──
   const formatDate = (ts: any): string => {
     if (!ts) return '—';
@@ -181,6 +346,22 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
               Quản lý, xem lại và phát hành đề thi cho học sinh.
             </p>
           </div>
+
+          {/* ── Nút Đồng bộ toàn bộ ── */}
+          <button
+            onClick={handleSyncAll}
+            disabled={syncingId !== null || exams.length === 0}
+            className={cn(
+              'flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all border shadow-lg',
+              syncingId === '__all__'
+                ? 'bg-blue-600/20 border-blue-500/50 text-blue-400 cursor-wait'
+                : 'bg-gradient-to-r from-blue-600/10 to-fuchsia-600/10 border-blue-600/30 text-blue-400 hover:border-blue-500 hover:shadow-blue-900/20'
+            )}
+            title="Quét toàn bộ đề thi và cập nhật câu hỏi đã duyệt từ Kho Ngân Hàng"
+          >
+            <RefreshCw className={cn('w-4 h-4', syncingId === '__all__' && 'animate-spin')} />
+            {syncingId === '__all__' ? 'Đang đồng bộ...' : '🔄 Đồng bộ tất cả từ Kho'}
+          </button>
         </div>
 
         {/* ── Stats Cards ── */}
@@ -379,6 +560,34 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
                         )}
                       </button>
 
+                      {/* Sync from Bank */}
+                      <button
+                        onClick={() => handleSyncFromBank(exam)}
+                        disabled={syncingId !== null}
+                        className={cn(
+                          'p-1.5 rounded-lg transition-all',
+                          syncingId === exam.id
+                            ? 'text-blue-400 bg-blue-600/10'
+                            : 'text-slate-400 hover:text-blue-400 hover:bg-blue-600/10'
+                        )}
+                        title="Đồng bộ câu hỏi đã duyệt từ Kho Ngân Hàng"
+                      >
+                        {syncingId === exam.id ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      {/* Print PDF */}
+                      <button
+                        onClick={() => setPrintingExam(exam)}
+                        className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-cyan-600/10 rounded-lg transition-all"
+                        title="Xuất PDF Đề Thi"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+
                       {/* Delete */}
                       <button
                         onClick={() => handleDelete(exam)}
@@ -484,6 +693,13 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
           </AnimatePresence>
         </div>
       )}
+
+      {/* Hidden layout for PDF Export */}
+      <div style={{ display: 'none' }}>
+        {printingExam && (
+           <PrintableExamView ref={printRef} exam={printingExam} />
+        )}
+      </div>
     </div>
   );
 };

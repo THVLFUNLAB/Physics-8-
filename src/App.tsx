@@ -12,7 +12,7 @@ import MathRenderer from './lib/MathRenderer';
 import {
   auth, db, collection, doc, addDoc, getDocs, getDoc, getDocFromCache,
   setDoc, updateDoc, onSnapshot, query, where, Timestamp, onAuthStateChanged,
-  signInWithGoogle, signOut
+  signInWithGoogle, signOut, startExamAttempt
 } from './firebase';
 import {
   UserProfile, Question, Attempt, Topic, Exam, Simulation,
@@ -65,12 +65,17 @@ const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationT
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
 const SimulationViewer = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default })));
+const AICampaignManager = lazy(() => import('./components/AICampaignManager'));
+const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
+
+// ── Non-lazy (small component) ──
+import { ExamResultGamification } from './components/ExamResultGamification';
 
 // ── Icons ──
 import {
   LogOut, BrainCircuit, Target, Activity, Settings, Play, BookOpen,
   FlaskConical, Trophy, CheckCircle2, AlertTriangle, Star, ArrowRight,
-  Info, Save, History, Beaker, ShieldAlert, ArrowLeftRight, Flag, BarChart3
+  Info, Save, History, Beaker, ShieldAlert, ArrowLeftRight, Flag, BarChart3, Send
 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -96,8 +101,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Migration'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Migration'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -223,6 +228,34 @@ export default function App() {
     };
     fetchSims();
   }, []);
+
+  // ═══ ONE-TIME MIGRATION: Gán status='published' cho câu hỏi cũ chưa có status ═══
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+    const MIGRATION_KEY = 'phy8_status_migration_v1';
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+
+    const migrate = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'questions'));
+        let count = 0;
+        for (const d of snap.docs) {
+          const data = d.data();
+          if (!data.status) {
+            await updateDoc(doc(db, 'questions', d.id), { status: 'published' });
+            count++;
+          }
+        }
+        if (count > 0) {
+          console.info(`[Migration] ✅ Đã gán status='published' cho ${count} câu hỏi cũ.`);
+        }
+        localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+      } catch (e) {
+        console.warn('[Migration] Lỗi:', e);
+      }
+    };
+    migrate();
+  }, [user]);
 
   // ═══ AUTH LISTENER ═══
   useEffect(() => {
@@ -532,6 +565,25 @@ export default function App() {
   // ═══ START TEST ═══
   const startTest = async (topic: Topic, examId?: string) => {
     if (!user) { toast.error("Vui lòng đăng nhập để bắt đầu bài thi."); return; }
+    
+    // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
+    try {
+      const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+      await startExamAttempt(user.uid, isAdmin);
+      // Sync local state ngay lập tức để giao diện không bị giật lag
+      if (!isAdmin && user.tier !== 'vip' && !user.isUnlimited) {
+        setUser({ ...user, usedAttempts: (user.usedAttempts || 0) + 1 });
+      }
+    } catch (err: any) {
+      if (err.message === "EXCEEDED_LIMIT") {
+        setShowUpgradeModal(true);
+      } else {
+        toast.error("Lỗi khi kết nối hệ thống. Vui lòng thử lại.");
+      }
+      return; // Bắt buộc chặn ngang không cho load đề
+    }
+    // ---------------------------------
+
     setLoading(true);
     
     try {
@@ -575,7 +627,7 @@ export default function App() {
         snapshot = await getDocs(qQuery);
       }
       
-      let allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => (q.status || 'published') === 'published');
+      let allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
 
       const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
       
@@ -844,56 +896,8 @@ export default function App() {
   };
 
   // ═══ AI DIAGNOSIS ═══
-  const handleDiagnosis = async () => {
-    if (!results || !activeTest || !user) return;
-    setIsAnalyzing(true);
-    try {
-      const skippedRecords: { question: any, studentAnswer: any, isCorrect: boolean }[] = [];
-      const incorrectRecords: { question: any, studentAnswer: any, isCorrect: boolean }[] = [];
-
-      activeTest.questions.forEach(q => {
-        const studentAns = results.answers[q.id || ''];
-        const isSkipped = studentAns === undefined || studentAns === null || studentAns === '' || (q.part === 2 && Array.isArray(studentAns) && studentAns.filter(val => val !== undefined && val !== null).length === 0);
-        if (isSkipped) { skippedRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false }); return; }
-        let isIncorrect = false;
-        if (q.part === 1) isIncorrect = studentAns !== q.correctAnswer;
-        else if (q.part === 2) { isIncorrect = Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]); }
-        else if (q.part === 3) isIncorrect = Math.abs(parseFloat(studentAns) - (q.correctAnswer as number)) >= 0.01;
-        if (isIncorrect) { incorrectRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false }); }
-      });
-
-      const analysisRaw = await diagnoseUserExam(incorrectRecords, skippedRecords);
-      const analysisData = {
-        errorTracking: {},
-        feedback: analysisRaw.feedback,
-        redZones: analysisRaw.redZones,
-        remedialMatrix: analysisRaw.remedialMatrix,
-        behavioralAnalysis: analysisRaw.behavioralAnalysis,
-        skippedCount: skippedRecords.length
-      };
-      
-      const newResults = { ...results, analysis: analysisData };
-      setResults(newResults);
-      await setDoc(doc(db, 'attempts', results.id), newResults, { merge: true });
-
-      const updatedUser = { ...user };
-      if (analysisRaw.redZones.length > 0) {
-        updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...analysisRaw.redZones]));
-      }
-      updatedUser.behavioralSummary = {
-        careless: (user.behavioralSummary?.careless || 0) + analysisRaw.behavioralAnalysis.carelessCount,
-        fundamental: (user.behavioralSummary?.fundamental || 0) + analysisRaw.behavioralAnalysis.fundamentalCount
-      };
-
-      await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
-      setUser(updatedUser);
-    } catch (e) {
-      console.error(e);
-      alert("Lỗi chẩn đoán bằng AI.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  // [DEPRECATED] handleDiagnosis đã chuyển sang Chiến dịch Tâm Thư AI (AICampaignManager)
+  // Admin chủ động chạy batch thay vì auto-gọi sau mỗi bài thi → Tiết kiệm 100% token.
 
   // ═══ ADAPTIVE TEST FIX ═══
   const handleAdaptiveTestFix = async () => {
@@ -910,7 +914,7 @@ export default function App() {
         if (item.count <= 0) continue;
         const qQuery = query(qRef, where('topic', '==', item.topic));
         const snapshot = await getDocs(qQuery);
-        let qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => (q.status || 'published') === 'published');
+        let qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
         qs = qs.sort(() => Math.random() - 0.5);
         resultQuestions.push(...qs.slice(0, item.count));
       }
@@ -1207,23 +1211,8 @@ export default function App() {
                       })()}
                     </div>
                     <div className="space-y-8">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-blue-500" /> AI CHẨN ĐOÁN & ĐIỀU TRỊ</h3>
-                      {!results.analysis ? (
-                        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl flex flex-col items-center justify-center space-y-6 flex-1 h-[300px]">
-                          <BrainCircuit className="text-slate-600 w-16 h-16" />
-                          <p className="text-slate-400 text-center max-w-sm">Hệ thống chưa thực hiện chẩn đoán. Bấm nút dưới đây để AI phân tích chi tiết lỗ hổng và nhận phác đồ điều trị cá nhân hóa.</p>
-                          <button onClick={handleDiagnosis} disabled={isAnalyzing} className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-full font-black text-sm uppercase tracking-widest transition-all shadow-lg flex items-center gap-3 disabled:opacity-50">
-                            {isAnalyzing ? <div className="w-5 h-5 border-2 border-white rounded-full border-t-transparent animate-spin" /> : <BrainCircuit />}
-                            Tiến hành Chẩn đoán
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <PrescriptionCard title="Kiến thức hổng" content={results.analysis.redZones.length > 0 ? results.analysis.redZones.join(', ') : 'Không phát hiện lỗ hổng lớn.'} icon={AlertTriangle} color="bg-red-500/10 text-red-500" />
-                          <PrescriptionCard title="Lỗi kỹ/Ẩu" content={`${results.analysis.behavioralAnalysis.carelessCount} lỗi`} icon={Target} color="bg-amber-500/10 text-amber-500" />
-                          <PrescriptionCard title="Lỗi bản chất" content={`${results.analysis.behavioralAnalysis.fundamentalCount} lỗi`} icon={BrainCircuit} color="bg-purple-500/10 text-purple-500" />
-                        </div>
-                      )}
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-blue-500" /> GAMIFICATION — ĐÁNH GIÁ NHANH</h3>
+                      <ExamResultGamification score={results.score} />
                     </div>
                   </div>
 
@@ -1436,6 +1425,8 @@ export default function App() {
                       { id: 'Reports', label: 'Báo lỗi', icon: Flag },
                       { id: 'Classroom', label: 'Phòng Thi', icon: Activity },
                       { id: 'Tracking', label: 'Theo dõi HS', icon: BarChart3 },
+                      { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
+                      { id: 'YCCD', label: 'YCCĐ', icon: Target },
                     ].map(tab => (
                       <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
                         <tab.icon className="w-4 h-4" />
@@ -1459,6 +1450,8 @@ export default function App() {
                     {adminTab === 'Directory' && <StudentDirectory />}
                     {adminTab === 'Library' && <ExamLibrary />}
                     {adminTab === 'Tracking' && <TeacherDashboard />}
+                    {adminTab === 'Campaign' && <AICampaignManager />}
+                    {adminTab === 'YCCD' && <YCCDAutoTagger />}
                     {adminTab === 'Migration' && <DatabaseMigrationTool />}
                   </LazyWrap>
                 </motion.div>
