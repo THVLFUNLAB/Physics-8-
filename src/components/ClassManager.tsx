@@ -8,10 +8,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toast } from './Toast';
 import { 
-  Users, Plus, Copy, Trash2, Play, Square, Monitor, RefreshCw, 
-  CheckCircle2, Clock, AlertTriangle, Radio, Eye, X, ChevronRight,
-  Wifi, WifiOff, Smartphone, Shield
+  Wifi, WifiOff, Smartphone, Shield, Search
 } from 'lucide-react';
+import { ReviewExam } from './ReviewExam';
 
 // ── Helper: Generate 6-char class code ──
 const generateClassCode = (): string => {
@@ -49,6 +48,7 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
   const [activeClassExam, setActiveClassExam] = useState<ClassExam | null>(null);
   const [liveAttempts, setLiveAttempts] = useState<ClassAttempt[]>([]);
   const [examQuestions, setExamQuestions] = useState<Question[]>([]);
+  const [reviewingAttempt, setReviewingAttempt] = useState<ClassAttempt | null>(null);
 
   // ── Participants sub-collection (scalable join tracking) ──
   const [participantCount, setParticipantCount] = useState(0);
@@ -625,6 +625,16 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
+            {reviewingAttempt && (
+              <ReviewExam
+                test={{
+                  topic: `Bài làm của: ${reviewingAttempt.studentName}`,
+                  questions: examQuestions
+                }}
+                answers={reviewingAttempt.answers}
+                onBack={() => setReviewingAttempt(null)}
+              />
+            )}
             {/* Select active exam */}
             {!activeClassExam ? (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-6">
@@ -774,6 +784,7 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                           <th className="p-3 text-center">Trạng thái</th>
                           <th className="p-3 text-center">Điểm</th>
                           <th className="p-3 text-center">Thiết bị</th>
+                          <th className="p-3 text-center">Thao tác</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -838,6 +849,15 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                                 ) : (
                                   <Smartphone className="w-4 h-4 text-slate-600 mx-auto" />
                                 )}
+                              </td>
+                              <td className="p-3 text-center">
+                                <button
+                                  onClick={() => setReviewingAttempt(attempt)}
+                                  className="py-1.5 px-3 bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 rounded-lg transition-colors inline-flex items-center justify-center gap-1"
+                                  title="Xem chi tiết bài làm của học sinh này"
+                                >
+                                  <Search className="w-3 h-3" /> <span className="text-[10px] font-bold whitespace-nowrap uppercase tracking-widest">Xem</span>
+                                </button>
                               </td>
                             </motion.tr>
                           );

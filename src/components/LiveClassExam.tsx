@@ -7,6 +7,7 @@ import { UserProfile, ClassRoom, ClassExam, ClassAttempt, Exam, Question } from 
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toast } from './Toast';
+import { ReviewExam } from './ReviewExam';
 import MathRenderer from '../lib/MathRenderer';
 import { 
   KeyRound, Radio, Clock, ChevronLeft, ChevronRight, Send, 
@@ -54,8 +55,53 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   // ── Cheat detection ──
   const [cheatWarnings, setCheatWarnings] = useState(0);
 
+  // ── Review state ──
+  const [showReview, setShowReview] = useState(false);
+
+  // Use a ref for answers to avoid stale closures in auto-submit
+  const answersRef = useRef<Record<string, any>>(answers);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
   // Heartbeat interval ref
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // --- Floating Highlight button ---
+  const [highlightCoords, setHighlightCoords] = useState<{ x: number, y: number } | null>(null);
+
+  useEffect(() => {
+    if (phase !== 'exam') return;
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString().trim() !== '') {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setHighlightCoords({
+          x: rect.left + rect.width / 2,
+          y: Math.max(10, rect.top - 40),
+        });
+      } else {
+        setTimeout(() => setHighlightCoords(null), 150);
+      }
+    };
+    document.addEventListener('mouseup', handleSelection);
+    return () => document.removeEventListener('mouseup', handleSelection);
+  }, [phase]);
+
+  const handleHighlight = () => {
+    const mainArea = document.getElementById('exam-main-area');
+    if (mainArea) {
+      mainArea.contentEditable = "true";
+      if (!document.execCommand('hiliteColor', false, '#facc15')) {
+        document.execCommand('backColor', false, '#facc15'); 
+      }
+      document.execCommand('foreColor', false, '#000000');
+      mainArea.contentEditable = "false";
+      window.getSelection()?.removeAllRanges();
+      setHighlightCoords(null);
+    }
+  };
 
   // ── Clock ──
   useEffect(() => {
@@ -310,12 +356,13 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
     
     setIsSubmitting(true);
     try {
+      const currentAnswers = answersRef.current;
       // ── Score calculation (same logic as App.tsx) ──
       let totalScore = 0;
       const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
 
       for (const q of questions) {
-        const studentAns = answers[q.id || ''];
+        const studentAns = currentAnswers[q.id || ''];
         
         if (q.part === 1) {
           if (studentAns === q.correctAnswer) totalScore += 0.25;
@@ -341,9 +388,9 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
 
       if (attemptId) {
         await updateDoc(doc(db, 'classAttempts', attemptId), {
-          answers,
+          answers: currentAnswers,
           score: totalScore,
-          totalAnswered: Object.keys(answers).length,
+          totalAnswered: Object.keys(currentAnswers).length,
           status: 'submitted',
           submittedAt: Timestamp.now(),
         });
@@ -446,6 +493,22 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   if (phase === 'exam' && currentQuestion) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        {highlightCoords && (
+          <div 
+            className="fixed z-[9999] -translate-x-1/2 shadow-2xl animate-in zoom-in-75 duration-200"
+            style={{ top: highlightCoords.y, left: highlightCoords.x }}
+          >
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault(); 
+                handleHighlight();
+              }}
+              className="bg-yellow-400 text-black px-4 py-2 rounded-full font-black text-[10px] md:text-sm shadow-[0_4px_20px_rgba(250,204,21,0.5)] flex items-center justify-center hover:bg-yellow-300 hover:scale-105 active:scale-95 transition-all text-center tracking-widest uppercase border-2 border-yellow-200"
+            >
+              🖍️ Bôi Đen
+            </button>
+          </div>
+        )}
         {/* Top Bar: Timer + Progress */}
         <div className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-xl py-4 flex items-center justify-between gap-4 border-b border-slate-800/50">
           {/* Countdown */}
@@ -507,6 +570,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
         {/* Question Card */}
         <AnimatePresence mode="wait">
           <motion.div
+            id="exam-main-area"
             key={currentIndex}
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -665,6 +729,14 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   // ══════════════════════════════════════════
 
   if (phase === 'results') {
+    if (showReview) {
+      const testData = {
+        topic: classExam?.title || 'Phòng thi Live',
+        questions: questions,
+      };
+      return <ReviewExam test={testData} answers={answers} onBack={() => setShowReview(false)} />;
+    }
+
     return (
       <div className="max-w-lg mx-auto space-y-8">
         <motion.div
@@ -744,12 +816,20 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
           </div>
         )}
 
-        <button
-          onClick={() => { setPhase('join'); setClassCode(''); setAnswers({}); setQuestions([]); }}
-          className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all"
-        >
-          Quay lại
-        </button>
+        <div className="flex gap-4">
+          <button
+            onClick={() => { setPhase('join'); setClassCode(''); setAnswers({}); setQuestions([]); }}
+            className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all"
+          >
+            Quay lại bến đỗ
+          </button>
+          <button
+            onClick={() => setShowReview(true)}
+            className="flex-1 py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)]"
+          >
+            Xem lại bài làm
+          </button>
+        </div>
       </div>
     );
   }

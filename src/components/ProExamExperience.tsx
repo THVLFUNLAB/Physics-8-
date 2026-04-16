@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { auth } from '../firebase';
@@ -40,6 +40,49 @@ export const ProExamExperience = ({
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
 
+  // --- Fix stale closure in timeout ---
+  const onSubmitRef = useRef(onSubmit);
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  }, [onSubmit]);
+
+  // --- Floating Highlight button ---
+  const [highlightCoords, setHighlightCoords] = useState<{ x: number, y: number } | null>(null);
+
+  useEffect(() => {
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.toString().trim() !== '') {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setHighlightCoords({
+          x: rect.left + rect.width / 2,
+          y: Math.max(10, rect.top - 40),
+        });
+      } else {
+        // Debounce hide to allow click
+        setTimeout(() => setHighlightCoords(null), 150);
+      }
+    };
+    document.addEventListener('mouseup', handleSelection);
+    return () => document.removeEventListener('mouseup', handleSelection);
+  }, []);
+
+  const handleHighlight = () => {
+    const mainArea = document.getElementById('exam-main-area');
+    if (mainArea) {
+      mainArea.contentEditable = "true";
+      // Works in modern browsers to highlight selection
+      if (!document.execCommand('hiliteColor', false, '#facc15')) {
+        document.execCommand('backColor', false, '#facc15'); // Firefox fallback
+      }
+      document.execCommand('foreColor', false, '#000000'); // Ensure text is visible
+      mainArea.contentEditable = "false";
+      window.getSelection()?.removeAllRanges();
+      setHighlightCoords(null);
+    }
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) {
@@ -68,9 +111,9 @@ export const ProExamExperience = ({
     
     const timer = setInterval(() => {
       setTimeLeft(prev => {
-        if (prev <= 0) {
+        if (prev <= 1) {
           clearInterval(timer);
-          handleSubmit();
+          setTimeout(() => handleSubmit(), 0);
           return 0;
         }
         return prev - 1;
@@ -94,7 +137,7 @@ export const ProExamExperience = ({
   const handleSubmit = () => {
     localStorage.removeItem(DRAFT_KEY);
     localStorage.removeItem('phys8_active_exam_session'); // Xóa session key
-    onSubmit();
+    onSubmitRef.current();
   };
 
   const handleResumeChoice = (choice: 'resume' | 'reset') => {
@@ -126,6 +169,23 @@ export const ProExamExperience = ({
       "fixed inset-0 bg-slate-950 z-[100] flex flex-col overflow-hidden transition-all duration-1000",
       timeLeft < 300 ? "shadow-[inset_0_0_150px_rgba(220,38,38,0.3)] ring-4 ring-inset ring-red-500/50" : ""
     )}>
+      {highlightCoords && (
+        <div 
+          className="fixed z-[9999] -translate-x-1/2 shadow-2xl animate-in zoom-in-75 duration-200"
+          style={{ top: highlightCoords.y, left: highlightCoords.x }}
+        >
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault(); // Keep selection active
+              handleHighlight();
+            }}
+            className="bg-yellow-400 text-black px-4 py-2 rounded-full font-black text-[10px] md:text-sm shadow-[0_4px_20px_rgba(250,204,21,0.5)] flex items-center justify-center hover:bg-yellow-300 hover:scale-105 active:scale-95 transition-all text-center tracking-widest uppercase border-2 border-yellow-200"
+          >
+            🖍️ Bôi Đen
+          </button>
+        </div>
+      )}
+
       {timeLeft < 300 && (
         <div className="absolute inset-0 pointer-events-none bg-red-500/5 animate-pulse z-0" />
       )}
@@ -243,7 +303,7 @@ export const ProExamExperience = ({
         </aside>
 
         {/* Question Content */}
-        <main className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar">
+        <main id="exam-main-area" className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar">
           <div className="max-w-3xl mx-auto space-y-10">
             <div className="flex flex-wrap items-center gap-2 md:gap-4">
               <span className="bg-slate-900 text-slate-400 px-4 py-1 rounded-full text-xs md:text-sm font-black uppercase border border-slate-800">

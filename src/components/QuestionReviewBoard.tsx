@@ -167,48 +167,31 @@ interface MathToolbarProps {
 }
 
 const MathToolbar: React.FC<MathToolbarProps> = ({ onInsert }) => {
-  const [expanded, setExpanded] = useState(false);
-
   return (
-    <div className="bg-slate-800/80 border border-slate-700 rounded-xl overflow-hidden">
-      {/* Toggle bar */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-white hover:bg-slate-700/50 transition-all"
-      >
-        <span className="flex items-center gap-1.5">
-          <span className="text-red-500 text-sm">∑</span> Thanh công cụ Toán học
-        </span>
-        {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-      </button>
-
-      {expanded && (
-        <div className="p-3 pt-0 space-y-2.5 border-t border-slate-700/50">
-          {MATH_TOOLBAR_GROUPS.map((group) => (
-            <div key={group.groupName}>
-              <p className="text-[8px] font-black text-slate-600 uppercase tracking-[0.15em] mb-1.5 mt-2">
-                {group.groupName}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {group.items.map((item) => (
-                  <button
-                    key={item.insert}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => onInsert(item.insert)}
-                    title={item.title}
-                    className="px-2 py-1 bg-slate-900 hover:bg-red-600/20 border border-slate-700 hover:border-red-600/50 rounded-lg text-xs text-slate-300 hover:text-red-400 font-mono font-bold transition-all duration-150 active:scale-90"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-          <p className="text-[9px] text-slate-600 italic pt-1">
-            💡 Click nút → chèn mã LaTeX vào cuối nội dung. Sau đó thầy sửa trực tiếp trong trình soạn thảo.
+    <div className="bg-slate-800/80 p-2 space-y-2 border-b border-slate-700/50 rounded-t-xl">
+      {MATH_TOOLBAR_GROUPS.map((group) => (
+        <div key={group.groupName}>
+          <p className="text-[8px] font-black text-slate-600 uppercase tracking-[0.15em] mb-1.5 mt-1">
+            {group.groupName}
           </p>
+          <div className="flex flex-wrap gap-1">
+            {group.items.map((item) => (
+              <button
+                key={item.insert}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onInsert(item.insert)}
+                title={item.title}
+                className="px-2 py-1 bg-slate-900 hover:bg-red-600/20 border border-slate-700 hover:border-red-600/50 rounded-lg text-xs text-slate-300 hover:text-red-400 font-mono font-bold transition-all duration-150 active:scale-90"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+      ))}
+      <p className="text-[9px] text-slate-600 italic pt-1">
+        💡 Click nút → chèn mã LaTeX vào cuối nội dung. Sau đó thầy sửa trực tiếp trong trình soạn thảo.
+      </p>
     </div>
   );
 };
@@ -221,10 +204,12 @@ interface MathFieldProps {
   onChange: (val: string) => void;
   label?: string;
   minHeight?: number;
+  hideToolbar?: boolean;
 }
 
-const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight = 80 }) => {
+const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight = 80, hideToolbar = false }) => {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  const [showMathBar, setShowMathBar] = useState(false);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   // FIX VĐ3: Cache vị trí cursor — giữ nguyên khi textarea bị blur do click toolbar
   const cursorPosRef = useRef<{ start: number; end: number }>({
@@ -304,39 +289,48 @@ const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight
 
   return (
     <div className="space-y-1">
-      {label && (
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</span>
-          <div className="flex bg-slate-800 rounded-lg p-0.5 gap-0.5">
+      <div className={cn("flex items-center", label ? "justify-between" : "justify-end")}>
+        {label && <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</span>}
+        <div className="flex bg-slate-800 rounded-lg p-0.5 gap-0.5 ml-auto">
+          {mode === 'edit' && (
             <button
-              onClick={() => setMode('preview')}
+              onClick={() => setShowMathBar(!showMathBar)}
               className={cn(
                 'flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase transition-all',
-                mode === 'preview' ? 'bg-slate-600 text-white' : 'text-slate-500 hover:text-slate-300'
+                showMathBar ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'
               )}
+              title="Công cụ Toán/LaTeX"
             >
-              <Eye className="w-2.5 h-2.5" /> Preview
+              ∑ Toán
             </button>
-            <button
-              onClick={() => setMode('edit')}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase transition-all',
-                mode === 'edit' ? 'bg-red-600 text-white' : 'text-slate-500 hover:text-slate-300'
-              )}
-            >
-              <Pencil className="w-2.5 h-2.5" /> Sửa
-            </button>
-          </div>
+          )}
+          <button
+            onClick={() => setMode('preview')}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase transition-all',
+              mode === 'preview' ? 'bg-slate-600 text-white' : 'text-slate-500 hover:text-slate-300'
+            )}
+          >
+            <Eye className="w-2.5 h-2.5" /> Preview
+          </button>
+          <button
+            onClick={() => setMode('edit')}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-bold uppercase transition-all',
+              mode === 'edit' ? 'bg-red-600 text-white' : 'text-slate-500 hover:text-slate-300'
+            )}
+          >
+            <Pencil className="w-2.5 h-2.5" /> Sửa
+          </button>
         </div>
-      )}
+      </div>
 
       <div
         ref={editorWrapRef}
         data-color-mode="dark"
-        className="rounded-xl overflow-visible border border-slate-700 focus-within:border-fuchsia-500/60 focus-within:shadow-[0_0_15px_-3px_rgba(192,38,211,0.3)] transition-all duration-300"
+        className="rounded-xl overflow-visible border border-slate-700/70 focus-within:border-fuchsia-500/60 focus-within:shadow-[0_0_15px_-3px_rgba(192,38,211,0.3)] transition-all duration-300 bg-[#0f172a]"
       >
-        {/* FIX VĐ3: MathToolbar TRONG editorWrapRef — chỉ hiện khi đang chỉnh sửa */}
-        {mode === 'edit' && (
+        {mode === 'edit' && showMathBar && (
           <MathToolbar onInsert={handleToolbarInsert} />
         )}
 
@@ -346,8 +340,9 @@ const MathField: React.FC<MathFieldProps> = ({ value, onChange, label, minHeight
             onChange={(v) => onChange(v ?? '')}
             preview="edit"
             height={minHeight}
+            hideToolbar={hideToolbar}
             previewOptions={PREVIEW_OPTIONS}
-            style={{ background: '#0f172a' }}
+            style={{ background: 'transparent' }}
           />
         ) : (
           <MDEditor.Markdown
@@ -740,7 +735,8 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
                       <MathField
                         value={opt}
                         onChange={(v) => updateOptionText(idx, v)}
-                        minHeight={56}
+                        minHeight={40}
+                        hideToolbar={true}
                       />
                     </div>
                   </div>
@@ -787,7 +783,8 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, index, onChange, 
                       <MathField
                         value={opt}
                         onChange={(v) => updateOption(idx, v)}
-                        minHeight={56}
+                        minHeight={40}
+                        hideToolbar={true}
                       />
                     </div>
 

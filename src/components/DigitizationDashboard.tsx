@@ -823,6 +823,8 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       const batch = writeBatch(db);
       const questionIds: string[] = [];
 
+      const finalQuestionsList = [];
+
       // 1. Tạo từng câu hỏi (nếu checkbox "cũng lưu vào kho" checked)
       for (const q of pendingQuestions) {
         const clean = sanitizeQuestion(q);
@@ -831,6 +833,12 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           const qRef = doc(collection(db, 'questions'));
           batch.set(qRef, clean);
           questionIds.push(qRef.id);
+          // Ghi lại id thật để đề thi có thể sync được
+          finalQuestionsList.push({ ...clean, id: qRef.id });
+        } else {
+          // Tạo một ID ảo để view/print không bị lỗi key
+          const tempId = q.id || `q_temp_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
+          finalQuestionsList.push({ ...clean, id: tempId });
         }
       }
 
@@ -838,7 +846,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       const examRef = doc(collection(db, 'exams'));
       batch.set(examRef, {
         title: newExamTitle.trim(),
-        questions: pendingQuestions.map(q => sanitizeQuestion(q)),
+        questions: finalQuestionsList,
         questionIds: alsoSaveToBank ? questionIds : [],
         createdAt: Timestamp.now(),
         createdBy: auth.currentUser?.uid || 'admin',

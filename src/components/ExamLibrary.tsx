@@ -224,8 +224,15 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
       let notFound = 0;
 
       for (let i = 0; i < updatedQuestions.length; i++) {
-        const q = updatedQuestions[i];
-        if (!q.id) { notFound++; continue; }
+        let q = updatedQuestions[i];
+        
+        // CỨU CÁC ĐỀ CŨ BỊ MẤT ID: Fallback lấy ID từ exam.questionIds
+        if ((!q.id || q.id.startsWith('q_temp') || q.id.length < 15) && exam.questionIds && exam.questionIds[i]) {
+          q = { ...q, id: exam.questionIds[i] };
+          updatedQuestions[i] = q; // Cập nhật lại array
+        }
+
+        if (!q.id || q.id.length < 15) { notFound++; continue; } // length < 15 to skip q_temp_...
 
         try {
           const bankDoc = await getDoc(doc(db, 'questions', q.id));
@@ -288,8 +295,15 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
         let examSynced = 0;
 
         for (let i = 0; i < updatedQuestions.length; i++) {
-          const q = updatedQuestions[i];
-          if (!q.id) continue;
+          let q = updatedQuestions[i];
+          
+          // CỨU CÁC ĐỀ CŨ: Fallback ID
+          if ((!q.id || q.id.startsWith('q_temp') || q.id.length < 15) && exam.questionIds && exam.questionIds[i]) {
+            q = { ...q, id: exam.questionIds[i] };
+            updatedQuestions[i] = q;
+          }
+
+          if (!q.id || q.id.length < 15) continue;
 
           try {
             const bankDoc = await getDoc(doc(db, 'questions', q.id));
