@@ -4,6 +4,7 @@ import { cn } from '../lib/utils';
 import { auth } from '../firebase';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
+import { BackgroundMusic } from './BackgroundMusic';
 import {
   Activity, Clock, ChevronRight, ShieldAlert, Info, Archive
 } from 'lucide-react';
@@ -169,6 +170,7 @@ export const ProExamExperience = ({
       "fixed inset-0 bg-slate-950 z-[100] flex flex-col overflow-hidden transition-all duration-1000",
       timeLeft < 300 ? "shadow-[inset_0_0_150px_rgba(220,38,38,0.3)] ring-4 ring-inset ring-red-500/50" : ""
     )}>
+      <BackgroundMusic className="fixed bottom-[80px] left-4 md:bottom-8 md:left-8 z-[200]" />
       {highlightCoords && (
         <div 
           className="fixed z-[9999] -translate-x-1/2 shadow-2xl animate-in zoom-in-75 duration-200"

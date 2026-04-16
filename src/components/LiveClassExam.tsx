@@ -9,6 +9,7 @@ import { cn } from '../lib/utils';
 import { toast } from './Toast';
 import { ReviewExam } from './ReviewExam';
 import MathRenderer from '../lib/MathRenderer';
+import { BackgroundMusic } from './BackgroundMusic';
 import { 
   KeyRound, Radio, Clock, ChevronLeft, ChevronRight, Send, 
   CheckCircle2, Trophy, AlertTriangle, Users, XCircle, Info
@@ -493,6 +494,7 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   if (phase === 'exam' && currentQuestion) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        <BackgroundMusic className="fixed bottom-[80px] left-4 md:bottom-8 md:left-8 z-[200]" />
         {highlightCoords && (
           <div 
             className="fixed z-[9999] -translate-x-1/2 shadow-2xl animate-in zoom-in-75 duration-200"
