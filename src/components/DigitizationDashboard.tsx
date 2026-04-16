@@ -96,34 +96,72 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       const images = new Map<number, string>();
       let imgCount = 0;
 
-      // Sử dụng mammoth để duyệt Word theo ĐÚNG THỨ TỰ (Reading Order).
-      // Mammoth chỉ đọc được ảnh "Inline with text", điều này khớp với hướng dẫn người dùng.
-      await mammoth.convertToHtml(
-        { arrayBuffer },
-        {
-          convertImage: mammoth.images.imgElement(async (image) => {
-            try {
-              imgCount++; // Luôn tăng index với MỖI ảnh tìm thấy để giữ đúng số thứ tự tuyệt đối
-              setImageProgress(`📸 Đang xử lý ảnh thứ ${imgCount}...`);
-              
-              const rawBuffer = await image.read();
-              const arrayBuf = new Uint8Array(rawBuffer).buffer.slice(0) as ArrayBuffer;
-              const mimeType = image.contentType ?? 'image/png';
-              
-              const compressed = await compressImageToJpeg(arrayBuf, mimeType);
-              if (compressed) {
-                images.set(imgCount, compressed);
-              } else {
-                console.warn(`[ImageMapper] Không thể nén ảnh thứ ${imgCount} (có thể là định dạng không hỗ trợ như WMF)`);
-              }
-              return { src: '', alt: '' }; // Không cần HTML output
-            } catch (err) {
-              console.warn(`[ImageMapper] Lỗi đọc ảnh thứ ${imgCount}:`, err);
-              return { src: '', alt: '' };
-            }
-          })
+      // Phân tích file Word như một file ZIP để lấy trực tiếp cấu trúc XML
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      
+      const relsXml = await zip.files["word/_rels/document.xml.rels"]?.async("text");
+      const docXml = await zip.files["word/document.xml"]?.async("text");
+
+      if (!relsXml || !docXml) {
+         throw new Error("Không tìm thấy cấu trúc Word chuẩn.");
+      }
+
+      // Xây dựng danh sách mapping rId -> đường dẫn file ảnh
+      const relsMap: Record<string, string> = {};
+      const relsRegex = /<Relationship Id="([^"]+)" Type="[^"]*image" Target="([^"]+)"/g;
+      let relMatch;
+      while ((relMatch = relsRegex.exec(relsXml)) !== null) {
+        relsMap[relMatch[1]] = relMatch[2];
+      }
+
+      // Duyệt XML để lấy thứ tự xuất hiện ảnh TỪ HOÀN TOÀN CẤU TRÚC GỐC
+      const readingOrderImages: string[] = [];
+      const imgRegex = /<(?:a:blip|v:imagedata|wp14:imgLayer)[^>]+(?:r:embed|r:id)="([^"]+)"/g;
+      let imgMatch;
+      while ((imgMatch = imgRegex.exec(docXml)) !== null) {
+        const rid = imgMatch[1];
+        if (relsMap[rid]) {
+          readingOrderImages.push(relsMap[rid]);
         }
-      );
+      }
+
+      for (let i = 0; i < readingOrderImages.length; i++) {
+        const relativePath = readingOrderImages[i];
+        const filename = relativePath.split('/').pop() || '';
+        // Đường dẫn trong zip thường là word/media/image1.png
+        const targetPath = Object.keys(zip.files).find(p => p.endsWith(filename));
+
+        if (!targetPath) continue;
+
+        const ext = filename.split('.').pop()?.toLowerCase() || '';
+        
+        // BỎ QUA các file wmf/emf (MathType) vì AI không bao giờ xuất [IMG_X] cho công thức.
+        // Điều này đảm bảo imgCount khớp CHUẨN với số thứ tự hình vẽ (diagram) thật!
+        if (['wmf', 'emf', 'wdp'].includes(ext)) {
+          console.warn(`[ImageMapper] Bỏ qua công thức toán / đối tượng vẽ tĩnh: ${filename}`);
+          continue; 
+        }
+
+        setImageProgress(`📸 Đang xử lý ảnh Diagram/Hình vẽ: ${filename}...`);
+        
+        let mimeType = 'image/jpeg';
+        if (ext === 'png') mimeType = 'image/png';
+        if (ext === 'gif') mimeType = 'image/gif';
+        if (ext === 'svg') mimeType = 'image/svg+xml';
+        
+        try {
+          const fileObj = zip.files[targetPath];
+          const fileData = await fileObj.async('arraybuffer');
+          const compressed = await compressImageToJpeg(fileData, mimeType);
+          if (compressed) {
+            imgCount++; // Chỉ tăng Count với ảnh hợp lệ (PNG/JPG)!
+            images.set(imgCount, compressed);
+            setImageProgress(`📸 Đã nén thành công ảnh thứ ${imgCount}...`);
+          }
+        } catch (e) {
+          console.warn(`[ImageMapper] Nén thất bại ảnh: ${filename}`, e);
+        }
+      }
 
       setExtractedImages(images);
 
