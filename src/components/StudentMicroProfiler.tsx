@@ -36,16 +36,12 @@ export const StudentMicroProfiler: React.FC<Props> = ({ isOpen, onClose, student
       try {
         const q1 = query(
           collection(db, 'attempts'),
-          where('userId', '==', student.uid),
-          orderBy('timestamp', 'desc'),
-          limit(5)
+          where('userId', '==', student.uid)
         );
         
         const q2 = query(
           collection(db, 'classAttempts'),
-          where('studentId', '==', student.uid),
-          orderBy('startedAt', 'desc'),
-          limit(5)
+          where('studentId', '==', student.uid)
         );
 
         const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);

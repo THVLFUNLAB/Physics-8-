@@ -306,7 +306,7 @@ export const ProExamExperience = ({
         </aside>
 
         {/* Question Content */}
-        <main id="exam-main-area" className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar">
+        <main id="exam-main-area" key={currentQuestion.id} className="flex-1 bg-slate-950 p-8 md:p-12 overflow-y-auto custom-scrollbar">
           <div className="max-w-3xl mx-auto space-y-10">
             <div className="flex flex-wrap items-center gap-2 md:gap-4">
               <span className="bg-slate-900 text-slate-400 px-4 py-1 rounded-full text-xs md:text-sm font-black uppercase border border-slate-800">
