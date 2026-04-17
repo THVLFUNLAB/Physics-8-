@@ -27,6 +27,32 @@ export const BackgroundMusic = ({ className }: { className?: string }) => {
   const [progress, setProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // ── Voice Tutor coordination: tạm dừng nhạc khi AI đang lắng nghe/nói ──
+  const [voiceTutorActive, setVoiceTutorActive] = useState(false);
+  const wasPlayingBeforeVoice = useRef(false);
+
+  useEffect(() => {
+    const handleVoiceEvent = (e: Event) => {
+      const active = (e as CustomEvent).detail?.active;
+      setVoiceTutorActive(active);
+      if (active) {
+        // Lưu trạng thái đang phát, rồi tạm dừng
+        wasPlayingBeforeVoice.current = isPlaying;
+        if (audioRef.current && isPlaying) {
+          audioRef.current.pause();
+        }
+      } else {
+        // Khôi phục phát nhạc nếu trước đó đang phát
+        if (wasPlayingBeforeVoice.current && audioRef.current) {
+          audioRef.current.play().catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener('aivoice-active', handleVoiceEvent);
+    return () => window.removeEventListener('aivoice-active', handleVoiceEvent);
+  }, [isPlaying]);
+
   // Tuỳ chọn ghi đè từ metadata nếu cài đặt từ Admin (vẫn giữ code cũ)
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'metadata', 'exam_config'), (docSnap) => {

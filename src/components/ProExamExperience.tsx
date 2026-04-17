@@ -5,6 +5,7 @@ import { auth } from '../firebase';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
 import { BackgroundMusic } from './BackgroundMusic';
+import { VoiceTutorButton } from './VoiceTutorButton';
 import {
   Activity, Clock, ChevronRight, ShieldAlert, Info, Archive
 } from 'lucide-react';
@@ -312,6 +313,11 @@ export const ProExamExperience = ({
                 Phần {currentQuestion.part}
               </span>
               <span className="text-slate-600 font-bold text-xs md:text-sm">Độ khó: {currentQuestion.level}</span>
+              <VoiceTutorButton
+                questionContent={currentQuestion.content}
+                detailedSolution={currentQuestion.explanation}
+                className="ml-auto"
+              />
             </div>
 
             <div className="space-y-6">

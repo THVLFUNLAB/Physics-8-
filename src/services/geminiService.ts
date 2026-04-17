@@ -1127,3 +1127,80 @@ Nếu topic viết tắt/khác biệt, hãy tự map cho đúng.`;
     throw new Error(`Lỗi đọc ma trận: ${error.message || 'Không xác định'}`);
   }
 }
+
+// ============================================================
+// VOICE AI TUTOR — Gia sư giọng nói "Thầy Hậu AI"
+// ============================================================
+
+const VOICE_TUTOR_SYSTEM_PROMPT = `Bạn là Thầy Hậu AI — Gia sư Vật lý thông minh của hệ thống PHYS-9+.
+Nhiệm vụ của bạn là hỗ trợ học sinh giải bài tập Vật lý qua giọng nói.
+
+LUẬT TƯƠNG TÁC BẮT BUỘC:
+1. TUYỆT ĐỐI KHÔNG đưa ra đáp án cuối cùng hoặc giải hộ từ đầu đến cuối.
+2. Chỉ đưa ra các câu hỏi gợi mở hoặc nhắc lại công thức liên quan.
+3. Dùng ký hiệu LaTeX cho công thức, ví dụ: P = UI, F = ma.
+4. Nếu học sinh hỏi câu không liên quan bài tập, hãy nhắc nhẹ: "Em tập trung vào bài nhé!".
+5. Phản hồi NGẮN GỌN, dưới 45 từ. Xưng hô "Thầy" - "Em".
+6. Câu trả lời phải tự nhiên, dễ nghe khi đọc lên bằng giọng nói (không viết tắt, không bullet points phức tạp).
+7. KHÔNG dùng emoji, ký hiệu đặc biệt, hay markdown formatting.
+8. LUÔN LUÔN trả lời bằng Tiếng Việt (Vietnamese), KHÔNG ĐƯỢC dùng tiếng Anh.`;
+
+/**
+ * Voice AI Tutor — Gọi Gemini Flash để sinh phản hồi giọng nói ngắn gọn.
+ *
+ * @param questionContent  - Nội dung câu hỏi học sinh đang làm
+ * @param detailedSolution - Lời giải chi tiết từ database (có thể null/rỗng)
+ * @param studentVoiceInput - Câu hỏi/thắc mắc của học sinh (đã chuyển text từ giọng nói)
+ * @returns Phản hồi text ngắn gọn từ AI (tối ưu cho TTS)
+ */
+export async function voiceAITutor(
+  questionContent: string,
+  detailedSolution: string | null | undefined,
+  studentVoiceInput: string
+): Promise<string> {
+  const ai = getAI();
+
+  const hasSolution = detailedSolution && detailedSolution.trim().length > 0
+    && detailedSolution.trim() !== 'Chưa có lời giải chi tiết.';
+
+  const contextBlock = hasSolution
+    ? `NGỮ CẢNH HỖ TRỢ (TRƯỜNG HỢP 1 — CÓ LỜI GIẢI):
+Bạn được cung cấp lời giải chi tiết bên dưới. Hãy bám sát các bước giải này để gợi ý cho học sinh. KHÔNG được đi chệch hướng giải của thầy.
+
+=== LỜI GIẢI CHI TIẾT ===
+${detailedSolution}
+=== HẾT LỜI GIẢI ===`
+    : `NGỮ CẢNH HỖ TRỢ (TRƯỜNG HỢP 2 — KHÔNG CÓ LỜI GIẢI):
+Không có lời giải sẵn cho câu này. Hãy tự suy luận dựa vào kiến thức Vật lý phổ thông (GDPT 2018) để đưa ra gợi ý logic, đúng kiến thức.`;
+
+  const userPrompt = `=== CÂU HỎI HỌC SINH ĐANG LÀM ===
+${questionContent}
+
+${contextBlock}
+
+=== HỌC SINH HỎI ===
+"${studentVoiceInput}"
+
+Hãy phản hồi ngắn gọn, gợi mở tư duy, KHÔNG giải hộ.`;
+
+  try {
+    const response = await retryWithBackoff(async () => {
+      return ai.models.generateContent({
+        model: MODELS.ANALYZE,
+        contents: userPrompt,
+        config: {
+          systemInstruction: VOICE_TUTOR_SYSTEM_PROMPT,
+          maxOutputTokens: 150,
+          temperature: 0.7,
+        }
+      });
+    }, 2, 3000);
+
+    const text = response.text?.trim();
+    if (!text) return 'Thầy chưa nghe rõ ý em. Em thử hỏi lại nhé!';
+    return text;
+  } catch (error) {
+    console.error('[VoiceAITutor] Error:', error);
+    return 'Thầy đang gặp trục trặc kết nối. Em thử lại sau giây lát nhé!';
+  }
+}

@@ -14,6 +14,7 @@ import {
   KeyRound, Radio, Clock, ChevronLeft, ChevronRight, Send, 
   CheckCircle2, Trophy, AlertTriangle, Users, XCircle, Info
 } from 'lucide-react';
+import { VoiceTutorButton } from './VoiceTutorButton';
 
 // ── Device fingerprint (simple but effective) ──
 const getDeviceId = (): string => {
@@ -594,6 +595,11 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
                 <span className="text-[10px] font-bold text-slate-500">
                   Câu {currentIndex + 1}/{questions.length}
                 </span>
+                <VoiceTutorButton
+                  questionContent={currentQuestion.content}
+                  detailedSolution={currentQuestion.explanation}
+                  className="ml-1"
+                />
               </div>
               <span className={cn(
                 "text-[10px] font-bold px-2 py-1 rounded-full uppercase",
