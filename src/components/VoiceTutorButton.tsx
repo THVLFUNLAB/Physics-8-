@@ -202,7 +202,38 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   }, [questionContent, detailedSolution, isSynthSupported, dispatchVoiceEvent]);
 
   // ══════════════════════════════════════════
-  //  TEXT-TO-SPEECH
+  //  TEXT-TO-SPEECH (CLOUD FALLBACK)
+  // ══════════════════════════════════════════
+  const speakWithCloudFallback = useCallback(async (text: string) => {
+    // Tách câu để lách hạn mức 200 ký tự của Endpoint
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    
+    setPhase('speaking');
+    dispatchVoiceEvent(true);
+
+    for (const item of sentences) {
+      if (!item.trim()) continue;
+      const encoded = encodeURIComponent(item.trim());
+      // Endpoint không chính thức dùng chống cháy (0 đồng)
+      const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encoded}`;
+      
+      await new Promise<void>((resolve) => {
+        const audio = new Audio(url);
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve(); // Skip nếu bị lỗi mạng
+        audio.play().catch(e => {
+           console.error('[VoiceTutor] Cloud TTS play blocked:', e);
+           resolve();
+        });
+      });
+    }
+
+    setPhase('idle');
+    dispatchVoiceEvent(false);
+  }, [dispatchVoiceEvent]);
+
+  // ══════════════════════════════════════════
+  //  TEXT-TO-SPEECH (NATIVE API)
   // ══════════════════════════════════════════
   const speakResponse = useCallback((text: string) => {
     window.speechSynthesis.cancel(); // Clear queue
@@ -234,10 +265,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     const viVoices = availableVoices.filter(v => v.lang.startsWith('vi'));
 
     if (viVoices.length === 0) {
-      // Nếu không có giọng VN, chặn không cho đọc bằng giọng T.Anh mặc định (sẽ nghe rất ngớ ngẩn)
-      setErrorMsg('Trình duyệt chưa cài giọng đọc Tiếng Việt! Mở bằng Edge hoặc cài pack Tiếng Việt cho Window nhé.');
-      setPhase('error');
-      dispatchVoiceEvent(false);
+      // LUỒNG DỰ PHÒNG CLOUD (FALLBACK): Chạy giả lập qua Server khi máy bị thiếu gói ngôn ngữ Tiếng Việt cục bộ.
+      speakWithCloudFallback(cleanText);
       return;
     }
 
