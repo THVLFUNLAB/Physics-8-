@@ -3,6 +3,7 @@ import { db, collection, onSnapshot, query, orderBy, limit } from '../firebase';
 import { Exam } from '../types';
 import { Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../lib/utils';
 
 interface ExamsListProps {
   onStartExam: (exam: Exam) => void;
@@ -11,6 +12,7 @@ interface ExamsListProps {
 export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState<number | null>(null);
 
   useEffect(() => {
     // Listen for exams in realtime, ordered by creation time
@@ -34,12 +36,40 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
     return () => unsub();
   }, []);
 
+  const filteredExams = selectedGradeFilter 
+    ? exams.filter(e => e.targetGrade === selectedGradeFilter)
+    : exams;
+
   return (
     <div className="mt-16 space-y-8 relative z-10 w-full">
-      <h3 className="text-xl sm:text-2xl font-black text-white flex items-center gap-3 uppercase tracking-widest font-headline">
-        <span className="w-2 h-8 bg-red-600 rounded-full" />
-        Danh sách bài kiểm tra
-      </h3>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <h3 className="text-xl sm:text-2xl font-black text-white flex items-center gap-3 uppercase tracking-widest font-headline">
+          <span className="w-2 h-8 bg-red-600 rounded-full" />
+          Danh sách bài kiểm tra
+        </h3>
+        
+        <div className="flex bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 overflow-x-auto w-full md:w-auto">
+          {[
+            { label: 'Tất cả', value: null },
+            { label: 'Khối 12', value: 12 },
+            { label: 'Khối 11', value: 11 },
+            { label: 'Khối 10', value: 10 }
+          ].map(tab => (
+            <button
+              key={tab.label}
+              onClick={() => setSelectedGradeFilter(tab.value)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 md:flex-none",
+                selectedGradeFilter === tab.value 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex gap-6 overflow-x-auto pb-4">
@@ -47,14 +77,14 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
             <div key={i} className="min-w-[280px] sm:min-w-[320px] h-48 bg-slate-900 border border-slate-800 rounded-3xl animate-pulse" />
           ))}
         </div>
-      ) : exams.length === 0 ? (
+      ) : filteredExams.length === 0 ? (
         <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl text-center text-slate-500">
-          Chưa có bài kiểm tra nào được phát hành.
+          Chưa có bài kiểm tra nào được phát hành cho khối này.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence>
-            {exams.map((exam, i) => (
+            {filteredExams.map((exam, i) => (
               <motion.div
                 key={exam.id || i}
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -84,6 +114,12 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
                       <span className="uppercase text-slate-500">Số câu hỏi:</span>
                       <span className="text-white">{exam.questions?.length || 0} câu</span>
                     </p>
+                    {exam.targetGrade && (
+                      <p className="text-xs font-bold flex items-center justify-between">
+                        <span className="uppercase text-slate-500">Khối lớp:</span>
+                        <span className="text-yellow-400">Khối {exam.targetGrade}</span>
+                      </p>
+                    )}
                     {exam.type && (
                       <p className="text-xs text-slate-400 font-bold flex items-center justify-between">
                         <span className="uppercase text-slate-500">Loại đề:</span>

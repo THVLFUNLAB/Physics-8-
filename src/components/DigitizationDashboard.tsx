@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import JSZip from 'jszip';
-import { auth, db, collection, doc, addDoc, updateDoc, Timestamp, writeBatch } from '../firebase';
+import { auth, db, collection, doc, addDoc, updateDoc, Timestamp, writeBatch, uploadExamImage } from '../firebase';
 import { Question, Topic } from '../types';
 import { digitizeDocument, digitizeFromPDF, normalizeQuestions } from '../services/geminiService';
 import { parseAzotaExam, ParseError } from '../services/AzotaParser';
@@ -36,6 +36,9 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
   const [imageProgress, setImageProgress] = useState<string | null>(null);
   // ── Kết quả số hóa (Summary Modal) ──
   const [summaryModal, setSummaryModal] = useState<DigitizationSummary | null>(null);
+
+  // ═════ Khối 10, 11, 12 Target Grade ═════
+  const [selectedGrade, setSelectedGrade] = useState<string>('');
 
   // ═══ Module 4: Upload Workflow — 2 Options sau khi AI xử lý xong ═══
   const [pendingQuestions, setPendingQuestions] = useState<Question[] | null>(null);
@@ -282,6 +285,12 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       const isDOCX = file.name.toLowerCase().endsWith('.docx');
       const isJSON = file.name.toLowerCase().endsWith('.json');
 
+      if (!selectedGrade) {
+        toast.error('Vui lòng chọn khối lớp trước khi tải file (Khối 10, 11, 12).');
+        if (e.target) e.target.value = '';
+        return;
+      }
+
       if (!isPDF && !isDOCX && !isJSON) {
         toast.error('Vui lòng chọn file .pdf, .docx hoặc .json');
         return;
@@ -406,38 +415,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         setIsProcessing(false);
         return; // Exit early — user sẽ chọn action trong modal
       } else if (digitizeMode === 'AI') {
-        // ===== AI Mode: mammoth → Nén ảnh JPEG → HTML (compact data URLs) → Gemini Flash =====
-        setImageProgress('Đang đọc file Word và nén ảnh...');
+        // ===== AI Mode: mammoth → Upload Firebase Storage → HTML (có URL thật) → Gemini Flash =====
+        setImageProgress('Đang đọc file Word và xử lý ảnh...');
         const arrayBuffer = await file.arrayBuffer();
         let imgCount = 0;
-
-        // Hàm nén ảnh bằng Canvas (browser-native, 0 thư viện)
-        // PNG 2-5MB → JPEG Q40 max 600px = 5-20KB
-        const compressImage = (buffer: ArrayBuffer, mimeType: string): Promise<string> => {
-          return new Promise((resolve) => {
-            const blob = new Blob([buffer], { type: mimeType });
-            const url = URL.createObjectURL(blob);
-            const img = new window.Image();
-            img.onload = () => {
-              const MAX_W = 600;
-              const scale = img.width > MAX_W ? MAX_W / img.width : 1;
-              const canvas = document.createElement('canvas');
-              canvas.width = Math.round(img.width * scale);
-              canvas.height = Math.round(img.height * scale);
-              const ctx = canvas.getContext('2d')!;
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              // JPEG quality 0.4 = nén cực mạnh, đủ rõ cho đề thi
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
-              URL.revokeObjectURL(url);
-              resolve(dataUrl);
-            };
-            img.onerror = () => {
-              URL.revokeObjectURL(url);
-              resolve(''); // Fallback nếu ảnh bị lỗi
-            };
-            img.src = url;
-          });
-        };
 
         const convertImage = mammoth.images.imgElement(async (image) => {
           try {
@@ -445,16 +426,18 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
             // mammoth trả Buffer → copy sang ArrayBuffer chuẩn
             const arrayBuf = new Uint8Array(rawBuffer).buffer.slice(0) as ArrayBuffer;
             const mimeType = image.contentType ?? 'image/png';
-            const compressedUrl = await compressImage(arrayBuf, mimeType);
+            
+            setImageProgress(`Đang tải ảnh ${imgCount + 1} lên đám mây...`);
+            const downloadURL = await uploadExamImage(arrayBuf, mimeType, `questions/images/grade_${selectedGrade}`);
             imgCount++;
-            setImageProgress(`Đã nén ${imgCount} ảnh (JPEG nhẹ)...`);
+            setImageProgress(`Đã sao lưu ${imgCount} ảnh lên hệ thống...`);
 
-            if (compressedUrl) {
-              return { src: compressedUrl, alt: '' };
+            if (downloadURL) {
+              return { src: downloadURL, alt: 'Question Image' };
             }
             return { src: '', alt: '' };
           } catch (err) {
-            console.error('[AI Mode] Lỗi nén ảnh:', err);
+            console.error('[AI Mode] Lỗi up ảnh Firebase:', err);
             return { src: '', alt: '' };
           }
         });
@@ -476,10 +459,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         const imageMap: Map<number, string> = new Map();
         let imgIndex = 0;
         const htmlForAI = result.value.replace(
-          /<img\s+[^>]*src=["'](data:image\/[^"']+)["'][^>]*\/?>/gi,
-          (_match: string, dataUrl: string) => {
+          /<img\s+[^>]*src=["'](https?:\/\/[^"']+)["'][^>]*\/?>/gi,
+          (_match: string, downloadURL: string) => {
             imgIndex++;
-            imageMap.set(imgIndex, dataUrl);
+            imageMap.set(imgIndex, downloadURL);
             return `[IMG_${imgIndex}]`;
           }
         );
@@ -492,8 +475,9 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           setImageProgress(`📸 ${totalImages} ảnh đã đánh dấu. AI đang phân tích...`);
         }
 
-        // Gửi text sạch (không có data URL) cho Gemini Flash → tiết kiệm token
-        const questions = await digitizeDocument(htmlForAI, topicHint, (s) => setImageProgress(s));
+        // Gửi text sạch cho Gemini Flash → cập nhật grade prompt
+        setImageProgress(`AI đang phân tích câu hỏi (Khối ${selectedGrade})...`);
+        const questions = await digitizeDocument(htmlForAI, topicHint, selectedGrade, (s) => setImageProgress(s));
         
         // Sau khi AI trả kết quả: ghép ảnh vào CUỐI content câu hỏi
         if (totalImages > 0 && questions.length > 0) {
@@ -509,9 +493,9 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
               // Chèn ảnh vào CUỐI câu hỏi
               for (const m of markers) {
                 const idx = parseInt(m[1], 10);
-                const dataUrl = imageMap.get(idx);
-                if (dataUrl) {
-                  q.content += `\n\n![Hình minh họa](${dataUrl})`;
+                const downloadURL = imageMap.get(idx);
+                if (downloadURL) {
+                  q.content += `\n\n<img src="${downloadURL}" alt="Question Image" className="max-w-full rounded-md my-2" />`;
                   usedImgIndices.add(idx);
                 }
               }
@@ -522,10 +506,10 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           }
           
           // Ảnh mồ côi (AI bỏ qua marker) → gắn vào câu cuối
-          for (const [idx, dataUrl] of imageMap.entries()) {
+          for (const [idx, downloadURL] of imageMap.entries()) {
             if (!usedImgIndices.has(idx)) {
               const lastQ = questions[questions.length - 1];
-              lastQ.content += `\n\n![Hình minh họa](${dataUrl})`;
+              lastQ.content += `\n\n![Hình minh họa](${downloadURL})`;
               console.info(`[Image Map] Ảnh mồ côi #${idx} → gán vào câu cuối`);
             }
           }
@@ -694,6 +678,8 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           try {
             const cleanQ = sanitizeQuestion({
               ...q,
+              targetGrade: Number(selectedGrade),
+              status: "published",
               clusterId: clusterDoc.id,
               tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
             });
@@ -728,6 +714,8 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         try {
           const clean = sanitizeQuestion({
             ...q,
+            targetGrade: Number(selectedGrade),
+            status: "published",
             tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
           });
           clean.createdAt = batchTimestamp;
@@ -827,7 +815,11 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
 
       // 1. Tạo từng câu hỏi (nếu checkbox "cũng lưu vào kho" checked)
       for (const q of pendingQuestions) {
-        const clean = sanitizeQuestion(q);
+        const clean = sanitizeQuestion({
+          ...q,
+          targetGrade: Number(selectedGrade),
+          status: "published",
+        });
         clean.createdAt = Timestamp.now();
         if (alsoSaveToBank) {
           const qRef = doc(collection(db, 'questions'));
@@ -846,6 +838,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       const examRef = doc(collection(db, 'exams'));
       batch.set(examRef, {
         title: newExamTitle.trim(),
+        targetGrade: Number(selectedGrade) || 12,
         questions: finalQuestionsList,
         questionIds: alsoSaveToBank ? questionIds : [],
         createdAt: Timestamp.now(),
@@ -940,7 +933,19 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         </div>
 
         <div className="space-y-3">
-          <p className="text-xs font-bold text-slate-500 uppercase">3. Tải lên file đề thi</p>
+          <p className="text-xs font-bold text-slate-500 uppercase">3. Khối lớp & Số hóa</p>
+          <select
+            value={selectedGrade}
+            onChange={(e) => setSelectedGrade(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 text-white text-sm rounded-xl p-3 focus:border-red-500 outline-none transition-all font-bold"
+            disabled={isProcessing}
+          >
+            <option value="" disabled>-- Vui lòng chọn Khối Lớp --</option>
+            <option value="10">Khối 10 (Chương trình GDPT 2018)</option>
+            <option value="11">Khối 11 (Chương trình GDPT 2018)</option>
+            <option value="12">Khối 12 (Chương trình GDPT 2018)</option>
+          </select>
+          <p className="text-xs font-bold text-slate-500 uppercase mt-2">Tải lên file đề thi</p>
           <input 
             ref={fileInputRef}
             type="file" 

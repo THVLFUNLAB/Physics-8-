@@ -62,12 +62,15 @@ const StudentDirectory = lazy(() => import('./components/StudentDirectory'));
 const ExamLibrary = lazy(() => import('./components/ExamLibrary'));
 const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 const LiveClassExam = lazy(() => import('./components/LiveClassExam'));
+const Grade10Dashboard = lazy(() => import('./components/Grade10Dashboard'));
+const Grade11Dashboard = lazy(() => import('./components/Grade11Dashboard'));
 const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
 const SimulationViewer = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default })));
 const AICampaignManager = lazy(() => import('./components/AICampaignManager'));
 const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
+const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
 
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
@@ -1314,8 +1317,18 @@ export default function App() {
             {/* ──── CONTENT ROUTING ──── */}
             {activeView === 'liveExam' && <LazyWrap><LiveClassExam user={user} /></LazyWrap>}
             {activeView === 'adaptive' && <LazyWrap><AdaptiveDashboard user={user} attempts={attempts} /></LazyWrap>}
+            {activeView === 'StudentView' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
+              <LazyWrap>
+                <StudentViewSimulator 
+                   user={user} 
+                   attempts={attempts} 
+                   onStartPrescription={(topic, examId) => startTest(topic, examId)} 
+                   onStartExam={(exam) => startTest(exam.title, exam.id)} 
+                />
+              </LazyWrap>
+            )}
 
-            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && activeView !== 'adaptive' && (
+            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && activeView !== 'adaptive' && activeView !== 'grade10' && activeView !== 'grade11' && activeView !== 'StudentView' && (
               <>
                 <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic, examId)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
                 <section id="diagnosis" className="mt-16">
@@ -1392,7 +1405,7 @@ export default function App() {
             )}
 
             {/* ══════ ADMIN SECTION ══════ */}
-            {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView) && (
+            {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView) && activeView !== 'StudentView' && (
               <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
                 <div className="text-center mb-4">
                   <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">

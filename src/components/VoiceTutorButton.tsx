@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { voiceAITutor } from '../services/geminiService';
 import { Mic, MicOff, X, Volume2 } from 'lucide-react';
+import MathRenderer from '../lib/MathRenderer';
 
 // ── Avatar Thầy Hậu 3D ──
 const THAY_HAU_AVATAR = '/thay-hau-avatar.png';
@@ -73,8 +74,12 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const currentCloudAudioRef = useRef<HTMLAudioElement | null>(null);
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloudAudioCanceledRef = useRef<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<string>('');
+  const didUnlockAudioRef = useRef<boolean>(false);
+
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // ── Dispatch aivoice-active custom event ──
@@ -132,6 +137,24 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     }
     cloudAudioCanceledRef.current = true;
 
+    // Mobile Audio Unlock
+    if (!didUnlockAudioRef.current && typeof window !== 'undefined') {
+        if (globalAudioRef.current) {
+            globalAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+            const p = globalAudioRef.current.play();
+            if (p !== undefined) {
+                 p.then(() => globalAudioRef.current?.pause()).catch(() => {});
+            }
+        }
+        if ('speechSynthesis' in window) {
+            const unlockUtterance = new SpeechSynthesisUtterance('');
+            unlockUtterance.volume = 0;
+            window.speechSynthesis.speak(unlockUtterance);
+            window.speechSynthesis.cancel();
+        }
+        didUnlockAudioRef.current = true;
+    }
+
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = 'vi-VN';
     recognition.interimResults = true;
@@ -141,6 +164,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     recognition.onstart = () => {
       setPhase('listening');
       setTranscript('');
+      transcriptRef.current = '';
       setErrorMsg('');
       dispatchVoiceEvent(true);
     };
@@ -157,12 +181,13 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
         }
       }
       setTranscript(finalText || interimText);
+      transcriptRef.current = finalText || interimText;
     };
 
     recognition.onend = () => {
       // Only process if we have transcript and were in listening mode
       if (phase === 'listening' || recognitionRef.current) {
-        const currentTranscript = transcript;
+        const currentTranscript = transcriptRef.current;
         if (currentTranscript.trim()) {
           processWithAI(currentTranscript.trim());
         } else {
@@ -207,6 +232,188 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   }, []);
 
   // ══════════════════════════════════════════
+  //  TEXT-TO-SPEECH — Cloud-first strategy
+  //  (Google Translate TTS endpoint is reliable
+  //   across all devices including mobile)
+  // ══════════════════════════════════════════
+
+  /**
+   * Split text into sentences ≤ 180 chars each 
+   * (Google TTS endpoint limit is ~200 chars)
+   */
+  const splitIntoChunks = useCallback((text: string): string[] => {
+    // First split by sentence boundaries
+    const rawSentences = text.split(/(?<=[.!?。])\s+/).filter(s => s.trim());
+    const chunks: string[] = [];
+
+    for (const sentence of rawSentences) {
+      if (sentence.length <= 180) {
+        chunks.push(sentence);
+      } else {
+        // Split long sentences by comma/semicolon
+        const parts = sentence.split(/(?<=[,;:])\s+/);
+        let current = '';
+        for (const part of parts) {
+          if ((current + ' ' + part).trim().length > 180 && current) {
+            chunks.push(current.trim());
+            current = part;
+          } else {
+            current = current ? current + ' ' + part : part;
+          }
+        }
+        if (current.trim()) chunks.push(current.trim());
+      }
+    }
+
+    return chunks.length > 0 ? chunks : [text.substring(0, 180)];
+  }, []);
+
+  /**
+   * Cloud TTS (primary) — fetches audio from Google Translate TTS
+   * Uses blob preloading to avoid autoplay policy issues
+   */
+  const speakWithCloudTTS = useCallback(async (text: string) => {
+    cloudAudioCanceledRef.current = false;
+    const chunks = splitIntoChunks(text);
+    
+    setPhase('speaking');
+    dispatchVoiceEvent(true);
+
+    const getAudioUrl = (sentence: string) => 
+      `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encodeURIComponent(sentence.trim())}`;
+
+    // Preload all chunks as blobs first (avoids CORS/autoplay issues on mobile)
+    const preloadAudio = async (sentence: string): Promise<string | null> => {
+      try {
+        const response = await fetch(getAudioUrl(sentence));
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (e) {
+        console.error('[VoiceTutor] Preload failed:', e);
+        return null;
+      }
+    };
+
+    // Preload first chunk immediately
+    let nextBlobPromise = preloadAudio(chunks[0]);
+
+    for (let i = 0; i < chunks.length; i++) {
+      if (cloudAudioCanceledRef.current) break;
+
+      const blobUrl = await nextBlobPromise;
+      
+      // Start preloading next chunk while current plays
+      if (i + 1 < chunks.length) {
+        nextBlobPromise = preloadAudio(chunks[i + 1]);
+      }
+
+      if (cloudAudioCanceledRef.current) {
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        break;
+      }
+
+      // Play the audio, with a hard timeout fallback
+      const urlToPlay = blobUrl || getAudioUrl(chunks[i]);
+      
+      await new Promise<void>((resolve) => {
+        const audio = globalAudioRef.current;
+        if (!audio) {
+          resolve();
+          return;
+        }
+
+        audio.src = urlToPlay;
+        audio.volume = 1.0;
+        currentCloudAudioRef.current = audio;
+
+        // Watchdog: if audio hasn't started in 5s, skip
+        const watchdog = setTimeout(() => {
+          console.warn('[VoiceTutor] Audio watchdog triggered — skipping chunk');
+          cleanup();
+        }, 5000);
+
+        const cleanup = () => {
+          clearTimeout(watchdog);
+          if (blobUrl) URL.revokeObjectURL(blobUrl);
+          currentCloudAudioRef.current = null;
+          resolve();
+        };
+
+        audio.onended = cleanup;
+        audio.onerror = (e) => {
+          console.error('[VoiceTutor] Audio error:', e);
+          cleanup();
+        };
+
+        audio.play().catch(e => {
+          console.error('[VoiceTutor] Cloud TTS play blocked:', e);
+          cleanup();
+        });
+      });
+    }
+
+    if (!cloudAudioCanceledRef.current) {
+      setPhase('idle');
+      dispatchVoiceEvent(false);
+      currentCloudAudioRef.current = null;
+    }
+  }, [dispatchVoiceEvent, splitIntoChunks]);
+
+  /**
+   * Native TTS fallback — only used if Cloud TTS completely fails
+   */
+  const speakWithNativeTTS = useCallback((text: string) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'vi-VN';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    const viVoices = availableVoices.filter(v => v.lang.startsWith('vi'));
+    if (viVoices.length > 0) {
+      let bestVoice = viVoices.find(v => 
+        v.name.includes('Natural') || v.name.includes('Online') || 
+        v.name.includes('Google') || v.name.includes('HoaiMy')
+      );
+      if (!bestVoice) bestVoice = viVoices[0];
+      utterance.voice = bestVoice;
+    }
+
+    utterance.onstart = () => setPhase('speaking');
+    utterance.onend = () => { setPhase('idle'); dispatchVoiceEvent(false); };
+    utterance.onerror = () => { setPhase('idle'); dispatchVoiceEvent(false); };
+
+    synthRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }, [dispatchVoiceEvent, availableVoices]);
+
+  // ══════════════════════════════════════════
+  //  SPEAK RESPONSE — Entry point
+  //  Strategy: Cloud-first, native fallback
+  // ══════════════════════════════════════════
+  const speakResponse = useCallback((text: string) => {
+    window.speechSynthesis?.cancel();
+    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
+    cloudAudioCanceledRef.current = true;
+
+    const cleanText = sanitizeForSpeech(text);
+    
+    // Always try Cloud TTS first — more reliable on mobile/cross-platform
+    cloudAudioCanceledRef.current = false;
+    speakWithCloudTTS(cleanText).catch((err) => {
+      console.warn('[VoiceTutor] Cloud TTS failed, trying native:', err);
+      // Fallback to native if cloud fails entirely
+      if (isSynthSupported) {
+        speakWithNativeTTS(cleanText);
+      } else {
+        setPhase('idle');
+        dispatchVoiceEvent(false);
+      }
+    });
+  }, [speakWithCloudTTS, speakWithNativeTTS, isSynthSupported, dispatchVoiceEvent]);
+
+  // ══════════════════════════════════════════
   //  PROCESS WITH AI (Gemini Flash)
   // ══════════════════════════════════════════
   const processWithAI = useCallback(async (studentText: string) => {
@@ -223,142 +430,15 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       setAiResponse(response);
       setChatHistory(prev => [...prev, { role: 'ai', text: response }]);
 
-      // ── Text-to-Speech ──
-      if (isSynthSupported) {
-        speakResponse(response);
-      } else {
-        setPhase('idle');
-        dispatchVoiceEvent(false);
-      }
+      // ── Text-to-Speech (Cloud-first, always attempt) ──
+      speakResponse(response);
     } catch (error) {
       console.error('[VoiceTutor] AI Error:', error);
       setErrorMsg('AI đang gặp sự cố. Em thử lại sau nhé!');
       setPhase('error');
       dispatchVoiceEvent(false);
     }
-  }, [questionContent, detailedSolution, isSynthSupported, dispatchVoiceEvent]);
-
-  // ══════════════════════════════════════════
-  //  TEXT-TO-SPEECH (CLOUD FALLBACK)
-  // ══════════════════════════════════════════
-  const speakWithCloudFallback = useCallback(async (text: string) => {
-    cloudAudioCanceledRef.current = false;
-    // Tách câu để lách hạn mức 200 ký tự của Endpoint
-    const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
-    if (sentences.length === 0) return;
-    
-    setPhase('speaking');
-    dispatchVoiceEvent(true);
-
-    const getAudioUrl = (sentence: string) => 
-      `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encodeURIComponent(sentence.trim())}`;
-
-    // Helper to preload audio file into a Blob
-    const preloadAudio = async (sentence: string): Promise<string | null> => {
-      try {
-        const response = await fetch(getAudioUrl(sentence));
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      } catch (e) {
-        console.error('[VoiceTutor] Preload failed:', e);
-        return null;
-      }
-    };
-
-    let nextAudioPromise = preloadAudio(sentences[0]);
-
-    for (let i = 0; i < sentences.length; i++) {
-      if (cloudAudioCanceledRef.current) break;
-
-      const audioUrl = await nextAudioPromise;
-      
-      // Khởi chạy preload cho câu tiếp theo trong khi chờ phát câu hiện tại
-      if (i + 1 < sentences.length) {
-        nextAudioPromise = preloadAudio(sentences[i + 1]);
-      }
-
-      if (cloudAudioCanceledRef.current) {
-        if (audioUrl) URL.revokeObjectURL(audioUrl);
-        break;
-      }
-
-      const urlToPlay = audioUrl || getAudioUrl(sentences[i]);
-      
-      await new Promise<void>((resolve) => {
-        const audio = new Audio(urlToPlay);
-        currentCloudAudioRef.current = audio;
-
-        const cleanupAndResolve = () => {
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          currentCloudAudioRef.current = null;
-          resolve();
-        };
-
-        audio.onended = cleanupAndResolve;
-        audio.onerror = cleanupAndResolve;
-        audio.play().catch(e => {
-           console.error('[VoiceTutor] Cloud TTS play blocked:', e);
-           cleanupAndResolve();
-        });
-      });
-    }
-
-    if (!cloudAudioCanceledRef.current) {
-      setPhase('idle');
-      dispatchVoiceEvent(false);
-      currentCloudAudioRef.current = null;
-    }
-  }, [dispatchVoiceEvent]);
-
-  // ══════════════════════════════════════════
-  //  TEXT-TO-SPEECH (NATIVE API)
-  // ══════════════════════════════════════════
-  const speakResponse = useCallback((text: string) => {
-    window.speechSynthesis.cancel(); // Clear queue
-    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
-    cloudAudioCanceledRef.current = true;
-
-    const cleanText = sanitizeForSpeech(text);
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    // Lọc ra tất cả các giọng Tiếng Việt
-    const viVoices = availableVoices.filter(v => v.lang.startsWith('vi'));
-
-    if (viVoices.length === 0) {
-      // LUỒNG DỰ PHÒNG CLOUD (FALLBACK): Chạy giả lập qua Server khi máy bị thiếu gói ngôn ngữ Tiếng Việt cục bộ.
-      speakWithCloudFallback(cleanText);
-      return;
-    }
-
-    // Ưu tiên chọn giọng "Online", "Natural", hoặc "Google" cho tự nhiên (VD: Microsoft HoaiMy Online)
-    let bestVoice = viVoices.find(v => v.name.includes('Natural') || v.name.includes('Online') || v.name.includes('Google') || v.name.includes('HoaiMy'));
-    if (!bestVoice) bestVoice = viVoices[0]; // Fallback lấy giọng VN đầu tiên
-    
-    utterance.voice = bestVoice;
-
-    utterance.onstart = () => {
-      setPhase('speaking');
-    };
-
-    utterance.onend = () => {
-      setPhase('idle');
-      dispatchVoiceEvent(false);
-    };
-
-    utterance.onerror = () => {
-      setPhase('idle');
-      dispatchVoiceEvent(false);
-    };
-
-    synthRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [dispatchVoiceEvent, availableVoices]);
+  }, [questionContent, detailedSolution, speakResponse, dispatchVoiceEvent]);
 
   // ══════════════════════════════════════════
   //  CLOSE / RESET
@@ -388,6 +468,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
   // ── Handle mic button click ──
   const handleMicClick = useCallback(() => {
+    // Note: Audio unlock is now handled in startListening using globalAudioRef
+
     if (phase === 'listening') {
       stopListening();
     } else if (phase === 'idle' || phase === 'error') {
@@ -459,6 +541,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       {/* ═══ Chat Panel (Floating) ═══ */}
       {isOpen && (
         <div className="fixed bottom-16 right-2 left-2 md:bottom-24 md:right-8 md:left-auto md:w-[380px] z-[250] max-h-[45vh] md:max-h-[70vh] bg-slate-950/95 backdrop-blur-xl border border-slate-700/60 rounded-3xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 zoom-in-95 duration-300">
+          <audio ref={globalAudioRef} preload="none" className="hidden" aria-hidden="true" />
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-slate-800/60 bg-gradient-to-r from-violet-950/40 to-cyan-950/40">
             <div className="flex items-center gap-3">
@@ -513,7 +596,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
               <div
                 key={idx}
                 className={cn(
-                  "max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed",
+                  "max-w-[95%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words",
                   msg.role === 'student'
                     ? "ml-auto bg-violet-600/20 border border-violet-500/30 text-violet-100 rounded-br-md"
                     : "mr-auto bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-bl-md"
@@ -525,7 +608,9 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
                     <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-wider">Thầy Hậu AI</span>
                   </div>
                 )}
-                {msg.text}
+                <div className="[&_.katex]:!text-sm [&_.katex-display]:!my-1 [&_p]:mb-0">
+                  <MathRenderer content={msg.text} />
+                </div>
               </div>
             ))}
 

@@ -24,7 +24,11 @@ import {
   X,
   Database,
   Send,
-  GraduationCap
+  GraduationCap,
+  Rocket,
+  Eye,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
@@ -32,10 +36,10 @@ import { UserProfile } from '../types';
 // ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD'; // Admin tabs
+  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD'] as const;
+export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -61,6 +65,20 @@ export const Sidebar = ({
   setIsMobileOpen: (v: boolean) => void;
 }) => {
 
+  const [isLightMode, setIsLightMode] = React.useState(() => {
+    return localStorage.getItem('phy9-theme') === 'light';
+  });
+
+  useEffect(() => {
+    if (isLightMode) {
+      document.documentElement.classList.add('theme-light');
+      localStorage.setItem('phy9-theme', 'light');
+    } else {
+      document.documentElement.classList.remove('theme-light');
+      localStorage.setItem('phy9-theme', 'dark');
+    }
+  }, [isLightMode]);
+
   // Lock body scroll when mobile drawer is open
   useEffect(() => {
     if (isMobileOpen) {
@@ -81,6 +99,7 @@ export const Sidebar = ({
   ];
 
   const adminMenu = [
+    { id: 'StudentView' as SidebarTab, label: 'Góc Nhìn HS', icon: Eye },
     { id: 'Digitize' as SidebarTab, label: 'Số Hoá AI', icon: CheckCircle2 },
     { id: 'Bank' as SidebarTab, label: 'Kho Câu Hỏi', icon: BookOpen },
     { id: 'Matrix' as SidebarTab, label: 'Ma Trận Đề', icon: Target },
@@ -215,8 +234,16 @@ export const Sidebar = ({
         )}
       </div>
 
-      {/* ── Footer: Sound Toggle ── */}
-      <div className="p-4 border-t border-slate-800/50">
+      {/* ── Footer: Toggles ── */}
+      <div className="p-4 border-t border-slate-800/50 space-y-2">
+        <button
+          onClick={() => setIsLightMode(!isLightMode)}
+          title="Bật/Tắt Giao diện Sáng"
+          className="w-full flex items-center p-3 rounded-2xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer active:scale-95 touch-target"
+        >
+          {isLightMode ? <Moon size={20} className={cn("shrink-0 text-cyan-400", (isCollapsed && window.innerWidth >= 768) ? "mx-auto" : "")} /> : <Sun size={20} className={cn("shrink-0 text-yellow-400", (isCollapsed && window.innerWidth >= 768) ? "mx-auto" : "")} />}
+          {(!isCollapsed || window.innerWidth < 768) && <span className="ml-3 text-sm font-semibold whitespace-nowrap">{isLightMode ? 'Chế độ Tối' : 'Chế độ Sáng'}</span>}
+        </button>
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
           title="Bật/Tắt Âm thanh"

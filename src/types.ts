@@ -138,6 +138,7 @@ export interface ExamMatrix {
 export interface Exam {
   id?: string;
   title: string;
+  targetGrade?: number;
   questions: Question[];
   createdAt: any;
   createdBy: string;
