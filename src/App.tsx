@@ -23,6 +23,7 @@ import { diagnoseUserExam } from './services/geminiService';
 
 import { getCurrentRank, calculateTestRewards } from './services/RankSystem';
 import { useDashboardStats } from './hooks/useDashboardStats';
+import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
 import { jsPDF } from 'jspdf';
 
@@ -757,6 +758,7 @@ export default function App() {
     let totalScore = 0;
     const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
     const newFailedQuestionIds = new Set(user.failedQuestionIds || []);
+    const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
 
     for (const q of activeTest.questions) {
       const studentAns = answers[q.id];
@@ -784,6 +786,7 @@ export default function App() {
       }
       
       if (q.id) {
+        sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
         if (!isCorrect) { newFailedQuestionIds.add(q.id); }
         else { newFailedQuestionIds.delete(q.id); }
       }
@@ -883,6 +886,9 @@ export default function App() {
 
       await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
       setUser(updatedUser);
+
+      // ── Chạy ngầm Thuật toán Siêu trí nhớ SM-2 bằng Batch Write ──
+      syncMemoryLogs(user.uid, sm2Evaluations).catch(e => console.error("SM2 Sync failed", e));
 
       setSubmissionResult({ score: totalScore, earnedXP, show: true });
       setResults(attempt);

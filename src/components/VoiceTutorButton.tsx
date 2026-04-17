@@ -17,6 +17,32 @@ const THAY_HAU_AVATAR = '/thay-hau-avatar.png';
 // 5. CustomEvent 'aivoice-active' — Phối hợp tạm dừng BackgroundMusic
 // ============================================================
 
+// NÂNG CẤP BỘ LỌC VĂN BẢN (Text Sanitizer)
+const sanitizeForSpeech = (text: string) => {
+  // Loại bỏ hoàn toàn các ký tự Markdown (**, *, #)
+  let clean = text.replace(/[*_#`]/g, '');
+  
+  // Chuyển đổi các công thức LaTeX cơ bản thành chữ tiếng Việt dễ đọc
+  clean = clean.replace(/\$\$?(.*?)\$\$?/g, (_, formula) => {
+    return formula
+      .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1 chia $2')
+      .replace(/\\sqrt\{([^}]+)\}/g, 'căn $1')
+      .replace(/\\Delta/g, 'delta')
+      .replace(/\\omega/g, 'omega')
+      .replace(/\\vec\{([^}]+)\}/g, 'vectơ $1')
+      .replace(/=/g, ' bằng ')
+      .replace(/\+/g, ' cộng ')
+      .replace(/-/g, ' trừ ')
+      .replace(/\*/g, ' nhân ')
+      .replace(/\//g, ' chia ');
+  });
+
+  // Xóa bỏ các ký hiệu gốc nếu còn sót
+  clean = clean.replace(/\\frac/g, '').replace(/\\sqrt/g, 'căn').replace(/\$|\\/g, '');
+
+  return clean.replace(/\s+/g, ' ').trim();
+};
+
 interface VoiceTutorButtonProps {
   questionContent: string;
   detailedSolution?: string | null;
@@ -24,6 +50,7 @@ interface VoiceTutorButtonProps {
 }
 
 type TutorPhase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+
 
 // ── Detect Speech Recognition API ──
 const SpeechRecognitionAPI =
@@ -45,6 +72,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const currentCloudAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cloudAudioCanceledRef = useRef<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -69,6 +98,10 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     return () => {
       recognitionRef.current?.abort?.();
       window.speechSynthesis?.cancel();
+      if (currentCloudAudioRef.current) {
+        currentCloudAudioRef.current.pause();
+      }
+      cloudAudioCanceledRef.current = true;
       dispatchVoiceEvent(false);
     };
   }, [dispatchVoiceEvent]);
@@ -94,6 +127,10 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
     // Cancel any ongoing speech
     window.speechSynthesis?.cancel();
+    if (currentCloudAudioRef.current) {
+      currentCloudAudioRef.current.pause();
+    }
+    cloudAudioCanceledRef.current = true;
 
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = 'vi-VN';
@@ -205,31 +242,73 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   //  TEXT-TO-SPEECH (CLOUD FALLBACK)
   // ══════════════════════════════════════════
   const speakWithCloudFallback = useCallback(async (text: string) => {
+    cloudAudioCanceledRef.current = false;
     // Tách câu để lách hạn mức 200 ký tự của Endpoint
-    const sentences = text.split(/(?<=[.!?])\s+/);
+    const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+    if (sentences.length === 0) return;
     
     setPhase('speaking');
     dispatchVoiceEvent(true);
 
-    for (const item of sentences) {
-      if (!item.trim()) continue;
-      const encoded = encodeURIComponent(item.trim());
-      // Endpoint không chính thức dùng chống cháy (0 đồng)
-      const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encoded}`;
+    const getAudioUrl = (sentence: string) => 
+      `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encodeURIComponent(sentence.trim())}`;
+
+    // Helper to preload audio file into a Blob
+    const preloadAudio = async (sentence: string): Promise<string | null> => {
+      try {
+        const response = await fetch(getAudioUrl(sentence));
+        if (!response.ok) return null;
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (e) {
+        console.error('[VoiceTutor] Preload failed:', e);
+        return null;
+      }
+    };
+
+    let nextAudioPromise = preloadAudio(sentences[0]);
+
+    for (let i = 0; i < sentences.length; i++) {
+      if (cloudAudioCanceledRef.current) break;
+
+      const audioUrl = await nextAudioPromise;
+      
+      // Khởi chạy preload cho câu tiếp theo trong khi chờ phát câu hiện tại
+      if (i + 1 < sentences.length) {
+        nextAudioPromise = preloadAudio(sentences[i + 1]);
+      }
+
+      if (cloudAudioCanceledRef.current) {
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        break;
+      }
+
+      const urlToPlay = audioUrl || getAudioUrl(sentences[i]);
       
       await new Promise<void>((resolve) => {
-        const audio = new Audio(url);
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve(); // Skip nếu bị lỗi mạng
+        const audio = new Audio(urlToPlay);
+        currentCloudAudioRef.current = audio;
+
+        const cleanupAndResolve = () => {
+          if (audioUrl) URL.revokeObjectURL(audioUrl);
+          currentCloudAudioRef.current = null;
+          resolve();
+        };
+
+        audio.onended = cleanupAndResolve;
+        audio.onerror = cleanupAndResolve;
         audio.play().catch(e => {
            console.error('[VoiceTutor] Cloud TTS play blocked:', e);
-           resolve();
+           cleanupAndResolve();
         });
       });
     }
 
-    setPhase('idle');
-    dispatchVoiceEvent(false);
+    if (!cloudAudioCanceledRef.current) {
+      setPhase('idle');
+      dispatchVoiceEvent(false);
+      currentCloudAudioRef.current = null;
+    }
   }, [dispatchVoiceEvent]);
 
   // ══════════════════════════════════════════
@@ -237,23 +316,10 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   // ══════════════════════════════════════════
   const speakResponse = useCallback((text: string) => {
     window.speechSynthesis.cancel(); // Clear queue
+    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
+    cloudAudioCanceledRef.current = true;
 
-    // Clean LaTeX for TTS: $P = UI$ → "P bằng UI"
-    const cleanText = text
-      .replace(/\$([^$]+)\$/g, (_, formula) => {
-        return formula
-          .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1 chia $2')
-          .replace(/\\Delta/g, 'delta')
-          .replace(/\\omega/g, 'omega')
-          .replace(/\\vec\{([^}]+)\}/g, 'vectơ $1')
-          .replace(/\\sqrt\{([^}]+)\}/g, 'căn $1')
-          .replace(/=/g, ' bằng ')
-          .replace(/\+/g, ' cộng ')
-          .replace(/-/g, ' trừ ')
-          .replace(/\*/g, ' nhân ')
-          .replace(/\//g, ' chia ');
-      })
-      .replace(/[*_#`]/g, ''); // Strip any remaining markdown
+    const cleanText = sanitizeForSpeech(text);
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = 'vi-VN';
@@ -300,6 +366,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const handleClose = useCallback(() => {
     recognitionRef.current?.abort?.();
     window.speechSynthesis?.cancel();
+    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
+    cloudAudioCanceledRef.current = true;
     dispatchVoiceEvent(false);
     setPhase('idle');
     setTranscript('');
@@ -326,6 +394,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       startListening();
     } else if (phase === 'speaking') {
       window.speechSynthesis?.cancel();
+      if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
+      cloudAudioCanceledRef.current = true;
       setPhase('idle');
       dispatchVoiceEvent(false);
     }

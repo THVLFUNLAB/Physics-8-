@@ -15,6 +15,7 @@ import {
   CheckCircle2, Trophy, AlertTriangle, Users, XCircle, Info
 } from 'lucide-react';
 import { VoiceTutorButton } from './VoiceTutorButton';
+import { syncMemoryLogs } from '../utils/spacedRepetition';
 
 // ── Device fingerprint (simple but effective) ──
 const getDeviceId = (): string => {
@@ -362,12 +363,15 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       // ── Score calculation (same logic as App.tsx) ──
       let totalScore = 0;
       const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
+      const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
 
       for (const q of questions) {
         const studentAns = currentAnswers[q.id || ''];
-        
+        let isCorrect = false;
+
         if (q.part === 1) {
-          if (studentAns === q.correctAnswer) totalScore += 0.25;
+          isCorrect = studentAns === q.correctAnswer;
+          if (isCorrect) totalScore += 0.25;
         } else if (q.part === 2) {
           let correctCount = 0;
           for (let i = 0; i < 4; i++) {
@@ -375,14 +379,19 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
               correctCount++;
             }
           }
-          if (correctCount === 4) totalScore += 1.0;
+          if (correctCount === 4) { isCorrect = true; totalScore += 1.0; }
           else if (correctCount === 3) totalScore += 0.5;
           else if (correctCount === 2) totalScore += 0.25;
           else if (correctCount === 1) totalScore += 0.1;
         } else if (q.part === 3) {
           const sv = normalizeDecimal(studentAns);
           const cv = normalizeDecimal(q.correctAnswer);
-          if (!isNaN(sv) && Math.abs(sv - cv) < 0.01) totalScore += 0.25;
+          isCorrect = !isNaN(sv) && Math.abs(sv - cv) < 0.01;
+          if (isCorrect) totalScore += 0.25;
+        }
+        
+        if (q.id) {
+          sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
         }
       }
 
@@ -396,6 +405,9 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
           status: 'submitted',
           submittedAt: Timestamp.now(),
         });
+        
+        // ── Kích hoạt thuật toán Siêu Trí Nhớ ──
+        syncMemoryLogs(user.uid, sm2Evaluations).catch(console.error);
       }
 
       setFinalScore(totalScore);

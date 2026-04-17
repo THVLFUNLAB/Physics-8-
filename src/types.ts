@@ -196,6 +196,19 @@ export interface ReportedQuestion {
   resolvedAt?: any;
 }
 
+// ═══ Spaced Repetition (SM-2) ═══
+
+export interface MemoryLog {
+  id?: string;
+  questionId: string;
+  interval: number;            // Khoảng thời gian ôn lại (tính bằng ngày)
+  easeFactor: number;          // Hệ số trơn tru của não bộ (mặc định 2.5)
+  nextReviewDate: any;         // Timestamp thời điểm cần ôn lại
+  consecutiveCorrect: number;  // Số lần trả lời đúng liên tiếp
+  lastReviewed: any;           // Timestamp lần review gần nhất
+  topic?: string;              // Lưu topic để dễ filter
+}
+
 // ═══ Module 4: Phòng Thi Tập Trung (Live Class Exam) ═══
 
 export interface ClassRoom {

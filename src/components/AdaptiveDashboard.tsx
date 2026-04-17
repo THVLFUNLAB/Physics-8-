@@ -133,59 +133,86 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts })
     setGeneratedPrescription(null);
 
     try {
-      // 1. Get weak topics
-      const weakTopics = redZones.map(rz => rz.topic);
-      const failedIds = new Set(user.failedQuestionIds || []);
-
-      // 2. Collect question IDs that this student already answered correctly
-      const correctQuestionIds = new Set<string>();
-      for (const attempt of attempts) {
-        const errorKeys = new Set(Object.keys(attempt.analysis?.errorTracking || {}));
-        for (const [qId] of Object.entries(attempt.answers || {})) {
-          if (!errorKeys.has(qId)) {
-            correctQuestionIds.add(qId);
-          }
-        }
+      // 1. Fetch SM-2 questions due for review
+      const dueSnap = await getDocs(
+        query(
+          collection(db, `users/${user.uid}/memoryLogs`),
+          where('nextReviewDate', '<=', Timestamp.now())
+        )
+      );
+      
+      let dueQuestionIds = dueSnap.docs.map(d => d.data().questionId);
+      dueQuestionIds = dueQuestionIds.sort(() => Math.random() - 0.5);
+      
+      let selectedFailedIds = dueQuestionIds.slice(0, 7);
+      
+      // Fallback: Nếu không đủ 7 câu từ SM-2, bù bằng failedQuestionIds cũ (Legacy)
+      if (selectedFailedIds.length < 7) {
+        const legacyFailedIds = new Set(user.failedQuestionIds || []);
+        dueQuestionIds.forEach(id => legacyFailedIds.delete(id));
+        const legacyArray = Array.from(legacyFailedIds).sort(() => Math.random() - 0.5);
+        const needed = 7 - selectedFailedIds.length;
+        selectedFailedIds = [...selectedFailedIds, ...legacyArray.slice(0, needed)];
       }
 
-      // 3. Query questions from Firestore by weak topics
+      // 2. Tải chi tiết các câu hỏi cũ
       const failedCandidates: Question[] = [];
-      const newCandidates: Question[] = [];
-      
-      for (const topic of weakTopics) {
-        const qSnap = await getDocs(
-          query(collection(db, 'questions'), where('topic', '==', topic))
-        );
-        qSnap.forEach(d => {
-          const q = { ...d.data(), id: d.id } as Question;
-          if ((q.status || 'draft') === 'draft') return;
-          
-          if (q.id && failedIds.has(q.id)) {
-            failedCandidates.push(q);
-          } else if (!correctQuestionIds.has(q.id || '')) {
-            newCandidates.push(q);
+      if (selectedFailedIds.length > 0) {
+        const failedPromises = selectedFailedIds.map(id => getDoc(doc(db, 'questions', id)));
+        const failedSnaps = await Promise.all(failedPromises);
+        failedSnaps.forEach(d => {
+          if (d.exists()) {
+            const q = d.data() as Question;
+            if ((q.status || 'draft') !== 'draft') {
+              failedCandidates.push({ ...q, id: d.id });
+            }
           }
         });
       }
 
+      // 3. Phân tích vùng yếu & nhặt câu hỏi MỚI TINH (Tối đa 3 câu)
+      const weakTopics = redZones.map(rz => rz.topic);
+      const newCandidates: Question[] = [];
+      const correctQuestionIds = new Set<string>();
+
+      for (const attempt of attempts) {
+        const errorKeys = new Set(Object.keys(attempt.analysis?.errorTracking || {}));
+        for (const [qId] of Object.entries(attempt.answers || {})) {
+          if (!errorKeys.has(qId)) correctQuestionIds.add(qId);
+        }
+      }
+
+      if (weakTopics.length > 0) {
+        for (const topic of weakTopics) {
+          const qSnap = await getDocs(
+            query(collection(db, 'questions'), where('topic', '==', topic))
+          );
+          qSnap.forEach(d => {
+            const q = { ...d.data(), id: d.id } as Question;
+            if ((q.status || 'draft') === 'draft') return;
+            
+            // Bỏ qua nếu đã làm đúng, hoặc đã được chọn vào diện SM-2 (ôn lại)
+            if (!correctQuestionIds.has(q.id || '') && !selectedFailedIds.includes(q.id || '')) {
+              newCandidates.push(q);
+            }
+          });
+        }
+      }
+
       if (failedCandidates.length === 0 && newCandidates.length === 0) {
-        toast.error('Không tìm thấy câu hỏi mới cho vùng yếu. Hãy đợi thầy bổ sung đề.');
+        toast.error('Không tìm thấy câu hỏi cho vùng yếu hoặc đến hạn SM-2.');
         setIsGenerating(false);
         return;
       }
 
-      // 4. Thuật toán 70-30 (Lấy tối đa 7 câu sai, bù 3 câu mới hoặc cho đến khi đủ 10 câu)
-      const shuffledFailed = failedCandidates.sort(() => Math.random() - 0.5);
+      // 4. Trộn thuật toán 70-30 sinh đơn thuốc
+      // failedCandidates đã được chặn max 7 từ đầu
       const shuffledNew = newCandidates.sort(() => Math.random() - 0.5);
-      
-      const targetFailedCount = Math.min(7, shuffledFailed.length);
-      const selectedFailed = shuffledFailed.slice(0, targetFailedCount);
-      
-      const remainingSlots = 10 - selectedFailed.length;
+      const remainingSlots = 10 - failedCandidates.length;
       const selectedNew = shuffledNew.slice(0, remainingSlots);
       
-      const combined = [...selectedFailed, ...selectedNew];
-      const selected = combined.sort(() => Math.random() - 0.5); // Trộn đều vị trí để tránh HS đoán được câu nào là câu quen
+      const combined = [...failedCandidates, ...selectedNew];
+      const selected = combined.sort(() => Math.random() - 0.5); // Trộn đều vị trí
 
       // 5. Create a new Exam document
       const examTitle = `🩺 Đơn thuốc: ${weakTopics.join(' + ')} — ${new Date().toLocaleDateString('vi-VN')}`;
