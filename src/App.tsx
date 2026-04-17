@@ -1404,8 +1404,22 @@ export default function App() {
               </div>
             )}
 
+            {/* ══════ STUDENT VIEW SIMULATOR (Khối 10, 11, 12) ══════ */}
+            {activeView === 'StudentView' && (
+              <div className="w-full h-full">
+                <LazyWrap>
+                  <StudentViewSimulator 
+                    user={user} 
+                    attempts={attempts} 
+                    onStartPrescription={(topic, examId) => startTest(topic, examId)} 
+                    onStartExam={(exam) => startTest(exam.title, exam.id)} 
+                  />
+                </LazyWrap>
+              </div>
+            )}
+
             {/* ══════ ADMIN SECTION ══════ */}
-            {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView) && activeView !== 'StudentView' && (
+            {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView as any) && activeView !== 'StudentView' && (
               <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
                 <div className="text-center mb-4">
                   <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
