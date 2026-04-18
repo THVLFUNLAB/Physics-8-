@@ -15,9 +15,9 @@ export const UpgradeModal = ({ onClose }: { onClose: () => void }) => {
           <Target className="w-10 h-10 text-white" />
         </div>
 
-        <h2 className="text-2xl font-black text-white mb-2">Đã hết lượt làm bài!</h2>
+        <h2 className="text-2xl font-black text-white mb-2">Cạn năng lượng!</h2>
         <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-          Bạn đã sử dụng hết lượt làm bài của tài khoản Miễn phí. Hãy nâng cấp lên hạng <strong className="text-amber-400">VIP</strong> để mở khóa đặc quyền vô cực (Unlimited) và truy cập toàn bộ kho đề thi, lộ trình chuyên sâu!
+          Bạn đã sử dụng hết 30 lượt dùng thử. Để tiếp tục hành trình chinh phục điểm 10, hãy nâng cấp gói <strong className="text-amber-400">VIP</strong> ngay!
         </p>
 
         {/* Feature list */}
@@ -37,7 +37,7 @@ export const UpgradeModal = ({ onClose }: { onClose: () => void }) => {
           className="w-full relative group overflow-hidden bg-white text-slate-900 font-black rounded-xl p-4 flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all duration-300"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-200/50 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-          Nâng cấp VIP qua Zalo ngay <ChevronRight className="w-5 h-5" />
+          Liên hệ Thầy Hậu nâng cấp gói VIP <ChevronRight className="w-5 h-5" />
         </a>
 
         <button 

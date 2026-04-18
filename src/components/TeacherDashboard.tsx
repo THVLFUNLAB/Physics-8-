@@ -24,9 +24,11 @@ import {
   onSnapshot,
   orderBy,
   Timestamp,
+  limit,
 } from '../firebase';
 import { UserProfile, Exam, Attempt, Question } from '../types';
 import { ReviewExam } from './ReviewExam';
+import AdminStudentProfile from './AdminStudentProfile';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { SkeletonText, SkeletonNumber } from './SkeletonLoader';
@@ -42,6 +44,7 @@ import {
   ChevronUp,
   TrendingUp,
   GraduationCap,
+  Eye,
 } from 'lucide-react';
 
 // ═══════════════════════════════════════════════════════════
@@ -157,6 +160,7 @@ const TeacherDashboard: React.FC = () => {
   const [sortBy, setSortBy] = useState<'name' | 'progress' | 'score'>('name');
   const [sortAsc, setSortAsc] = useState(true);
   const [reviewingData, setReviewingData] = useState<{ test: { topic: string, questions: Question[] }, answers: Record<string, any> } | null>(null);
+  const [selectedStudentProfile, setSelectedStudentProfile] = useState<UserProfile | null>(null);
 
   // ═══════════════════════════════════════════════════════════
   //  DATA FETCHING (tối ưu: 3 queries total)
@@ -178,7 +182,7 @@ const TeacherDashboard: React.FC = () => {
     return unsub;
   }, []);
 
-  // 2. Exams + Attempts — one-time fetch
+  // 2. Exams + Attempts realtime list
   useEffect(() => {
     let mounted = true;
 
@@ -190,13 +194,8 @@ const TeacherDashboard: React.FC = () => {
         );
         const examData = examSnap.docs.map(d => ({ id: d.id, ...d.data() } as Exam));
 
-        // Lấy tất cả attempts (1 query duy nhất)
-        const attemptSnap = await getDocs(collection(db, 'attempts'));
-        const attemptData = attemptSnap.docs.map(d => ({ id: d.id, ...d.data() } as Attempt));
-
         if (mounted) {
           setExams(examData);
-          setAttempts(attemptData);
           setIsLoading(false);
         }
       } catch (err) {
@@ -206,12 +205,33 @@ const TeacherDashboard: React.FC = () => {
     };
 
     fetchData();
-    return () => { mounted = false; };
+
+    // Lắng nghe realtime 1000 lượt làm mới nhất để render God Mode
+    const unsubAttempts = onSnapshot(
+      query(collection(db, 'attempts'), orderBy('timestamp', 'desc'), limit(1000)),
+      (snap) => {
+        if (mounted) {
+          const attemptData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Attempt));
+          setAttempts(attemptData);
+        }
+      },
+      (err) => {
+        console.error('[TeacherDashboard] Attempts listener error:', err);
+      }
+    );
+
+    return () => { 
+      mounted = false; 
+      unsubAttempts();
+    };
   }, []);
 
   // ═══════════════════════════════════════════════════════════
-  //  COMPUTED DATA
-  // ═══════════════════════════════════════════════════════════
+
+  const selectedStudentAttempts = useMemo(() => {
+    if (!selectedStudentProfile) return [];
+    return attempts.filter(a => a.userId === selectedStudentProfile.uid);
+  }, [selectedStudentProfile, attempts]);
 
   // Danh sách lớp unique (trích từ className)
   const classGroups = useMemo(() => {
@@ -650,6 +670,16 @@ const TeacherDashboard: React.FC = () => {
                               {row.student.className || '—'}
                             </p>
                           </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedStudentProfile(row.student);
+                            }}
+                            className="ml-auto text-slate-400 hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+                            title="Hồ sơ chi tiết (God Mode)"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                       {/* Progress Bar */}
@@ -734,6 +764,46 @@ const TeacherDashboard: React.FC = () => {
           onBack={() => setReviewingData(null)}
         />
       )}
+
+      {/* ══════ MODAL CHI TIẾT HỌC SINH (GOD MODE) ══════ */}
+      <AnimatePresence>
+        {selectedStudentProfile && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+              onClick={() => setSelectedStudentProfile(null)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+              animate={{ opacity: 1, scale: 1, y: 0 }} 
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-7xl h-full max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-800/50">
+                <h3 className="text-xl font-black text-white flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-indigo-400" />
+                  Hồ sơ học sinh: {selectedStudentProfile.displayName}
+                </h3>
+                <button 
+                  onClick={() => setSelectedStudentProfile(null)}
+                  className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+                <AdaptiveDashboard 
+                   user={selectedStudentProfile} 
+                   attempts={selectedStudentAttempts} 
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

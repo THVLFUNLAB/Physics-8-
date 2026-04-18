@@ -122,24 +122,33 @@ export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartE
         ) : null}
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 z-10">
-            <Target className={cn("w-4 h-4", user.tier === 'vip' || user.isUnlimited ? "text-amber-500" : "text-blue-500")} />
-            Lượt Làm Bài (API)
+            <Target className={cn("w-4 h-4", user.tier === 'vip' || user.isUnlimited ? "text-amber-500" : "text-slate-300")} />
+            Lượt dùng thử
             {user.tier === 'vip' || user.isUnlimited ? (
                <span className="ml-2 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest">VIP</span>
             ) : null}
           </h3>
-          <span className={cn("text-xs font-black z-10", user.tier === 'vip' || user.isUnlimited ? "text-amber-500 text-lg" : "text-blue-500")}>
-            {user.tier === 'vip' || user.isUnlimited ? '∞' : `${user.usedAttempts || 0} / ${user.maxAttempts || 30}`}
+          <span className={cn(
+             "text-xs font-black z-10", 
+             user.tier === 'vip' || user.isUnlimited ? "text-amber-500 text-lg" : 
+             (user.usedAttempts || 0) > 25 ? "text-red-500" : 
+             (user.usedAttempts || 0) >= 20 ? "text-amber-500" : 
+             "text-emerald-500"
+          )}>
+            {user.tier === 'vip' || user.isUnlimited ? '∞' : `${user.usedAttempts || 0} / 30`}
           </span>
         </div>
         <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: user.tier === 'vip' || user.isUnlimited ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / (user.maxAttempts || 30)) * 100)}%` }}
+            animate={{ width: user.tier === 'vip' || user.isUnlimited ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / 30) * 100)}%` }}
             transition={{ duration: 1.5, ease: 'easeOut' }}
             className={cn(
-               "h-full rounded-full bg-gradient-to-r relative",
-               user.tier === 'vip' || user.isUnlimited ? "from-amber-500 via-yellow-400 to-amber-300" : "from-blue-600 via-blue-500 to-cyan-400"
+               "h-full rounded-full relative",
+               user.tier === 'vip' || user.isUnlimited ? "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300" : 
+               (user.usedAttempts || 0) > 25 ? "bg-gradient-to-r from-red-600 via-red-500 to-rose-400" : 
+               (user.usedAttempts || 0) >= 20 ? "bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-400" : 
+               "bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400"
             )}
           >
             {user.tier === 'vip' || user.isUnlimited ? (

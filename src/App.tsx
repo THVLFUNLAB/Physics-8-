@@ -573,11 +573,7 @@ export default function App() {
     // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
     try {
       const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
-      await startExamAttempt(user.uid, isAdmin);
-      // Sync local state ngay lập tức để giao diện không bị giật lag
-      if (!isAdmin && user.tier !== 'vip' && !user.isUnlimited) {
-        setUser({ ...user, usedAttempts: (user.usedAttempts || 0) + 1 });
-      }
+      await startExamAttempt(user.uid, examId || topic, isAdmin);
     } catch (err: any) {
       if (err.message === "EXCEEDED_LIMIT") {
         setShowUpgradeModal(true);
@@ -612,7 +608,12 @@ export default function App() {
         const examDoc = await getDoc(doc(db, 'exams', examId));
         if (examDoc.exists()) {
           const examData = examDoc.data() as Exam;
-          setActiveTest({ topic: examData.questions[0].topic, questions: examData.questions, examId: examDoc.id });
+          if (!examData.questions || examData.questions.length === 0) {
+            toast.error("Đề thi này hiện chưa có câu hỏi nào. Bạn vui lòng chọn đề khác.");
+            setLoading(false);
+            return;
+          }
+          setActiveTest({ topic: examData.questions[0]?.topic || examData.title || topic, questions: examData.questions, examId: examDoc.id });
           setCurrentQuestionIndex(0);
           setAnswers({});
           setResults(null);
