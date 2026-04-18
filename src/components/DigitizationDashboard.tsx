@@ -845,6 +845,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         createdBy: auth.currentUser?.uid || 'admin',
         type: 'Digitized',
         sourceFile: pendingSourceFile,
+        published: false
       });
 
       // 3. Atomic commit

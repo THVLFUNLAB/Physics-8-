@@ -613,7 +613,16 @@ export default function App() {
             setLoading(false);
             return;
           }
-          setActiveTest({ topic: examData.questions[0]?.topic || examData.title || topic, questions: examData.questions, examId: examDoc.id });
+          
+          const publishedQuestions = examData.questions.filter(q => (q.status || 'published') === 'published');
+          
+          if (publishedQuestions.length === 0) {
+            toast.error("Đề thi này chưa có câu hỏi nào được duyệt. Bạn vui lòng chọn đề khác.");
+            setLoading(false);
+            return;
+          }
+
+          setActiveTest({ topic: publishedQuestions[0]?.topic || examData.title || topic, questions: publishedQuestions, examId: examDoc.id });
           setCurrentQuestionIndex(0);
           setAnswers({});
           setResults(null);
