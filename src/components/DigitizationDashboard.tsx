@@ -679,7 +679,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
             const cleanQ = sanitizeQuestion({
               ...q,
               targetGrade: Number(selectedGrade),
-              status: "published",
+              status: "draft",
               clusterId: clusterDoc.id,
               tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
             });
@@ -715,7 +715,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
           const clean = sanitizeQuestion({
             ...q,
             targetGrade: Number(selectedGrade),
-            status: "published",
+            status: "draft",
             tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
           });
           clean.createdAt = batchTimestamp;
@@ -818,7 +818,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
         const clean = sanitizeQuestion({
           ...q,
           targetGrade: Number(selectedGrade),
-          status: "published",
+          status: "draft",
         });
         clean.createdAt = Timestamp.now();
         if (alsoSaveToBank) {
