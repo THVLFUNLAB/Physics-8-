@@ -72,6 +72,7 @@ const SimulationViewer = lazy(() => import('./components/SimulationLab').then(m 
 const AICampaignManager = lazy(() => import('./components/AICampaignManager'));
 const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
 const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
+const AIChatLogsDashboard = lazy(() => import('./components/AIChatLogsDashboard'));
 
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
@@ -106,8 +107,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -1526,6 +1527,7 @@ export default function App() {
                       { id: 'Tracking', label: 'Theo dõi HS', icon: BarChart3 },
                       { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
                       { id: 'YCCD', label: 'YCCĐ', icon: Target },
+                      { id: 'AIChats', label: 'Log Chat AI', icon: BrainCircuit },
                     ].map(tab => (
                       <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
                         <tab.icon className="w-4 h-4" />
@@ -1552,6 +1554,7 @@ export default function App() {
                     {adminTab === 'Campaign' && <AICampaignManager />}
                     {adminTab === 'YCCD' && <YCCDAutoTagger />}
                     {adminTab === 'Migration' && <DatabaseMigrationTool />}
+                    {adminTab === 'AIChats' && <AIChatLogsDashboard />}
                   </LazyWrap>
                 </motion.div>
               </section>

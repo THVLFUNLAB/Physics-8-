@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import {
   db, collection, doc, getDocs, getDocsFromServer, deleteDoc, updateDoc,
-  Timestamp, writeBatch, query, where, addDoc
+  Timestamp, writeBatch, query, where, addDoc, serverTimestamp, orderBy
 } from '../firebase';
 import { Question, Topic, Part } from '../types';
 import { PHYSICS_TOPICS, matchesTopic } from '../utils/physicsTopics';
@@ -81,8 +81,8 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
   const fetchQuestions = async () => {
     setLoading(true);
     try {
-      console.info('[fetchQuestions] 🔄 Đang truy vấn Firestore (không orderBy)...');
-      const qRef = query(collection(db, 'questions'));
+      console.info('[fetchQuestions] 🔄 Đang truy vấn Firestore...');
+      const qRef = query(collection(db, 'questions'), orderBy("publishedAt", "desc"));
       const snapshot = await getDocsFromServer(qRef);
       console.info(`[fetchQuestions] 📊 Firestore trả về: ${snapshot.size} documents`);
       
@@ -166,14 +166,11 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
         return (now - ts) <= cutoff;
       });
     }
-    // Full-text search
+    // Full-text search (Client-side)
     if (searchQuery.trim()) {
-      const needle = normalizeText(searchQuery);
+      const needle = searchQuery.toLowerCase();
       result = result.filter(q => {
-        const haystack = normalizeText(
-          [q.content, q.explanation, ...(q.tags || []), q.topic, q.level].join(' ')
-        );
-        return haystack.includes(needle);
+        return (q.content && q.content.toLowerCase().includes(needle));
       });
     }
     // Mặc định luôn sắp xếp mới nhất lên đầu (cho cả old docs chưa có createdAt)
@@ -303,8 +300,13 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     try {
       const newStatus = (q.status || 'draft') === 'published' ? 'draft' : 'published';
       
+      const payload: any = { status: newStatus };
+      if (newStatus === 'published') {
+        payload.publishedAt = serverTimestamp();
+      }
+
       // Cách 1: Chờ hoàn thành mới báo UI
-      await withTimeout(updateDoc(doc(db, 'questions', q.id), { status: newStatus }), 8000);
+      await withTimeout(updateDoc(doc(db, 'questions', q.id), payload), 8000);
       
       setQuestions(prev => prev.map(item => item.id === q.id ? { ...item, status: newStatus } : item));
       toast.success(newStatus === 'published' ? 'Đã duyệt câu hỏi vào thư viện' : 'Đã chuyển thành bản nháp');
@@ -545,24 +547,8 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
           {/* ── CỘT TRÁI: SIDEBAR FILTER THEO BỘ GDPT ── */}
           <div className="w-full xl:w-80 shrink-0 space-y-4">
             
-            {/* THANH TÌM KIẾM */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm nội dung, chủ đề, tag..."
-                className="w-full bg-slate-800/80 border-2 border-slate-700 hover:border-slate-600 focus:border-red-600/60 rounded-2xl pl-11 pr-11 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-500 hover:text-white hover:bg-slate-700 rounded-lg transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+            {/* THANH TÌM KIẾM ĐÃ CHUYỂN QUA CỘT PHẢI THEO YÊU CẦU */}
+            <div className="hidden">
             </div>
 
             {/* TREE VIEW BỘ GDPT */}
@@ -790,6 +776,16 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
             </div>
 
             {/* ── Danh sách câu hỏi ── */}
+            <div className="relative mb-4">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm nhanh nội dung câu hỏi..."
+                className="w-full bg-slate-800/80 border-2 border-slate-700 hover:border-slate-600 focus:border-cyan-500/60 rounded-2xl pl-11 pr-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none transition-all shadow-lg"
+              />
+            </div>
             {loading ? (
               <div className="py-20 text-center animate-pulse text-slate-500">Đang tải kho dữ liệu...</div>
             ) : (

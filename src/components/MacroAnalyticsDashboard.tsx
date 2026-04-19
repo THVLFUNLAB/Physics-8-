@@ -120,7 +120,7 @@ export const MacroAnalyticsDashboard: React.FC<{ examId: string; isAdmin?: boole
       ${top5Contents}`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt
       });
 

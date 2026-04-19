@@ -33,13 +33,12 @@ import {
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
 
-// ── Tất cả tab IDs hợp lệ trong hệ thống ──
 export type SidebarTab = 
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD'; // Admin tabs
+  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD' | 'AIChats'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD'] as const;
+export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD', 'AIChats'] as const;
 
 export const Sidebar = ({ 
   user, 
@@ -114,6 +113,7 @@ export const Sidebar = ({
     { id: 'Tracking' as SidebarTab, label: 'Theo Dõi Tiến Độ', icon: BarChart3 },
     { id: 'Campaign' as SidebarTab, label: 'Tâm Thư AI', icon: Send },
     { id: 'YCCD' as SidebarTab, label: 'Phân loại YCCĐ', icon: GraduationCap },
+    { id: 'AIChats' as SidebarTab, label: 'Log Chat AI', icon: BrainCircuit },
     { id: 'Migration' as SidebarTab, label: 'Chuyển Đổi Dữ Liệu', icon: Database },
   ];
 

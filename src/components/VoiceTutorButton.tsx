@@ -3,6 +3,8 @@ import { cn } from '../lib/utils';
 import { voiceAITutor } from '../services/geminiService';
 import { Mic, MicOff, X, Volume2, Send } from 'lucide-react';
 import MathRenderer from '../lib/MathRenderer';
+import { auth, db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // ── Avatar Thầy Hậu 3D ──
 const THAY_HAU_AVATAR = '/thay-hau-avatar.png';
@@ -80,8 +82,21 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<string>('');
   const didUnlockAudioRef = useRef<boolean>(false);
+  const cloudAudioCtxRef = useRef<AudioContext | null>(null);
+  const cloudSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  const stopCloudAudio = useCallback(() => {
+    cloudAudioCanceledRef.current = true;
+    if (cloudAudioCtxRef.current) {
+      cloudSourcesRef.current.forEach(s => { try { s.stop(); } catch(e){} });
+      cloudSourcesRef.current = [];
+    }
+    if (currentCloudAudioRef.current) {
+      currentCloudAudioRef.current.pause();
+    }
+  }, []);
 
   // ── Dispatch aivoice-active custom event ──
   const dispatchVoiceEvent = useCallback((active: boolean) => {
@@ -104,10 +119,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     return () => {
       recognitionRef.current?.abort?.();
       window.speechSynthesis?.cancel();
-      if (currentCloudAudioRef.current) {
-        currentCloudAudioRef.current.pause();
-      }
-      cloudAudioCanceledRef.current = true;
+      stopCloudAudio();
       dispatchVoiceEvent(false);
     };
   }, [dispatchVoiceEvent]);
@@ -133,10 +145,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
     // Cancel any ongoing speech
     window.speechSynthesis?.cancel();
-    if (currentCloudAudioRef.current) {
-      currentCloudAudioRef.current.pause();
-    }
-    cloudAudioCanceledRef.current = true;
+    stopCloudAudio();
 
     // Mobile Audio Unlock
     if (!didUnlockAudioRef.current && typeof window !== 'undefined') {
@@ -271,95 +280,80 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
   /**
    * Cloud TTS (primary) — fetches audio from Google Translate TTS
-   * Uses blob preloading to avoid autoplay policy issues
+   * Uses Web Audio API for GAPLESS seamless playback across chunks!
    */
   const speakWithCloudTTS = useCallback(async (text: string) => {
+    stopCloudAudio();
     cloudAudioCanceledRef.current = false;
     const chunks = splitIntoChunks(text);
     
     setPhase('speaking');
     dispatchVoiceEvent(true);
 
+    if (!cloudAudioCtxRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+          cloudAudioCtxRef.current = new AudioContextClass();
+      }
+    }
+    const audioCtx = cloudAudioCtxRef.current;
+    
+    if (!audioCtx) {
+        throw new Error("Trình duyệt không hỗ trợ Web Audio API, thử dùng HTMLAudio");
+    }
+
+    if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+    }
+
     const getAudioUrl = (sentence: string) => 
       `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encodeURIComponent(sentence.trim())}`;
 
-    // Preload all chunks as blobs first (avoids CORS/autoplay issues on mobile)
-    const preloadAudio = async (sentence: string): Promise<string | null> => {
-      try {
-        const response = await fetch(getAudioUrl(sentence));
-        if (!response.ok) return null;
-        const blob = await response.blob();
-        return URL.createObjectURL(blob);
-      } catch (e) {
-        console.error('[VoiceTutor] Preload failed:', e);
-        return null;
-      }
-    };
-
-    // Preload first chunk immediately
-    let nextBlobPromise = preloadAudio(chunks[0]);
+    let nextStartTime = audioCtx.currentTime + 0.1; // Chừa tí thời gian khởi tạo
+    let hasPlayedAny = false;
 
     for (let i = 0; i < chunks.length; i++) {
       if (cloudAudioCanceledRef.current) break;
 
-      const blobUrl = await nextBlobPromise;
-      
-      // Start preloading next chunk while current plays
-      if (i + 1 < chunks.length) {
-        nextBlobPromise = preloadAudio(chunks[i + 1]);
-      }
+      try {
+        const response = await fetch(getAudioUrl(chunks[i]));
+        if (!response.ok) throw new Error("Network error");
+        const arrayBuffer = await response.arrayBuffer();
+        
+        if (cloudAudioCanceledRef.current) break;
 
-      if (cloudAudioCanceledRef.current) {
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
-        break;
-      }
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        
+        if (cloudAudioCanceledRef.current) break;
 
-      // Play the audio, with a hard timeout fallback
-      const urlToPlay = blobUrl || getAudioUrl(chunks[i]);
-      
-      await new Promise<void>((resolve) => {
-        const audio = globalAudioRef.current;
-        if (!audio) {
-          resolve();
-          return;
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioCtx.destination);
+
+        const startTime = Math.max(audioCtx.currentTime, nextStartTime);
+        source.start(startTime);
+        cloudSourcesRef.current.push(source);
+        hasPlayedAny = true;
+
+        nextStartTime = startTime + audioBuffer.duration;
+
+        if (i === chunks.length - 1) {
+          source.onended = () => {
+             if (!cloudAudioCanceledRef.current) {
+                setPhase('idle');
+                dispatchVoiceEvent(false);
+             }
+          };
         }
-
-        audio.src = urlToPlay;
-        audio.volume = 1.0;
-        currentCloudAudioRef.current = audio;
-
-        // Watchdog: if audio hasn't started in 5s, skip
-        const watchdog = setTimeout(() => {
-          console.warn('[VoiceTutor] Audio watchdog triggered — skipping chunk');
-          cleanup();
-        }, 5000);
-
-        const cleanup = () => {
-          clearTimeout(watchdog);
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
-          currentCloudAudioRef.current = null;
-          resolve();
-        };
-
-        audio.onended = cleanup;
-        audio.onerror = (e) => {
-          console.error('[VoiceTutor] Audio error:', e);
-          cleanup();
-        };
-
-        audio.play().catch(e => {
-          console.error('[VoiceTutor] Cloud TTS play blocked:', e);
-          cleanup();
-        });
-      });
+      } catch (err) {
+         console.warn("[VoiceTutor] Failed block chunk:", err);
+      }
     }
 
-    if (!cloudAudioCanceledRef.current) {
-      setPhase('idle');
-      dispatchVoiceEvent(false);
-      currentCloudAudioRef.current = null;
+    if (!hasPlayedAny && !cloudAudioCanceledRef.current) {
+       throw new Error("Không play được WebAudio nào.");
     }
-  }, [dispatchVoiceEvent, splitIntoChunks]);
+  }, [dispatchVoiceEvent, splitIntoChunks, stopCloudAudio]);
 
   /**
    * Native TTS fallback — only used if Cloud TTS completely fails
@@ -395,8 +389,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   // ══════════════════════════════════════════
   const speakResponse = useCallback((text: string) => {
     window.speechSynthesis?.cancel();
-    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
-    cloudAudioCanceledRef.current = true;
+    stopCloudAudio();
 
     const cleanText = sanitizeForSpeech(text);
     
@@ -412,7 +405,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
         dispatchVoiceEvent(false);
       }
     });
-  }, [speakWithCloudTTS, speakWithNativeTTS, isSynthSupported, dispatchVoiceEvent]);
+  }, [speakWithCloudTTS, speakWithNativeTTS, isSynthSupported, dispatchVoiceEvent, stopCloudAudio]);
 
   // ══════════════════════════════════════════
   //  PROCESS WITH AI (Gemini Flash)
@@ -431,15 +424,33 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       setAiResponse(response);
       setChatHistory(prev => [...prev, { role: 'ai', text: response }]);
 
-      // ── Text-to-Speech (Cloud-first, always attempt) ──
-      speakResponse(response);
+      // ── Ghi log lên Firestore cho Admin theo dõi ──
+      try {
+        const user = auth.currentUser;
+        if (user) {
+          addDoc(collection(db, 'ai_chat_logs'), {
+            studentId: user.uid,
+            studentName: user.displayName || user.email || 'Ẩn danh',
+            questionContent: questionContent,
+            studentChat: studentText,
+            aiResponse: response,
+            timestamp: serverTimestamp()
+          });
+        }
+      } catch (logErr) {
+        console.error('[VoiceTutor] Bỏ qua lỗi ghi log:', logErr);
+      }
+
+      // ── Muted Audio (Text-Only Mode) ──
+      setPhase('idle');
+      dispatchVoiceEvent(false);
     } catch (error) {
       console.error('[VoiceTutor] AI Error:', error);
       setErrorMsg('AI đang gặp sự cố. Em thử lại sau nhé!');
       setPhase('error');
       dispatchVoiceEvent(false);
     }
-  }, [questionContent, detailedSolution, speakResponse, dispatchVoiceEvent]);
+  }, [questionContent, detailedSolution, dispatchVoiceEvent]);
 
   // ══════════════════════════════════════════
   //  CLOSE / RESET
@@ -447,15 +458,14 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const handleClose = useCallback(() => {
     recognitionRef.current?.abort?.();
     window.speechSynthesis?.cancel();
-    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
-    cloudAudioCanceledRef.current = true;
+    stopCloudAudio();
     dispatchVoiceEvent(false);
     setPhase('idle');
     setTranscript('');
     setAiResponse('');
     setErrorMsg('');
     setIsOpen(false);
-  }, [dispatchVoiceEvent]);
+  }, [dispatchVoiceEvent, stopCloudAudio]);
 
   // ── Handle toggle of main button ──
   const handleToggle = useCallback(() => {
@@ -477,12 +487,11 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       startListening();
     } else if (phase === 'speaking') {
       window.speechSynthesis?.cancel();
-      if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
-      cloudAudioCanceledRef.current = true;
+      stopCloudAudio();
       setPhase('idle');
       dispatchVoiceEvent(false);
     }
-  }, [phase, startListening, stopListening, dispatchVoiceEvent]);
+  }, [phase, startListening, stopListening, dispatchVoiceEvent, stopCloudAudio]);
 
   // ── Handle text submit ──
   const handleTextSubmit = useCallback((e?: React.FormEvent) => {
@@ -491,8 +500,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     
     // Stop any ongoing voice operations
     window.speechSynthesis?.cancel();
-    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
-    cloudAudioCanceledRef.current = true;
+    stopCloudAudio();
     recognitionRef.current?.stop?.();
 
     processWithAI(inputText.trim());
