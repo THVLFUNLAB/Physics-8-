@@ -92,7 +92,7 @@ export const Sidebar = ({
   const studentMenu = [
     { id: 'dashboard' as SidebarTab, label: 'Bảng Điều Khiển', icon: Home },
     { id: 'tasks' as SidebarTab, label: 'Nhiệm Vụ', icon: Target },
-    { id: 'history' as SidebarTab, label: 'Lịch Sử Nháp', icon: History },
+    { id: 'history' as SidebarTab, label: 'Lịch Sử Làm Bài', icon: History },
     { id: 'liveExam' as SidebarTab, label: 'Phòng Thi', icon: Radio },
     { id: 'adaptive' as SidebarTab, label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
     { id: 'simulations' as SidebarTab, label: 'Phòng Thí Nghiệm', icon: Beaker },

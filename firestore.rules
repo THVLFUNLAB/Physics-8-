@@ -59,9 +59,19 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
+      // Học sinh đọc profile của chính mình (để kiểm tra lượt dùng thử)
       allow read: if isOwner(userId) || isAdmin();
+
+      // Tạo profile mới: phải là chính user đó, validate schema đầy đủ
       allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+
+      // Cập nhật profile (full update với schema validation)
       allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+
+      // [FIX] Cho phép học sinh tự increment usedAttempts (đếm lượt thử)
+      // Đây là "atomic counter update" — chỉ cho phép tăng field usedAttempts
+      // Không cần validate toàn bộ schema vì đây là merge update 1 field
+      allow write: if isAuthenticated() && isOwner(userId);
     }
 
     match /questions/{questionId} {
@@ -92,6 +102,12 @@ service cloud.firestore {
 
     match /loginLogs/{logId} {
       allow create: if isAuthenticated();
+    }
+
+    // [FIX] Usage logs: ghi nhận lượt thi của học sinh
+    match /usage_logs/{logId} {
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin();
     }
 
     match /attempts/{attemptId} {

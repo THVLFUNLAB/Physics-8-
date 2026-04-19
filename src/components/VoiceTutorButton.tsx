@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { voiceAITutor } from '../services/geminiService';
-import { Mic, MicOff, X, Volume2 } from 'lucide-react';
+import { Mic, MicOff, X, Volume2, Send } from 'lucide-react';
 import MathRenderer from '../lib/MathRenderer';
 
 // ── Avatar Thầy Hậu 3D ──
@@ -70,6 +70,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const [aiResponse, setAiResponse] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'student' | 'ai'; text: string }[]>([]);
+  const [inputText, setInputText] = useState('');
 
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -483,6 +484,21 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     }
   }, [phase, startListening, stopListening, dispatchVoiceEvent]);
 
+  // ── Handle text submit ──
+  const handleTextSubmit = useCallback((e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!inputText.trim()) return;
+    
+    // Stop any ongoing voice operations
+    window.speechSynthesis?.cancel();
+    if (currentCloudAudioRef.current) currentCloudAudioRef.current.pause();
+    cloudAudioCanceledRef.current = true;
+    recognitionRef.current?.stop?.();
+
+    processWithAI(inputText.trim());
+    setInputText('');
+  }, [inputText, processWithAI]);
+
   // ══════════════════════════════════════════
   //  RENDER
   // ══════════════════════════════════════════
@@ -646,42 +662,39 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
           {/* ═══ Bottom Action Bar ═══ */}
           <div className="border-t border-slate-800/60 p-4 bg-slate-950/80">
-            <div className="flex items-center justify-center gap-4">
-              {/* Audio Visualizer (visible when listening) */}
-              {phase === 'listening' && (
-                <div className="flex items-end gap-[3px] h-8 mr-2">
-                  {[
-                    { anim: 'voiceBar1', dur: '0.8s', del: '0s' },
-                    { anim: 'voiceBar2', dur: '0.6s', del: '0.1s' },
-                    { anim: 'voiceBar3', dur: '0.9s', del: '0.15s' },
-                    { anim: 'voiceBar4', dur: '0.7s', del: '0.05s' },
-                    { anim: 'voiceBar5', dur: '0.85s', del: '0.2s' },
-                  ].map((bar, i) => (
-                    <div
-                      key={i}
-                      className="w-[4px] bg-green-400 rounded-full"
-                      style={{
-                        animation: `${bar.anim} ${bar.dur} ease-in-out ${bar.del} infinite`,
-                        height: '6px',
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
+            <div className="flex items-center gap-3">
+              {/* Text Input Row */}
+              <form onSubmit={handleTextSubmit} className="flex-1 relative">
+                <input
+                  type="text"
+                  value={inputText}
+                  disabled={phase === 'thinking'}
+                  onChange={(e) => setInputText(e.target.value)}
+                  placeholder="Hỏi thầy bằng chữ..."
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white px-4 py-3 rounded-2xl focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-50 transition-all pr-12"
+                />
+                <button
+                  type="submit"
+                  disabled={!inputText.trim() || phase === 'thinking'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-violet-400 hover:text-violet-300 disabled:opacity-30 transition-colors"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
 
-              {/* Central Action Button — Avatar + Mic overlay */}
+              {/* Central Action Button — Avatar + Mic overlay (Minimized for layout) */}
               <button
                 onClick={handleMicClick}
-                disabled={phase === 'thinking'}
+                title={phase === 'speaking' ? "Dừng Đọc" : "Bật Mic Chấm Hỏi"}
                 className={cn(
-                  "relative w-[72px] h-[72px] rounded-full flex items-center justify-center transition-all duration-300 shadow-xl overflow-hidden",
+                  "relative w-[48px] h-[48px] shrink-0 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl overflow-hidden",
                   phase === 'listening'
-                    ? "ring-4 ring-red-500 shadow-red-600/40 scale-110"
+                    ? "ring-2 ring-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] scale-105"
                     : phase === 'thinking'
-                      ? "ring-4 ring-amber-500/50 cursor-wait opacity-80"
+                      ? "ring-2 ring-amber-500/50 cursor-wait opacity-80"
                       : phase === 'speaking'
-                        ? "ring-4 ring-cyan-500 shadow-cyan-500/30"
-                        : "ring-4 ring-violet-500/50 hover:ring-violet-400 hover:scale-105 active:scale-95 shadow-violet-500/20",
+                        ? "ring-2 ring-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+                        : "ring-2 ring-violet-500/50 hover:ring-violet-400 hover:scale-105 active:scale-95 shadow-violet-500/20",
                 )}
               >
                 {/* Avatar background */}
@@ -689,59 +702,29 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
                 {/* State overlay icon */}
                 <div className={cn(
-                  "absolute bottom-0 right-0 w-6 h-6 rounded-full flex items-center justify-center border-2 border-slate-950",
+                  "absolute bottom-0 right-0 w-4 h-4 rounded-full flex items-center justify-center border border-slate-950",
                   phase === 'listening' ? "bg-red-600" :
                   phase === 'thinking' ? "bg-amber-600 animate-pulse" :
                   phase === 'speaking' ? "bg-cyan-600" :
                   "bg-violet-600"
                 )}>
                   {phase === 'listening' ? (
-                    <MicOff className="w-3 h-3 text-white" />
+                    <MicOff className="w-2.5 h-2.5 text-white" />
                   ) : phase === 'speaking' ? (
-                    <Volume2 className="w-3 h-3 text-white" />
+                    <Volume2 className="w-2.5 h-2.5 text-white" />
                   ) : (
-                    <Mic className="w-3 h-3 text-white" />
+                    <Mic className="w-2.5 h-2.5 text-white" />
                   )}
                 </div>
-
-                {/* Animated ring for listening */}
-                {phase === 'listening' && (
-                  <>
-                    <span className="absolute inset-0 rounded-full border-2 border-red-400 pointer-events-none" style={{ animation: 'voicePulseRing 1.5s ease-out infinite' }} />
-                    <span className="absolute inset-0 rounded-full border-2 border-red-400 pointer-events-none" style={{ animation: 'voicePulseRing 1.5s ease-out 0.5s infinite' }} />
-                  </>
-                )}
               </button>
-
-              {/* Speaker Visualizer (when AI speaking) */}
-              {phase === 'speaking' && (
-                <div className="flex items-end gap-[3px] h-8 ml-2">
-                  {[
-                    { anim: 'voiceBar3', dur: '0.7s', del: '0s' },
-                    { anim: 'voiceBar1', dur: '0.9s', del: '0.1s' },
-                    { anim: 'voiceBar4', dur: '0.6s', del: '0.05s' },
-                    { anim: 'voiceBar2', dur: '0.8s', del: '0.15s' },
-                    { anim: 'voiceBar5', dur: '0.75s', del: '0.08s' },
-                  ].map((bar, i) => (
-                    <div
-                      key={i}
-                      className="w-[4px] bg-cyan-400 rounded-full"
-                      style={{
-                        animation: `${bar.anim} ${bar.dur} ease-in-out ${bar.del} infinite`,
-                        height: '6px',
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
 
-            <p className="text-[10px] text-slate-600 text-center mt-3 font-medium">
-              {phase === 'idle' && 'Nhấn Mic để bắt đầu hỏi'}
-              {phase === 'listening' && 'Nhấn lại để dừng ghi âm'}
-              {phase === 'thinking' && 'Đang xử lý câu hỏi...'}
-              {phase === 'speaking' && 'Nhấn để dừng phát âm'}
-              {phase === 'error' && 'Nhấn Mic để thử lại'}
+            <p className="text-[9px] text-slate-600 text-center mt-3 font-medium flex items-center justify-center gap-1">
+              {phase === 'idle' && 'Gõ chữ hoặc ấn biểu tượng Mic để hỏi'}
+              {phase === 'listening' && <><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> Đang ghi âm (ấn Mic để tắt)</>}
+              {phase === 'thinking' && 'Thầy đang suy nghĩ...'}
+              {phase === 'speaking' && 'Ấn Mic để tắt tiếng thầy giảng'}
+              {phase === 'error' && 'Gõ văn bản nếu Mic bị lỗi'}
             </p>
           </div>
         </div>

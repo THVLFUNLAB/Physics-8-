@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, query, where, onSnapshot, doc, updateDoc, writeBatch } from '../firebase';
+import { db, collection, onSnapshot, doc, updateDoc } from '../firebase';
 import { UserProfile, ClassRoom } from '../types';
 import { toast } from './Toast';
-import { Contact, Search, Save, CheckSquare, Square, Users, BookOpen } from 'lucide-react';
+import { Contact, Search, CheckSquare, Square, Users, Crown, ShieldOff } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { StudentMicroProfiler } from './StudentMicroProfiler';
 
 export const StudentDirectory: React.FC = () => {
@@ -21,9 +21,9 @@ export const StudentDirectory: React.FC = () => {
   const [profilerOpen, setProfilerOpen] = useState(false);
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<UserProfile | null>(null);
 
-  // Fetch students & assistants
+  // ── Real-time listener: Học sinh (live sync từ Firestore) ──
   useEffect(() => {
-    const q = query(collection(db, 'users'));
+    const q = collection(db, 'users');
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
       setStudents(data.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
@@ -31,7 +31,7 @@ export const StudentDirectory: React.FC = () => {
     return unsub;
   }, []);
 
-  // Fetch classes for dropdown
+  // ── Real-time listener: Lớp học ──
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'classes'), (snap) => {
       setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom)));
@@ -78,39 +78,74 @@ export const StudentDirectory: React.FC = () => {
     }
   };
 
+  // ── Bulk: Cấp VIP cho nhiều học sinh ──
   const handleBulkGrantVIP = async () => {
     if (selectedIds.size === 0) return toast.error('Vui lòng chọn ít nhất 1 học sinh');
-    if (!window.confirm(`Xác nhận cấp đặc quyền VIP Vô cực cho ${selectedIds.size} tài khoản này?`)) return;
+    if (!window.confirm(`Xác nhận cấp VIP Vô cực cho ${selectedIds.size} tài khoản?`)) return;
 
     setIsAssigning(true);
-    let successCount = 0;
+    let ok = 0;
     try {
-      // Dùng vòng lặp thay vì writeBatch để xử lý lỗi Quota Limit trực quan hơn
-      const idsArray = Array.from(selectedIds);
-      for (const uid of idsArray) {
-         try {
-            await updateDoc(doc(db, 'users', uid), { 
-              tier: 'vip', 
-              isUnlimited: true,
-              maxAttempts: 150 // Fallback just in case
-            });
-            successCount++;
-         } catch (err: any) {
-            console.error(`Lỗi cấp VIP cho ${uid}:`, err);
-            toast.error(`Lỗi cho 1 tài khoản: ${err?.message || 'Unknown'}`);
-            break; // Dừng lại nếu nghẽn Quota
-         }
+      for (const uid of Array.from(selectedIds)) {
+        try {
+          await updateDoc(doc(db, 'users', uid), { tier: 'vip', isUnlimited: true, maxAttempts: 9999 });
+          ok++;
+        } catch (err: any) {
+          toast.error(`Lỗi cấp VIP: ${err?.message || 'Unknown'}`);
+          break;
+        }
       }
-      
-      if (successCount > 0) {
-        toast.success(`Đã cấp quyền VIP thành công cho ${successCount} học viên!`);
+      if (ok > 0) {
+        toast.success(`✅ Đã cấp VIP cho ${ok} học viên!`);
         setSelectedIds(new Set());
       }
-    } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : 'Lỗi khi cấp quyền VIP');
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  // ── Bulk: Thu hồi VIP (hạ xuống FREE) cho nhiều học sinh ──
+  const handleBulkRevokeVIP = async () => {
+    if (selectedIds.size === 0) return toast.error('Vui lòng chọn ít nhất 1 học sinh');
+    if (!window.confirm(`Xác nhận HẠ XUỐNG FREE cho ${selectedIds.size} tài khoản?`)) return;
+
+    setIsAssigning(true);
+    let ok = 0;
+    try {
+      for (const uid of Array.from(selectedIds)) {
+        try {
+          await updateDoc(doc(db, 'users', uid), { tier: 'free', isUnlimited: false, maxAttempts: 30 });
+          ok++;
+        } catch (err: any) {
+          toast.error(`Lỗi thu hồi VIP: ${err?.message || 'Unknown'}`);
+          break;
+        }
+      }
+      if (ok > 0) {
+        toast.success(`🔄 Đã hạ xuống FREE cho ${ok} học viên!`);
+        setSelectedIds(new Set());
+      }
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  // ── Toggle VIP/FREE cho 1 học sinh trực tiếp (click badge) ──
+  const handleToggleVIP = async (student: UserProfile) => {
+    const isVip = student.tier === 'vip' || student.isUnlimited;
+    const action = isVip ? 'hạ xuống FREE' : 'nâng lên VIP';
+    if (!window.confirm(`Xác nhận ${action} tài khoản: ${student.displayName || student.email}?`)) return;
+
+    try {
+      if (isVip) {
+        await updateDoc(doc(db, 'users', student.uid), { tier: 'free', isUnlimited: false, maxAttempts: 30 });
+        toast.success(`🔄 ${student.displayName} đã hạ xuống FREE`);
+      } else {
+        await updateDoc(doc(db, 'users', student.uid), { tier: 'vip', isUnlimited: true, maxAttempts: 9999 });
+        toast.success(`🌟 ${student.displayName} đã được nâng lên VIP!`);
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi: ${err?.message || 'Unknown'}`);
     }
   };
 
@@ -188,14 +223,26 @@ export const StudentDirectory: React.FC = () => {
             <Users className="w-4 h-4" /> THÊM VÀO LỚP
           </button>
           
-          <div className="w-px h-6 bg-slate-700 mx-1 border-r border-slate-700" />
-          
+          <div className="w-px h-6 bg-slate-700 mx-1" />
+
+          {/* Nâng VIP */}
           <button
             onClick={handleBulkGrantVIP}
             disabled={selectedIds.size === 0 || isAssigning}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 rounded-lg font-black text-xs transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 rounded-lg font-black text-xs transition-all flex items-center gap-2 shadow-lg shadow-amber-500/20"
           >
-            🌟 CẤP QUYỀN VIP
+            <Crown className="w-3.5 h-3.5" />
+            CẤP VIP
+          </button>
+
+          {/* Hạ xuống FREE */}
+          <button
+            onClick={handleBulkRevokeVIP}
+            disabled={selectedIds.size === 0 || isAssigning}
+            className="px-4 py-2 bg-slate-700 hover:bg-red-900/60 border border-slate-600 hover:border-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-300 hover:text-red-300 rounded-lg font-black text-xs transition-all flex items-center gap-2"
+          >
+            <ShieldOff className="w-3.5 h-3.5" />
+            HẠ VIP
           </button>
         </div>
       </div>
@@ -293,15 +340,27 @@ export const StudentDirectory: React.FC = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      {student.tier === 'vip' || student.isUnlimited ? (
-                         <span className="bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2 py-1 rounded text-xs shadow-lg shadow-amber-500/20">
-                           VIP (∞)
-                         </span>
-                      ) : (
-                         <span className="bg-slate-800 text-slate-400 font-bold px-2 py-1 rounded text-xs border border-slate-700">
-                           FREE
-                         </span>
-                      )}
+                      {/* Badge VIP/FREE — Click để toggle ngay, real-time qua onSnapshot */}
+                      <button
+                        onClick={() => handleToggleVIP(student)}
+                        title={student.tier === 'vip' || student.isUnlimited 
+                          ? 'Click để HẠ XUỐNG FREE' 
+                          : 'Click để NÂNG LÊN VIP'}
+                        className="group relative transition-transform hover:scale-110 active:scale-95"
+                      >
+                        {student.tier === 'vip' || student.isUnlimited ? (
+                          <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2.5 py-1 rounded-lg text-xs shadow-lg shadow-amber-500/30 group-hover:shadow-red-500/20 group-hover:from-red-400 group-hover:to-red-600 group-hover:text-white transition-all duration-300">
+                            <Crown className="w-3 h-3" />
+                            VIP
+                            <span className="opacity-0 group-hover:opacity-100 text-[9px] transition-opacity">→ HẠ</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 bg-slate-800 text-slate-400 font-bold px-2.5 py-1 rounded-lg text-xs border border-slate-700 group-hover:border-amber-500/50 group-hover:text-amber-400 group-hover:bg-amber-500/10 transition-all duration-300">
+                            FREE
+                            <span className="opacity-0 group-hover:opacity-100 text-[9px] transition-opacity">→ VIP</span>
+                          </span>
+                        )}
+                      </button>
                     </td>
                     <td className="p-4">
                       <input

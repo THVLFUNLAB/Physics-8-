@@ -1,0 +1,4 @@
+- [x] 1. Cập nhật `VoiceTutorButton.tsx`: Chèn `<input>` cho tính năng Gõ phím.
+- [x] 2. Xử lý Logic `VoiceTutorButton`: Hàm `handleTextSubmit` gửi nội dung lên Gemini AI và ngắt mic (nếu đang bật).
+- [x] 3. Cất ghép Navigation Ngang vào `ProExamExperience.tsx` (Chỉ hiện form Điện thoại: `block lg:hidden`).
+- [x] 4. Gắn Highlight màu sắc phân biệt trạng thái Trống/Đã Làm.

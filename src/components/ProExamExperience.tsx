@@ -194,23 +194,23 @@ export const ProExamExperience = ({
       )}
       
       {/* Exam Header */}
-      <header className="relative z-10 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4 flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <div className={cn("p-2 rounded-xl transition-all", timeLeft < 300 ? "bg-red-600 animate-bounce" : "bg-blue-600")}>
-            <Activity className="text-white w-6 h-6" />
+      <header className="relative z-10 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-2 md:p-4 flex justify-between items-center gap-2">
+        <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+          <div className={cn("p-1.5 md:p-2 rounded-xl transition-all hidden sm:block", timeLeft < 300 ? "bg-red-600 animate-bounce" : "bg-blue-600")}>
+            <Activity className="text-white w-4 h-4 md:w-6 md:h-6" />
           </div>
-          <div>
-            <h2 className={cn("text-lg md:text-xl font-black uppercase tracking-tighter transition-colors", timeLeft < 300 ? "text-red-400" : "text-white")}>PHÒNG THI ZEN MODE</h2>
-            <p className="text-xs md:text-sm text-slate-500 font-bold uppercase">Chủ đề: {test.topic} | {test.questions.length} Câu hỏi</p>
+          <div className="min-w-0">
+            <h2 className={cn("text-[11px] sm:text-base md:text-xl font-black uppercase tracking-tighter transition-colors truncate whitespace-nowrap", timeLeft < 300 ? "text-red-400" : "text-white")}>PHÒNG THI ZEN MODE</h2>
+            <p className="text-[9px] md:text-sm text-slate-500 font-bold uppercase truncate w-full">Chủ đề: {test.topic}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-2 md:gap-6 shrink-0">
           <div className={cn(
-            "flex items-center gap-3 px-6 py-2 rounded-2xl border font-mono text-xl font-black transition-colors",
+            "flex items-center gap-1 md:gap-3 px-2 md:px-6 py-1.5 md:py-2 rounded-lg md:rounded-2xl border font-mono text-[11px] sm:text-sm md:text-xl font-black transition-colors",
             timeLeft < 300 ? "bg-red-600/10 border-red-600 text-red-500 animate-pulse" : "bg-slate-950 border-slate-800 text-white"
           )}>
-            <Clock className="w-5 h-5" />
+            <Clock className="w-3.5 h-3.5 md:w-5 md:h-5" />
             {formatTime(timeLeft)}
           </div>
           
@@ -218,16 +218,36 @@ export const ProExamExperience = ({
             onClick={() => {
               if (confirm("Bạn có chắc chắn muốn nộp bài sớm?")) handleSubmit();
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 md:px-8 py-1.5 md:py-2 rounded-lg md:rounded-2xl font-black text-[9px] md:text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20 whitespace-nowrap"
           >
             Nộp bài
           </button>
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      {/* ═══ MOBILE QUESTION NAVIGATOR ═══ */}
+      <div className="block lg:hidden bg-slate-900/80 border-b border-slate-800 px-3 pt-2 pb-2.5 overflow-x-auto flex items-center gap-1.5 relative z-10 w-full snap-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+        {test.questions.map((q, i) => (
+          <button
+            key={i}
+            onClick={() => setCurrentIndex(i)}
+            className={cn(
+              "w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-[11px] font-black transition-all snap-center",
+              currentIndex === i
+                ? "bg-amber-500 text-black shadow-[0_0_10px_rgba(245,158,11,0.4)] border-2 border-amber-400 font-bold"
+                : q.id in initialAnswers
+                  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 font-bold"
+                  : "bg-slate-950 border border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300"
+            )}
+          >
+            {i + 1}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* Question Navigation */}
-        <aside className="w-80 bg-slate-900/50 border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar hidden lg:block">
+        <aside className="w-80 shrink-0 bg-slate-900/50 border-r border-slate-800 p-6 overflow-y-auto custom-scrollbar hidden lg:block">
           <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6">Danh sách câu hỏi</h4>
           <div className="space-y-1">
             {(() => {

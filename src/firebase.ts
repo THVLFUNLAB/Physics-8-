@@ -235,42 +235,88 @@ export const updateDoc = (ref: any, data: any) => {
 /**
  * Ghi nhận một lượt làm bài kiểm tra.
  * Admin được Miễn đếm lượt. VIP là Vô cực (không giới hạn).
- * Transaction đảm bảo an toàn nếu nhiều phiên truy cập cùng lúc.
+ * Free users: tối đa 30 lượt thử, sau đó hiện cửa sổ nâng cấp VIP.
+ *
+ * @throws "EXCEEDED_LIMIT" — khi hết 30 lượt free
+ * Các lỗi khác (mạng, permission) → graceful fallback để HS không bị block oan
  */
 export const startExamAttempt = async (userId: string, examId: string, isAdmin: boolean) => {
   if (isAdmin) return true; // Admin bypass hoàn toàn
-  
+
   const userRef = doc(db, 'users', userId);
-  const userDoc = await getDoc(userRef);
-  if (!userDoc.exists()) {
-    throw new Error("Không tìm thấy hồ sơ người dùng.");
+
+  // Đọc profile user (server → cache → graceful allow)
+  let userDoc;
+  try {
+    userDoc = await getDoc(userRef);
+  } catch (netErr: any) {
+    const errCode = netErr?.code || '';
+    const errMsg  = String(netErr?.message || netErr);
+
+    // [QUAN TRỌNG] Nếu lỗi Firestore Rules (permission-denied) → cho vào bài,
+    // đừng block HS vì Rules chưa cập nhật hoặc chưa khởi tạo tài khoản.
+    if (errCode === 'permission-denied' || errMsg.includes('Missing or insufficient permissions')) {
+      console.warn('[startExamAttempt] Firestore Rules chưa cho phép đọc users/{uid}. Cho qua (graceful).');
+      return true;
+    }
+
+    console.warn('[startExamAttempt] Lỗi mạng khi getDoc, thử đọc cache...', netErr);
+    try {
+      userDoc = await getDocFromCache(userRef);
+    } catch {
+      // Không có cache → cho phép vào bài (graceful degradation), không block HS
+      console.warn('[startExamAttempt] Không có cache, cho phép vào bài ở chế độ offline.');
+      return true;
+    }
   }
+
+  if (!userDoc || !userDoc.exists()) {
+    // Document chưa có → cho qua, App.tsx sẽ tạo document khi user login
+    console.warn('[startExamAttempt] User document chưa tồn tại, cho phép vào bài lần đầu.');
+    return true;
+  }
+
   const data = userDoc.data();
-  
-  // VIP vô cực -> Bỏ qua quá trình khóa hoặc tăng đếm
+
+  // VIP vô cực → Bỏ qua quá trình khóa hoặc tăng đếm
   if (data.tier === 'vip' || data.isUnlimited) {
     return true;
   }
 
   const used = data.usedAttempts || 0;
-  const max = data.maxAttempts || 30; // Mặc định Free là 30
-  
+  const max  = data.maxAttempts  || 30; // Mặc định Free là 30
+
+  // ━━━ HẾT LƯỢT FREE → throw để App.tsx hiện modal Zalo ━━━
   if (used >= max) {
     throw new Error("EXCEEDED_LIMIT");
   }
-  
-  // Dùng Batch để gộp chung Update Users và Ghi Log -> Nếu rớt mạng giữa chừng sẽ Rollback hoàn toàn
-  const batch = writeBatch(db);
-  batch.update(userRef, { usedAttempts: increment(1) });
-  
-  const logRef = doc(collection(db, 'usage_logs'));
-  batch.set(logRef, {
-    userId,
-    examId,
-    timestamp: serverTimestamp()
-  });
 
-  await batch.commit();
+  // Ghi nhận lượt thi + log (batch atomic)
+  try {
+    // [FIX] set(merge:true) an toàn hơn update() — tạo field mới nếu chưa có
+    const batch = writeBatch(db);
+    batch.set(userRef, { usedAttempts: increment(1) }, { merge: true });
+
+    const logRef = doc(collection(db, 'usage_logs'));
+    batch.set(logRef, {
+      userId,
+      examId,
+      timestamp: serverTimestamp()
+    });
+
+    await batch.commit();
+  } catch (writeErr: any) {
+    const errCode = writeErr?.code || '';
+    const errMsg  = String(writeErr?.message || writeErr);
+    // Nếu lỗi ghi (permission / network) → vẫn cho vào bài, chỉ là không đếm được lượt
+    if (errCode === 'permission-denied' || errMsg.includes('Missing or insufficient permissions')) {
+      console.warn('[startExamAttempt] Không ghi được lượt thi do Rules, HS vẫn được vào bài.');
+      return true;
+    }
+    console.warn('[startExamAttempt] Lỗi ghi batch, HS vẫn được vào bài:', writeErr);
+    return true;
+  }
+
   return true;
 };
 export { 

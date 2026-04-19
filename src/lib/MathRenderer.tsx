@@ -67,7 +67,7 @@ const MathRenderer = ({ content, block }: { content: string, block?: boolean }) 
   );
   
   return (
-    <span className="break-words whitespace-normal min-w-0">
+    <div className="break-words whitespace-normal min-w-0">
       {parts.map((part, i) => {
         if (!part || !part.trim()) return null;
 
@@ -124,7 +124,7 @@ const MathRenderer = ({ content, block }: { content: string, block?: boolean }) 
 
         return <span key={i}>{part}</span>;
       })}
-    </span>
+    </div>
   );
 };
 

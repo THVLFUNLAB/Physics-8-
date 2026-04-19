@@ -24,6 +24,12 @@ import KnowledgeGapGallery from './KnowledgeGapGallery';
 import TeacherMessageModal from './TeacherMessageModal';
 import { toast } from './Toast';
 
+// Render components các khối
+import Grade10Dashboard from './Grade10Dashboard';
+import Grade11Dashboard from './Grade11Dashboard';
+import Grade12Dashboard from './Grade12Dashboard';
+import { GradeLeaderboard } from './GradeLeaderboard';
+
 export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartExam }: { user: UserProfile, attempts: Attempt[], onStartPrescription: (topic: Topic, examId: string) => void, onStartExam: (exam: Exam) => void }) => {
   const studentStats = useStudentStats(user, attempts);
 
@@ -100,20 +106,22 @@ export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartE
         </div>
       </div>
 
-      {/* ── Motivational Area ── */}
-      <div className="flex flex-col items-center justify-center space-y-4 bg-slate-900/80 border border-slate-800 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group mb-8">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-red-600/5 to-transparent pointer-events-none" />
-        <div className="absolute top-6 right-6 z-20">
-          <BackgroundMusic />
-        </div>
-        <CountdownTimer />
-        <MotivationalQuote />
-      </div>
+      {/* ── GIAO DIỆN KHỐI (DYNAMIC ROUTING) ── */}
+      {(() => {
+        const cName = user.className || '';
+        if (cName.startsWith('12L')) return <Grade12Dashboard />;
+        if (cName.startsWith('11L')) return <Grade11Dashboard />;
+        if (cName.startsWith('10L')) return <Grade10Dashboard />;
+        return <Grade12Dashboard />; // Mặc định nếu không rõ
+      })()}
 
       <ExamsList onStartExam={onStartExam} />
 
       {/* ── Rank Card ── */}
       <UserRankCard user={user} />
+
+      {/* ── BẢNG PHONG THẦN (LEADERBOARD THEO KHỐI) ── */}
+      <GradeLeaderboard currentUser={user} />
 
       {/* ── ATTEMPTS PROGRESS BAR (Monetization) ── */}
       <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl relative overflow-hidden">

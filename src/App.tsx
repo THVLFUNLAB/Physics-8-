@@ -43,14 +43,15 @@ import { TopicCard } from './components/TopicCard';
 import { SkeletonNumber } from './components/SkeletonLoader';
 import { ToastProvider, toast } from './components/Toast';
 
-// ── Page-level Components (Core Views) ──
 import { ProExamExperience } from './components/ProExamExperience';
 import StudentDashboard from './components/StudentDashboard';
+import { StudentOnboardingModal } from './components/StudentOnboardingModal';
 import DigitizationDashboard from './components/DigitizationDashboard';
 import QuestionBank from './components/QuestionBank';
 import ExamGenerator from './components/ExamGenerator';
 import { DuplicateReviewHubWrapper } from './components/DuplicateReviewHubWrapper';
 import { ReviewExam } from './components/ReviewExam';
+import { HistoryDashboard } from './components/HistoryDashboard';
 
 // ── Lazy-loaded Admin Modules ──
 const ExamMatrixGenerator = lazy(() => import('./components/ExamMatrixGenerator'));
@@ -189,6 +190,7 @@ export default function App() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [activeSimulation, setActiveSimulation] = useState<{ title: string, description: string, url: string } | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isStartingExam, setIsStartingExam] = useState(false); // [FIX] Guard chống click nhiều lần
 
   // Auto collapse sidebar when reviewing exam or running a test
   useEffect(() => {
@@ -333,6 +335,8 @@ export default function App() {
               lastActive: Timestamp.now(),
               streak: 1,
               lastStreakDate: today,
+              usedAttempts: 0,   // [FIX] Khởi tạo để batch.set(merge:true) hoạt động đúng
+              maxAttempts: 30,   // [FIX] Mặc định 30 lượt free
               learningPath: {
                 completedTopics: [],
                 topicProgress: {},
@@ -569,6 +573,9 @@ export default function App() {
   // ═══ START TEST ═══
   const startTest = async (topic: Topic, examId?: string) => {
     if (!user) { toast.error("Vui lòng đăng nhập để bắt đầu bài thi."); return; }
+    // [FIX] Guard chống click nhiều lần: nếu đang trong quá trình khởi tạo bài thì bỏ qua
+    if (isStartingExam) return;
+    setIsStartingExam(true);
     
     // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
     try {
@@ -576,11 +583,15 @@ export default function App() {
       await startExamAttempt(user.uid, examId || topic, isAdmin);
     } catch (err: any) {
       if (err.message === "EXCEEDED_LIMIT") {
+        // ✅ Đúng flow: hết 30 lượt → hiện modal Zalo liên hệ thầy Hậu
         setShowUpgradeModal(true);
-      } else {
-        toast.error("Lỗi khi kết nối hệ thống. Vui lòng thử lại.");
+        setIsStartingExam(false);
+        return;
       }
-      return; // Bắt buộc chặn ngang không cho load đề
+      // Các lỗi khác (mạng, Firebase quota...) → KHÔNG block HS, chỉ log cảnh báo
+      // firebase.ts đã xử lý permission-denied bằng graceful return true
+      // Nếu vẫn throw tới đây thì đây là lỗi bất thường, vẫn cho vào bài
+      console.warn('[startTest] Lỗi không xác định từ startExamAttempt, cho HS vào bài:', err.message);
     }
     // ---------------------------------
 
@@ -756,6 +767,7 @@ export default function App() {
       console.error(e);
     } finally {
       setLoading(false);
+      setIsStartingExam(false); // [FIX] Luôn reset guard để HS có thể thử lại
     }
   };
 
@@ -965,6 +977,46 @@ export default function App() {
     } catch (e) {
       console.error(e);
       toast.error('Lỗi tạo đề khắc phục tự động');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ═══ REVIEW ATTEMPT FROM HISTORY ═══
+  const handleReviewAttempt = async (attempt: Attempt) => {
+    setLoading(true);
+    try {
+      const qIds = Object.keys(attempt.answers);
+      if (qIds.length === 0) {
+        toast.error("Bài làm này không có câu trả lời nào.");
+        setLoading(false);
+        return;
+      }
+
+      let questions: Question[] = [];
+      // Fetch in chunks of 10
+      for (let i = 0; i < qIds.length; i += 10) {
+        const chunk = qIds.slice(i, i + 10);
+        const qQuery = query(collection(db, 'questions'), where('__name__', 'in', chunk));
+        const snap = await getDocs(qQuery);
+        questions.push(...snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+      }
+
+      if (questions.length === 0) {
+        toast.error("Không thể tải chi tiết câu hỏi (có thể đã bị xóa khỏi hệ thống).");
+        setLoading(false);
+        return;
+      }
+
+      questions.sort((a, b) => a.part - b.part);
+
+      setActiveTest({ topic: attempt.testId, questions });
+      setResults(attempt);
+      setIsReviewing(true);
+      setActiveView('dashboard'); // Chuyển về dashboard để render phần Review
+    } catch (e) {
+      console.error(e);
+      toast.error("Lỗi tải chi tiết bài làm.");
     } finally {
       setLoading(false);
     }
@@ -1297,12 +1349,12 @@ export default function App() {
           <div className="space-y-12 relative z-10">
             <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
               <div className="space-y-1">
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
-                  CHÀO THẦY THUỐC, <span className="text-red-600">{user.displayName.toUpperCase()}</span>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
+                  CHÀO MỪNG ĐẾN VỚI <span className="text-fuchsia-500 text-glow-neon">PHY9+</span>
                 </h2>
                 <p className="text-slate-500 font-medium flex items-center gap-2">
                   <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  Hệ thống đang trực tuyến. Sẵn sàng chẩn đoán kiến thức.
+                  Hệ thống đã kết nối. Chúc các chiến binh có một phiên huấn luyện hiệu quả!
                 </p>
               </div>
               <div className="hidden md:flex items-center gap-4">
@@ -1338,7 +1390,11 @@ export default function App() {
               </LazyWrap>
             )}
 
-            {(activeView === 'dashboard' || (['dashboard', 'tasks', 'history'] as string[]).includes(activeView)) && activeView !== 'liveExam' && activeView !== 'adaptive' && activeView !== 'grade10' && activeView !== 'grade11' && activeView !== 'StudentView' && (
+            {activeView === 'history' && (
+              <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
+            )}
+
+            {(activeView === 'dashboard' || activeView === 'tasks') && activeView !== 'liveExam' && activeView !== 'adaptive' && activeView !== 'grade10' && activeView !== 'grade11' && activeView !== 'StudentView' && activeView !== 'history' && (
               <>
                 <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic, examId)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
                 <section id="diagnosis" className="mt-16">
@@ -1515,6 +1571,10 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* ── MODAL KHAI BÁO BẮT BUỘC KHI ĐĂNG NHẬP LẦN ĐẦU ── */}
+      {user && <StudentOnboardingModal user={user} />}
+
       </div>
     </div>
   );
