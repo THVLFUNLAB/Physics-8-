@@ -82,7 +82,7 @@ const QuestionBank = ({ onCountChanged, onQuestionsLoaded }: { onCountChanged?: 
     setLoading(true);
     try {
       console.info('[fetchQuestions] 🔄 Đang truy vấn Firestore...');
-      const qRef = query(collection(db, 'questions'), orderBy("publishedAt", "desc"));
+      const qRef = collection(db, 'questions');
       const snapshot = await getDocsFromServer(qRef);
       console.info(`[fetchQuestions] 📊 Firestore trả về: ${snapshot.size} documents`);
       
