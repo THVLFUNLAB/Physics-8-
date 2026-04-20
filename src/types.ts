@@ -60,7 +60,8 @@ export interface UserProfile {
   stars?: number;                  // Tổng sao tích lũy (Rank System)
   // ── Monetization ──
   tier?: 'free' | 'vip';           // Hạng tài khoản
-  usedAttempts?: number;           // Số lượt thi đã dùng
+  usedAttempts?: number;           // Số lượt thi đã dùng (chỉ tính FREE, có giới hạn)
+  totalAttempts?: number;          // Tổng số đề đã làm (cả VIP + FREE, không giới hạn — dùng để phân tích)
   maxAttempts?: number;            // Giới hạn lượt thi (Free: 30)
   isUnlimited?: boolean;           // Cờ VIP không giới hạn
   // ── Learning Path ──
@@ -148,6 +149,29 @@ export interface Exam {
   sourceFile?: string;       // Tên file gốc (nếu có)
 }
 
+export interface WeaknessItem {
+  topic: string;             // Chủ đề lớn (ví dụ: "Ng động lực học")
+  subTopic: string;          // Chủ đề nhỏ (ví dụ: "Ba định luật Newton")
+  yccDCode: string;          // Mã YCCĐ GDPT 2018 (ví dụ: "10.DLH.1")
+  weakLevel: 'NB' | 'TH' | 'VD' | 'VDC'; // Cấp độ nhận thức yếu nhất
+  errorType: 'careless' | 'fundamental' | 'skipped'; // Bản chất lỗi
+  wrongCount: number;        // Số câu sai trong topic này
+  correctRate: number;       // % đúng (0-1)
+  remedialCount: number;     // Số câu cần trong đề chữa
+  priority: 'critical' | 'major' | 'minor'; // Mức ưu tiên
+}
+
+export interface WeaknessProfile {
+  grade: number;                         // Khối lớp (10/11/12)
+  overallLevel: 'S' | 'A' | 'B' | 'C'; // Đánh giá tổng quan
+  behavioralNote: string;                // Nhận xét hành vi học tập
+  items: WeaknessItem[];                 // Danh sách điểm yếu
+  strengths: string[];                   // Điểm mạnh (để động viên)
+  actionPlan: string[];                  // 3 việc cần làm ngay
+  remedialMatrix: { topic: string; subTopic: string; levels: string[]; count: number }[];
+  generatedAt?: any;
+}
+
 export interface Attempt {
   id: string;
   userId: string;
@@ -155,6 +179,7 @@ export interface Attempt {
   examId?: string; // Link to Exam if applicable
   answers: Record<string, any>;
   score: number;
+  weaknessProfile?: WeaknessProfile;  // Chẩn đoán năng lực chi tiết (mới)
   analysis?: {
     errorTracking: Record<string, string>;
     feedback: string;

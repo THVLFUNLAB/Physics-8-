@@ -1,7 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Target, Clock, Star, AlertTriangle, BrainCircuit, Play } from 'lucide-react';
+import { Rocket, Target, Clock, Star, AlertTriangle, BrainCircuit, Play, Settings } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { TopicCard } from './TopicCard';
+import { ExamsList } from './ExamsList';
+import { Topic, Exam } from '../types';
 
+// ═══════════════════════════════════════════
+//  Định nghĩa Topics chính thức của Lớp 12
+// ═══════════════════════════════════════════
+const GRADE_12_TOPICS: { topic: Topic; displayName: string; color: string }[] = [
+  { topic: 'Vật lí nhiệt', displayName: 'Chương 1: Vật Lý Nhiệt', color: '#f97316' },
+  { topic: 'Khí lí tưởng', displayName: 'Chương 2: Khí Lý Tưởng', color: '#3b82f6' },
+  { topic: 'Từ trường', displayName: 'Chương 3: Từ Trường', color: '#8b5cf6' },
+  { topic: 'Vật lí hạt nhân', displayName: 'Chương 4: VL Hạt Nhân', color: '#10b981' },
+];
+
+// ═══ Props Interface ═══
+interface Grade12DashboardProps {
+  onStartPrescription?: (topic: Topic, examId: string) => void;
+  onStartExam?: (exam: Exam) => void;
+}
+
+// ═══ Hero Countdown (giữ nguyên 100% logic cũ) ═══
 function HeroCountdown() {
   const calculateTimeLeft = () => {
     // 7h00 sáng ngày 11 tháng 6 năm 2026
@@ -77,6 +97,7 @@ function HeroCountdown() {
   );
 }
 
+// ═══ Radar Chart (giữ nguyên visual) ═══
 const mockData = [
   { subject: 'Vật lí Nhiệt', score: 90, fullMark: 100 },
   { subject: 'Khí Lý Tưởng', score: 85, fullMark: 100 },
@@ -122,6 +143,7 @@ function MasteryRadarChart() {
   );
 }
 
+// ═══ Daily Quest Board (giữ nguyên 100%) ═══
 function DailyQuestBoard() {
   return (
     <div className="flex flex-col gap-4">
@@ -164,10 +186,14 @@ function DailyQuestBoard() {
   );
 }
 
-export default function Grade12Dashboard() {
+// ═══ MAIN COMPONENT ═══
+export default function Grade12Dashboard({ onStartPrescription, onStartExam }: Grade12DashboardProps) {
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in zoom-in duration-500">
+    <div className="space-y-8 animate-in fade-in zoom-in duration-500">
+      {/* ── Hero Countdown (giữ nguyên) ── */}
       <HeroCountdown />
+
+      {/* ── Năng lực + Lệnh triệu tập ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         <div className="space-y-3">
           <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
@@ -184,6 +210,34 @@ export default function Grade12Dashboard() {
           <DailyQuestBoard />
         </div>
       </div>
+
+      {/* ── Bài Tập & Kiểm Tra (Chỉ Lớp 12 — chuyển từ StudentDashboard vào đây) ── */}
+      <div className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 rounded-3xl p-8 relative overflow-hidden shadow-xl">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent opacity-50" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
+        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-cyber">
+          <BrainCircuit className="text-rose-400 w-8 h-8" />
+          Bài Tập & Kiểm Tra — Lớp 12
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {GRADE_12_TOPICS.map(t => (
+            <TopicCard
+              key={t.topic}
+              topic={t.topic}
+              displayName={t.displayName}
+              isLocked={false}
+              onClick={() => onStartPrescription?.(t.topic, '')}
+              color={t.color}
+            />
+          ))}
+          <div className="lg:col-span-4">
+            <TopicCard topic="THPT" displayName="🔴 THI THỬ THPT QG MÔ PHỎNG" isLocked={false} onClick={() => onStartPrescription?.('THPT' as Topic, '')} color="#e11d48" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 12) ── */}
+      {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={12} />}
     </div>
   );
 }

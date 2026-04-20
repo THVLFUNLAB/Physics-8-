@@ -15,11 +15,11 @@ import {
 import { UserRankCard } from './UserRankCard';
 import { BehavioralAnalysisChart } from './charts/BehavioralChart';
 import { BadgeGallery } from './common';
-import { TopicCard } from './TopicCard';
+
 import { CountdownTimer } from './CountdownTimer';
 import { MotivationalQuote } from './MotivationalQuote';
 import { BackgroundMusic } from './BackgroundMusic';
-import { ExamsList } from './ExamsList';
+
 import KnowledgeGapGallery from './KnowledgeGapGallery';
 import TeacherMessageModal from './TeacherMessageModal';
 import { toast } from './Toast';
@@ -106,16 +106,14 @@ export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartE
         </div>
       </div>
 
-      {/* ── GIAO DIỆN KHỐI (DYNAMIC ROUTING) ── */}
+      {/* ── GIAO DIỆN KHỐI (DYNAMIC ROUTING) — Cá nhân hóa 100% ── */}
       {(() => {
         const cName = user.className || '';
-        if (cName.startsWith('12L')) return <Grade12Dashboard />;
-        if (cName.startsWith('11L')) return <Grade11Dashboard />;
-        if (cName.startsWith('10L')) return <Grade10Dashboard />;
-        return <Grade12Dashboard />; // Mặc định nếu không rõ
+        if (cName.startsWith('12L')) return <Grade12Dashboard onStartPrescription={onStartPrescription} onStartExam={onStartExam} />;
+        if (cName.startsWith('11L')) return <Grade11Dashboard onStartPrescription={onStartPrescription} onStartExam={onStartExam} />;
+        if (cName.startsWith('10L')) return <Grade10Dashboard onStartPrescription={onStartPrescription} onStartExam={onStartExam} />;
+        return <Grade12Dashboard onStartPrescription={onStartPrescription} onStartExam={onStartExam} />; // Mặc định nếu không rõ
       })()}
-
-      <ExamsList onStartExam={onStartExam} />
 
       {/* ── Rank Card ── */}
       <UserRankCard user={user} />
@@ -351,23 +349,7 @@ export const StudentDashboard = ({ user, attempts, onStartPrescription, onStartE
         </div>
       </div>
 
-      <div className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 rounded-3xl p-8 mb-8 relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50" />
-        <div className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
-        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-ocean">
-          <BrainCircuit className="text-cyan-400 w-8 h-8" />
-          Bài Tập & Kiểm Tra
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <TopicCard topic="Vật lí nhiệt" displayName="Chương 1: Vật Lý Nhiệt" isLocked={false} onClick={() => onStartPrescription('Vật lí nhiệt', '')} color="#f97316" />
-          <TopicCard topic="Khí lí tưởng" displayName="Chương 2: Khí Lý Tưởng" isLocked={false} onClick={() => onStartPrescription('Khí lí tưởng', '')} color="#3b82f6" />
-          <TopicCard topic="Từ trường" displayName="Chương 3: Từ Trường" isLocked={false} onClick={() => onStartPrescription('Từ trường', '')} color="#8b5cf6" />
-          <TopicCard topic="Vật lí hạt nhân" displayName="Chương 4: VL Hạt Nhân" isLocked={false} onClick={() => onStartPrescription('Vật lí hạt nhân', '')} color="#10b981" />
-          <div className="lg:col-span-4">
-            <TopicCard topic="THPT" displayName="🔴 THI THỬ THPT QG MÔ PHỎNG" isLocked={false} onClick={() => onStartPrescription('THPT', '')} color="#e11d48" />
-          </div>
-        </div>
-      </div>
+      {/* ── Bài Tập & Kiểm Tra: ĐÃ CHUYỂN VÀO TỪNG Grade*Dashboard ── */}
 
       {/* ── Kho Ôn Tập (Knowledge Gap Bucket) ── */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-[2rem] p-8 mb-8 shadow-2xl relative overflow-hidden">

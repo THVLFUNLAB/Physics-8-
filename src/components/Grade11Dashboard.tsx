@@ -1,8 +1,29 @@
-import React from 'react';
-import { Rocket, Target, Clock, Star, AlertTriangle, BrainCircuit, Play } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Rocket, Target, Star, AlertTriangle, BrainCircuit, Play, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { getYCCDByGrade } from '../data/yccdData';
+import { TopicCard } from './TopicCard';
+import { ExamsList } from './ExamsList';
+import { Topic, Exam } from '../types';
 
-function HeroCountdown() {
+// ═══════════════════════════════════════════
+//  Định nghĩa Topics chính thức của Lớp 11
+// ═══════════════════════════════════════════
+const GRADE_11_TOPICS: { topic: Topic; displayName: string; color: string }[] = [
+  { topic: 'Dao động', displayName: 'Chương: Dao Động', color: '#eab308' },
+  { topic: 'Sóng', displayName: 'Chương: Sóng', color: '#f97316' },
+  { topic: 'Trường điện', displayName: 'Chương: Trường Điện', color: '#ec4899' },
+  { topic: 'Dòng điện, mạch điện', displayName: 'Chương: Dòng Điện - Mạch Điện', color: '#8b5cf6' },
+];
+
+// ═══ Props Interface ═══
+interface Grade11DashboardProps {
+  onStartPrescription?: (topic: Topic, examId: string) => void;
+  onStartExam?: (exam: Exam) => void;
+}
+
+// ═══ Hero Banner ═══
+function HeroBanner() {
   return (
     <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 shadow-[0_0_20px_rgba(234,179,8,0.15)] group p-6 sm:p-10">
       <div className="absolute top-0 right-0 -m-8 w-32 h-32 bg-yellow-500/20 blur-3xl rounded-full pointer-events-none group-hover:bg-yellow-500/30 transition duration-700"></div>
@@ -13,20 +34,19 @@ function HeroCountdown() {
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-black uppercase tracking-wider mb-2">
             <Rocket className="w-4 h-4" /> Khối 11 GDPT 2018
           </div>
-          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">TRẠM BỨT PHÁ <br className="hidden sm:block"/>HỌC KỲ 2</h1>
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">TRẠM BỨT PHÁ <br className="hidden sm:block"/>VẬT LÍ 11</h1>
           <p className="text-slate-400 text-sm">Chặng nước rút quan trọng. Giữ vững tốc độ!</p>
         </div>
 
         <div className="w-full md:w-auto bg-slate-950/80 p-5 rounded-2xl border border-slate-800/50 backdrop-blur-sm">
           <div className="flex items-center gap-2 text-slate-500 text-xs font-bold uppercase mb-3">
-            <Clock className="w-4 h-4 stroke-yellow-400" /> TỚI NGÀY THI
+            <Target className="w-4 h-4 stroke-yellow-400" /> Mục tiêu học kỳ
           </div>
-          <div className="flex justify-between gap-2 text-center text-white font-black text-2xl sm:text-3xl font-mono tracking-widest">
-            <div className="flex flex-col"><span className="text-yellow-400 drop-shadow-[0_0_8px_rgba(234,179,8,0.6)]">14</span><span className="text-[10px] text-slate-500 uppercase mt-1">Ngày</span></div>
-            <span className="text-slate-600">:</span>
-            <div className="flex flex-col"><span className="text-white">08</span><span className="text-[10px] text-slate-500 uppercase mt-1">Giờ</span></div>
-            <span className="text-slate-600">:</span>
-            <div className="flex flex-col"><span className="text-white">30</span><span className="text-[10px] text-slate-500 uppercase mt-1">Phút</span></div>
+          <div className="flex items-center gap-3">
+            <div className="text-yellow-400 font-black text-3xl flex items-center gap-1">
+              <Star className="w-6 h-6 fill-yellow-400" /> 8.0+
+            </div>
+            <span className="text-slate-500 text-xs font-bold uppercase">GPA Vật Lí</span>
           </div>
         </div>
       </div>
@@ -34,14 +54,14 @@ function HeroCountdown() {
       <div className="mt-8 pt-6 border-t border-slate-800/50">
         <div className="flex justify-between items-end mb-2">
            <div className="flex items-center gap-2 text-sm font-bold text-slate-300">
-             <Target className="w-4 h-4 text-orange-400" /> Mục tiêu GPA:
+             <Target className="w-4 h-4 text-orange-400" /> Tiến độ chương trình:
            </div>
            <div className="text-orange-400 font-black flex items-center gap-1">
-             <Star className="w-4 h-4 fill-orange-400" /> 8.0/10
+             4 Chuyên đề
            </div>
         </div>
         <div className="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-          <div className="h-full bg-gradient-to-r from-orange-600 to-yellow-400 rounded-full relative w-[80%] shadow-[0_0_10px_rgba(234,179,8,0.6)]">
+          <div className="h-full bg-gradient-to-r from-orange-600 to-yellow-400 rounded-full relative w-[50%] shadow-[0_0_10px_rgba(234,179,8,0.6)]">
              <div className="absolute right-0 top-0 bottom-0 w-4 bg-white/30 animate-pulse"></div>
           </div>
         </div>
@@ -50,13 +70,46 @@ function HeroCountdown() {
   );
 }
 
-const mockData = [
-  { subject: 'Dao động', score: 80, fullMark: 100 },
-  { subject: 'Sóng', score: 65, fullMark: 100 },
-  { subject: 'Điện trường', score: 70, fullMark: 100 },
-  { subject: 'Dòng điện', score: 45, fullMark: 100 },
-];
+// ═══ YCCĐ Accordion cho từng Topic ═══
+function YCCDTopicSection({ topic, color }: { topic: string; color: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const yccdItems = useMemo(() => getYCCDByGrade('11').filter(y => y.topic === topic), [topic]);
 
+  if (yccdItems.length === 0) return null;
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }}></div>
+          <span className="text-sm font-bold text-white">{topic}</span>
+          <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-bold">{yccdItems.length} YCCĐ</span>
+        </div>
+        {isOpen ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4 space-y-2 border-t border-slate-800">
+          {yccdItems.map((item, idx) => (
+            <div key={item.code} className="flex gap-3 p-3 bg-slate-950/50 rounded-xl border border-slate-800/50">
+              <div className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black text-white" style={{ backgroundColor: `${color}30`, color: color }}>
+                {idx + 1}
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-slate-300 leading-5">{item.content}</p>
+                <span className="text-[10px] text-slate-600 font-mono mt-1 inline-block">{item.code}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══ Radar Chart ═══
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -70,14 +123,21 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 function MasteryRadarChart() {
+  // TODO: Kết nối dữ liệu thật từ attempts - Hiện dùng placeholder
+  const radarData = GRADE_11_TOPICS.map(t => ({
+    subject: t.topic.length > 12 ? t.topic.substring(0, 12) + '...' : t.topic,
+    score: 0,
+    fullMark: 100,
+  }));
+
   return (
     <div className="w-full h-[350px] bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-[0_0_15px_rgba(15,23,42,0.5)] flex items-center justify-center">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="50%" outerRadius="65%" data={mockData}>
+        <RadarChart cx="50%" cy="50%" outerRadius="65%" data={radarData}>
           <PolarGrid stroke="#1e293b" />
           <PolarAngleAxis 
             dataKey="subject" 
-            tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} 
+            tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 'bold' }} 
           />
           <Tooltip content={<CustomTooltip />} />
           <Radar
@@ -95,68 +155,59 @@ function MasteryRadarChart() {
   );
 }
 
-function DailyQuestBoard() {
+// ═══ MAIN COMPONENT ═══
+export default function Grade11Dashboard({ onStartPrescription, onStartExam }: Grade11DashboardProps) {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="bg-slate-900 border border-red-500/30 rounded-3xl p-5 relative overflow-hidden group hover:border-red-500/60 transition-colors shadow-[0_0_15px_rgba(239,68,68,0.05)]">
-        <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 blur-2xl rounded-full pointer-events-none"></div>
-        <div className="flex items-start gap-4 relative z-10">
-          <div className="bg-red-500/20 p-3 rounded-2xl shrink-0">
-             <AlertTriangle className="w-6 h-6 text-red-500" />
-          </div>
-          <div>
-            <h3 className="text-red-400 font-black text-sm uppercase tracking-wide mb-1">Cảnh báo Đỏ</h3>
-            <p className="text-slate-300 text-sm leading-relaxed mb-4">
-              3 bài tập <strong className="text-white">Dòng điện</strong> chưa làm đúng. Mạch điện đang báo lỗi!
-            </p>
-            <button className="flex items-center justify-center gap-2 w-full bg-red-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-widest py-3 rounded-xl transition-all hover:shadow-[0_0_10px_rgba(239,68,68,0.4)]">
-              Chữa bài ngay <Play className="w-4 h-4 fill-current" />
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-8 animate-in fade-in zoom-in duration-500">
+      {/* ── Hero Banner ── */}
+      <HeroBanner />
 
-      <div className="bg-slate-900 border border-yellow-500/30 rounded-3xl p-5 relative overflow-hidden group hover:border-yellow-500/60 transition-colors shadow-[0_0_15px_rgba(234,179,8,0.05)]">
-        <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-500/10 blur-2xl rounded-full pointer-events-none"></div>
-        <div className="flex items-start gap-4 relative z-10">
-          <div className="bg-yellow-500/20 p-3 rounded-2xl shrink-0">
-             <BrainCircuit className="w-6 h-6 text-yellow-400" />
-          </div>
-          <div>
-            <h3 className="text-yellow-400 font-black text-sm uppercase tracking-wide mb-1">Lược Đồ Ôn Lập</h3>
-            <p className="text-slate-300 text-sm leading-relaxed mb-4">
-              Lý thuyết <strong className="text-white">Điện trường</strong> cần củng cố lại bộ nhớ ngắn hạn.
-            </p>
-            <button className="flex items-center justify-center gap-2 w-full bg-slate-950 border border-yellow-500/50 hover:bg-yellow-600 text-white text-xs font-black uppercase tracking-widest py-3 rounded-xl transition-all hover:shadow-[0_0_10px_rgba(234,179,8,0.4)]">
-              Thực thi nhiệm vụ <Play className="w-4 h-4 fill-current" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Grade11Dashboard() {
-  return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in zoom-in duration-500">
-      <HeroCountdown />
+      {/* ── Năng lực + YCCĐ ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         <div className="space-y-3">
           <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-yellow-400 animate-ping"></span>
-            Bản đồ Năng lực
+            Bản đồ Năng lực Lớp 11
           </h2>
           <MasteryRadarChart />
         </div>
         <div className="space-y-3">
-            <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
+          <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-            Lệnh Triệu Tập Hôm Nay ⚡
+            Bản đồ YCCĐ Lớp 11
           </h2>
-          <DailyQuestBoard />
+          <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+            {GRADE_11_TOPICS.map(t => (
+              <YCCDTopicSection key={t.topic} topic={t.topic} color={t.color} />
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* ── Bài Tập & Luyện Tập Chuyên Đề (Chỉ Lớp 11) ── */}
+      <div className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 rounded-3xl p-8 relative overflow-hidden shadow-xl">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent opacity-50" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-yellow-500/5 rounded-full blur-3xl pointer-events-none" />
+        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight" style={{ background: 'linear-gradient(90deg, #eab308, #f97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <BrainCircuit className="text-yellow-400 w-8 h-8" style={{ WebkitTextFillColor: 'initial' }} />
+          Luyện Tập Chuyên Đề — Lớp 11
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {GRADE_11_TOPICS.map(t => (
+            <TopicCard
+              key={t.topic}
+              topic={t.topic}
+              displayName={t.displayName}
+              isLocked={false}
+              onClick={() => onStartPrescription?.(t.topic, '')}
+              color={t.color}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 11) ── */}
+      {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={11} />}
     </div>
   );
 }

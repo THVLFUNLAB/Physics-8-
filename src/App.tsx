@@ -45,6 +45,7 @@ import { ToastProvider, toast } from './components/Toast';
 
 import { ProExamExperience } from './components/ProExamExperience';
 import StudentDashboard from './components/StudentDashboard';
+import { PersonalizedResultPanel } from './components/PersonalizedResultPanel';
 import { StudentOnboardingModal } from './components/StudentOnboardingModal';
 import DigitizationDashboard from './components/DigitizationDashboard';
 import QuestionBank from './components/QuestionBank';
@@ -785,6 +786,8 @@ export default function App() {
     const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
     const newFailedQuestionIds = new Set(user.failedQuestionIds || []);
     const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
+    const incorrectRecords: any[] = [];
+    const skippedRecords: any[] = [];
 
     for (const q of activeTest.questions) {
       const studentAns = answers[q.id];
@@ -813,12 +816,23 @@ export default function App() {
       
       if (q.id) {
         sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
-        if (!isCorrect) { newFailedQuestionIds.add(q.id); }
-        else { newFailedQuestionIds.delete(q.id); }
+        if (!isCorrect) { 
+          newFailedQuestionIds.add(q.id); 
+          const isSkipped = studentAns === undefined || studentAns === '' || (Array.isArray(studentAns) && studentAns.length === 0);
+          if (isSkipped) {
+            skippedRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false });
+          } else {
+            incorrectRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false });
+          }
+        } else { 
+          newFailedQuestionIds.delete(q.id); 
+        }
       }
     }
 
-    const redZones = totalScore < 6.0 ? [activeTest.topic] : [];
+    // ── GỌI AI CHẨN ĐOÁN (Chờ kết quả mới lưu) ──
+    const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
+    const aiResult = await diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, user.learningPath?.weaknessProfile);
 
     const attempt: Attempt = {
       id: Math.random().toString(36).substr(2, 9),
@@ -826,6 +840,8 @@ export default function App() {
       testId: activeTest.topic,
       answers,
       score: totalScore,
+      analysis: aiResult,
+      weaknessProfile: aiResult.weaknessProfile,
       timestamp: Timestamp.now()
     };
 
@@ -864,8 +880,25 @@ export default function App() {
       }
 
       // ── Gamification: XP + STREAK ──
-      const scoreXP = Math.floor(totalScore / 0.25) * 10;
-      const bonusXP = totalScore > 8.0 ? 100 : 0;
+      // Công thức mới: Phân cấp chất lượng — số sao phản ánh đúng năng lực
+      // Điểm <5.0   : chỉ thưởng hoàn thành (rất ít, tránh spam)
+      // Điểm 5.0-6.9: trung bình
+      // Điểm 7.0-7.9: khá
+      // Điểm 8.0-8.9: giỏi (x1.5 bonus)
+      // Điểm ≥9.0   : xuất sắc (x2.0 bonus — đây là đích thực)
+      let scoreXP: number;
+      if (totalScore >= 9.0) {
+        scoreXP = Math.round(totalScore * 50);        // 9.0→450, 10→500
+      } else if (totalScore >= 8.0) {
+        scoreXP = Math.round(totalScore * 35);        // 8.0→280, 8.9→311
+      } else if (totalScore >= 7.0) {
+        scoreXP = Math.round(totalScore * 20);        // 7.0→140, 7.9→158
+      } else if (totalScore >= 5.0) {
+        scoreXP = Math.round(totalScore * 10);        // 5.0→50, 6.9→69
+      } else {
+        scoreXP = Math.round(totalScore * 5);         // <5.0: tối đa 25 XP (chặn spam)
+      }
+      const bonusXP = totalScore >= 9.0 ? 150 : totalScore > 8.0 ? 80 : 0; // Thưởng nóng cao hơn cho điểm xuất sắc
       const earnedXP = scoreXP + bonusXP;
 
       const prevStars = user.stars || 0;
@@ -933,8 +966,8 @@ export default function App() {
 
   // ═══ ADAPTIVE TEST FIX ═══
   const handleAdaptiveTestFix = async () => {
-    if (!results || !results.analysis || !user) return;
-    const matrix = results.analysis.remedialMatrix;
+    if (!results || !results.weaknessProfile || !user) return;
+    const matrix = results.weaknessProfile.remedialMatrix;
     if (!matrix || matrix.length === 0) { toast.error("Hệ thống chưa tạo được ma trận khắc phục. Hãy thử phân tích lại."); return; }
     
     setLoading(true);
@@ -942,18 +975,50 @@ export default function App() {
       const resultQuestions: Question[] = [];
       const qRef = collection(db, 'questions');
       
+      const levelMap: Record<string, number> = {
+        'Nhận biết': 1, 'NB': 1,
+        'Thông hiểu': 2, 'TH': 2,
+        'Vận dụng': 3, 'VD': 3,
+        'Vận dụng cao': 4, 'VDC': 4
+      };
+
       for (const item of matrix) {
         if (item.count <= 0) continue;
         const qQuery = query(qRef, where('topic', '==', item.topic));
         const snapshot = await getDocs(qQuery);
         let qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
-        qs = qs.sort(() => Math.random() - 0.5);
+        
+        // Ưu tiên các câu thuộc list level yêu cầu, nếu có
+        if (item.levels && item.levels.length > 0) {
+          const mappedTargetLevels = item.levels.map(l => levelMap[l] || 5);
+          qs.sort((a, b) => {
+            const lA = levelMap[a.level] || 5;
+            const lB = levelMap[b.level] || 5;
+            const matchA = mappedTargetLevels.includes(lA) ? 0 : 1;
+            const matchB = mappedTargetLevels.includes(lB) ? 0 : 1;
+            if (matchA !== matchB) return matchA - matchB;
+            // Nếu cùng match (hoặc không match), ưu tiên Failed Questions (nếu có user memory)
+            const aFailed = user.failedQuestionIds?.includes(a.id || '') ? -1 : 1;
+            const bFailed = user.failedQuestionIds?.includes(b.id || '') ? -1 : 1;
+            if (aFailed !== bFailed) return aFailed - bFailed;
+            return Math.random() - 0.5;
+          });
+        } else {
+          qs = qs.sort(() => Math.random() - 0.5);
+        }
+
         resultQuestions.push(...qs.slice(0, item.count));
       }
 
       if (resultQuestions.length === 0) { toast.error("Xin lỗi, ngân hàng đề chưa đủ câu hỏi cho các chủ đề này."); setLoading(false); return; }
 
-      resultQuestions.sort((a, b) => a.part - b.part);
+      // Sắp xếp tổng thể: Nhận biết -> Thông hiểu -> VD -> VDC
+      resultQuestions.sort((a, b) => {
+        const lA = levelMap[a.level] || 5;
+        const lB = levelMap[b.level] || 5;
+        if (lA !== lB) return lA - lB;
+        return a.part - b.part;
+      });
 
       // Cluster handling for adaptive test
       const clusterIds = new Set<string>();
@@ -1240,106 +1305,32 @@ export default function App() {
               ) : (
                 /* ══════ RESULTS PANEL ══════ */
                 <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
-                  <div className="flex flex-col md:flex-row justify-between items-center gap-8 mb-12">
-                    <div className="text-center md:text-left">
-                      <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-600/10 text-red-600 mb-4"><Trophy className="w-10 h-10" /></div>
-                      <h2 className="text-4xl font-black text-white mb-2 tracking-tight">KẾT QUẢ CHẨN ĐOÁN</h2>
-                      <p className="text-slate-400 font-medium">Chuyên đề: <span className="text-white">{activeTest.topic}</span></p>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="bg-slate-800/50 p-6 rounded-3xl border border-slate-700 text-center min-w-[140px]">
-                        <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Điểm số</p>
-                        <p className="text-4xl font-black text-white">{results.score.toFixed(2)}</p>
-                        <p className="text-[10px] text-slate-500 mt-1">trên 10 điểm</p>
-                      </div>
-                      <div className="bg-slate-800/50 p-6 rounded-3xl border border-slate-700 text-center min-w-[140px]">
-                        <p className="text-slate-500 text-[10px] font-bold uppercase mb-1">Xếp loại</p>
-                        <p className={cn("text-2xl font-black", results.score >= 8.0 ? "text-amber-500" : results.score >= 6.0 ? "text-blue-500" : "text-red-500")}>
-                          {results.score >= 8.0 ? 'MASTER' : results.score >= 6.0 ? 'KHÁ' : 'CẦN ÔN TẬP'}
-                        </p>
-                        <p className="text-[10px] text-slate-500 mt-1">Thang 10</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-12">
-                    <div className="space-y-8">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="text-red-500" /> PHÂN TÍCH CHI TIẾT</h3>
-                      {(() => {
-                        const partScores: Record<number, { score: number, total: number }> = { 1: { score: 0, total: 0 }, 2: { score: 0, total: 0 }, 3: { score: 0, total: 0 } };
-                        const normalizeDecimal2 = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
-                        activeTest.questions.forEach(q => {
-                          const studentAns = results.answers[q.id];
-                          if (q.part === 1) { partScores[1].total += 0.25; if (studentAns === q.correctAnswer) partScores[1].score += 0.25; }
-                          else if (q.part === 2) { partScores[2].total += 1.0; let cc = 0; for (let i = 0; i < 4; i++) { if (Array.isArray(studentAns) && studentAns[i] !== undefined && studentAns[i] === (q.correctAnswer as boolean[])[i]) cc++; } if (cc === 4) partScores[2].score += 1.0; else if (cc === 3) partScores[2].score += 0.5; else if (cc === 2) partScores[2].score += 0.25; else if (cc === 1) partScores[2].score += 0.1; }
-                          else if (q.part === 3) { partScores[3].total += 0.25; const sv = normalizeDecimal2(studentAns); const cv = normalizeDecimal2(q.correctAnswer); if (!isNaN(sv) && Math.abs(sv - cv) < 0.01) partScores[3].score += 0.25; }
-                        });
-                        const chartData = [
-                          { name: 'Phần I (4.5đ)', score: partScores[1].score, total: partScores[1].total },
-                          { name: 'Phần II (4.0đ)', score: partScores[2].score, total: partScores[2].total },
-                          { name: 'Phần III (1.5đ)', score: partScores[3].score, total: partScores[3].total }
-                        ];
-                        return <PerformanceChart data={chartData} />;
-                      })()}
-                    </div>
-                    <div className="space-y-8">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-blue-500" /> GAMIFICATION — ĐÁNH GIÁ NHANH</h3>
-                      <ExamResultGamification score={results.score} />
-                    </div>
-                  </div>
-
-                  {results.analysis && results.analysis.remedialMatrix && (
-                    <div className="space-y-6 mt-12 mb-12">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2 font-headline uppercase tracking-widest"><Target className="text-blue-500" /> MA TRẬN ĐỀ KHẮC PHỤC CÁ NHÂN HÓA</h3>
-                      <div className="bg-slate-950/50 p-8 rounded-3xl border border-slate-800">
-                        <p className="text-sm text-slate-400 mb-6 leading-relaxed">Dựa vào lỗ hổng kiến thức, AI Architect đã bốc thuốc một phác đồ {results.analysis.remedialMatrix.reduce((acc, curr) => acc + curr.count, 0)} câu hỏi đánh thẳng vào các điểm yếu của bạn:</p>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          {results.analysis.remedialMatrix.map((item, idx) => (
-                            <div key={idx} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col items-center justify-center text-center">
-                              <span className="text-3xl font-black text-blue-500 mb-2">{item.count}</span>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase text-center">{item.topic}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                  {results.weaknessProfile ? (
+                    <PersonalizedResultPanel 
+                      profile={results.weaknessProfile}
+                      attempt={results}
+                      incorrectRecords={activeTest.questions.filter(q => {
+                        const studentAns = results.answers[q.id || ''];
+                        if (q.part === 1) return studentAns !== q.correctAnswer;
+                        if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
+                        if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
+                        return false;
+                      }).map(q => ({ question: q, studentAnswer: results.answers[q.id || ''], isCorrect: false }))}
+                      onRetry={() => { clearExamSession(); setActiveTest(null); }}
+                      onFixWeaknesses={handleAdaptiveTestFix}
+                      onReviewTheory={() => {}}
+                      onSaveToVault={handleSaveToVault}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800">
+                      <div className="text-amber-500 mb-4"><AlertTriangle className="w-16 h-16" /></div>
+                      <h3 className="text-xl font-bold text-white mb-2">Đang thiết lập hồ sơ điểm yếu...</h3>
+                      <p className="text-slate-400">Vui lòng đợi vài giây để hệ thống phân tích năng lực.</p>
                     </div>
                   )}
 
-                  {results.analysis && (
-                    <div className="space-y-6">
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><Settings className="text-slate-500" /> NHẬN XÉT CỦA AI ARCHITECT</h3>
-                      <div className="prose prose-invert max-w-none bg-slate-800/50 backdrop-blur-sm rounded-xl p-5 border border-slate-700 leading-relaxed text-slate-300 [&>ul]:list-disc [&>ul]:ml-5 [&>li]:mb-2 [&_strong]:text-red-400 [&_strong]:font-bold">
-                        <ReactMarkdown>{results.analysis.feedback}</ReactMarkdown>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Suggested Resources */}
-                  {(() => {
-                    const incorrectQuestions = activeTest.questions.filter(q => {
-                      const studentAns = results.answers[q.id || ''];
-                      if (q.part === 1) return studentAns !== q.correctAnswer;
-                      if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
-                      if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
-                      return false;
-                    });
-                    const suggestedResources = Array.from(new Set(incorrectQuestions.flatMap(q => q.resources || [])));
-                    if (suggestedResources.length === 0) return null;
-                    return (
-                      <div className="space-y-6 mt-12">
-                        <h3 className="text-xl font-bold text-white flex items-center gap-2"><BookOpen className="text-blue-500" /> HỌC LIỆU ÔN TẬP ĐỀ XUẤT</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {suggestedResources.map((res, i) => (<SmartResourceCard key={i} resource={res} />))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="mt-12 flex flex-col md:flex-row gap-4">
-                    <button onClick={() => { clearExamSession(); setActiveTest(null); }} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all">Trang chủ</button>
-                    <button onClick={() => setIsReviewing(true)} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center"><Info className="w-4 h-4"/> Lời giải</button>
-                    <button onClick={handleSaveToVault} className="flex-1 bg-slate-900 border border-blue-500/50 hover:bg-blue-900/20 text-blue-400 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center"><Save className="w-4 h-4" /> Kho ôn tập</button>
-                    <button onClick={handleAdaptiveTestFix} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50 hover:scale-105 duration-300 hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] group" disabled={!results.analysis?.remedialMatrix}><Activity className="w-4 h-4 group-hover:animate-pulse"/> Luyện tập ngay</button>
+                  <div className="mt-8 flex justify-center">
+                    <button onClick={() => setIsReviewing(true)} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center border border-slate-700 shadow-lg"><Info className="w-5 h-5 text-blue-400"/> XEM CHI TIẾT LỜI GIẢI</button>
                   </div>
                 </motion.div>
               )}

@@ -263,7 +263,7 @@ export const StudentDirectory: React.FC = () => {
                 <th className="p-4 font-bold border-b border-slate-700">Tài khoản (Email)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Họ và Tên</th>
                 <th className="p-4 font-bold border-b border-slate-700">Vai trò</th>
-                <th className="p-4 font-bold border-b border-slate-700">Lượt làm bài</th>
+                <th className="p-4 font-bold border-b border-slate-700">Số đề đã làm</th>
                 <th className="p-4 font-bold border-b border-slate-700">Hạng Tài Khoản</th>
                 <th className="p-4 font-bold border-b border-slate-700">Lớp (VD: 12A1)</th>
                 <th className="p-4 font-bold border-b border-slate-700">Năm học</th>
@@ -334,9 +334,27 @@ export const StudentDirectory: React.FC = () => {
                       </select>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-cyan-400 font-black text-lg">{student.usedAttempts || 0}</span>
-                        <span className="text-slate-500 text-xs mt-1">lượt</span>
+                      {/* totalAttempts = tổng đề đã làm, bỏ lu.n VIP */}
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn(
+                            "font-black text-base",
+                            (student.totalAttempts || 0) === 0 ? "text-slate-600" : "text-cyan-400"
+                          )}>
+                            {student.totalAttempts || 0}
+                          </span>
+                          <span className="text-slate-500 text-[11px]">bài</span>
+                        </div>
+                        {/* Chỉ FREE mới hiển thị số lượt còn lại */}
+                        {!(student.tier === 'vip' || student.isUnlimited) && (
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            (student.usedAttempts || 0) >= 25 ? "text-red-400" :
+                            (student.usedAttempts || 0) >= 20 ? "text-amber-400" : "text-slate-500"
+                          )}>
+                            {student.usedAttempts || 0}/{student.maxAttempts || 30} lượt
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="p-4">

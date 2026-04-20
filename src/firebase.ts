@@ -278,8 +278,13 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
 
   const data = userDoc.data();
 
-  // VIP vô cực → Bỏ qua quá trình khóa hoặc tăng đếm
+  // VIP vô cực → Vẫn đếm totalAttempts để Thầy track hoạt động, nhưng KHAI THÔNG giới hạn, không tăng usedAttempts
   if (data.tier === 'vip' || data.isUnlimited) {
+    try {
+      await originalSetDoc(userRef, { totalAttempts: increment(1) }, { merge: true });
+    } catch {
+      // Silent fail — không block VIP vào bài
+    }
     return true;
   }
 
@@ -295,7 +300,8 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
   try {
     // [FIX] set(merge:true) an toàn hơn update() — tạo field mới nếu chưa có
     const batch = writeBatch(db);
-    batch.set(userRef, { usedAttempts: increment(1) }, { merge: true });
+    // usedAttempts: chỉ FREE, có giới hạn (dùng để chặn sau 30 lượt)
+    batch.set(userRef, { usedAttempts: increment(1), totalAttempts: increment(1) }, { merge: true });
 
     const logRef = doc(collection(db, 'usage_logs'));
     batch.set(logRef, {

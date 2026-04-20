@@ -136,12 +136,23 @@ function compressForPrompt(text: string, maxLen = 200): string {
 
 export async function diagnoseUserExam(
   incorrectRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[],
-  skippedRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[] = []
-): Promise<{ 
+  skippedRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[] = [],
+  grade: number = 12,
+  previousProfile?: { overallLevel: string; items: { topic: string; correctRate: number }[] } | null
+): Promise<{
   feedback: string;
   redZones: string[];
   remedialMatrix: { topic: string; count: number }[];
   behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount: number };
+  weaknessProfile?: {
+    grade: number;
+    overallLevel: 'S' | 'A' | 'B' | 'C';
+    behavioralNote: string;
+    items: any[];
+    strengths: string[];
+    actionPlan: string[];
+    remedialMatrix: { topic: string; subTopic: string; levels: string[]; count: number }[];
+  };
 }> {
 
   if (incorrectRecords.length === 0 && skippedRecords.length === 0) {
@@ -155,7 +166,7 @@ export async function diagnoseUserExam(
 
   // ── COST FIX: Check cache first ──
   const cacheKey = incorrectRecords.map(r => `${r.question.id}_${JSON.stringify(r.studentAnswer)}`).join('|')
-    + '||' + skippedRecords.length;
+    + '||' + skippedRecords.length + `||g${grade}`;
   const cached = getDiagnosisCache(cacheKey);
   if (cached) {
     console.info('[Diagnosis] Cache hit — skipping AI call');
@@ -164,26 +175,64 @@ export async function diagnoseUserExam(
 
   const ai = getAI();
 
-  // ── COST FIX: Compressed prompt — strip HTML, truncate content, no explanation → saves ~40% tokens ──
+  // ── Tổng hợp câu sai theo topic để AI thấy pattern ──
+  const topicErrorMap: Record<string, { count: number; levels: Set<string>; subTopics: Set<string> }> = {};
+  incorrectRecords.forEach(r => {
+    const t = r.question.topic || 'Không rõ';
+    if (!topicErrorMap[t]) topicErrorMap[t] = { count: 0, levels: new Set(), subTopics: new Set() };
+    topicErrorMap[t].count++;
+    if (r.question.level) topicErrorMap[t].levels.add(r.question.level);
+    if (r.question.subTopic) topicErrorMap[t].subTopics.add(r.question.subTopic);
+  });
+
+  const topicSummary = Object.entries(topicErrorMap)
+    .map(([t, d]) => `- ${t}: ${d.count} câu sai | Mức: ${[...d.levels].join('/')} | Sub: ${[...d.subTopics].join(', ') || 'N/A'}`)
+    .join('\n');
+
+  const prevNote = previousProfile
+    ? `\n=== TIẾN BỘ SO VỚI LẦN TRƯỚC ===\nLần trước: Hạng ${previousProfile.overallLevel}\nCác topic trước: ${previousProfile.items.map(i => `${i.topic}(${Math.round(i.correctRate * 100)}%)`).join(', ')}`
+    : '';
+
   const prompt = `
-Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-9+.
-Học sinh vừa hoàn thành một bài test, kết quả như sau:
-- Câu LÀM SAI (Incorrect): ${incorrectRecords.length}
-- Câu BỎ TRỐNG (Skipped): ${skippedRecords.length}
+Bạn là Chuyên gia Sư phạm Vật lý cấp cao, chuyên viên đánh giá theo Chuẩn GDPT 2018.
+Học sinh KHỐI ${grade} vừa hoàn thành bài test. Hãy thực hiện chẩn đoán năng lực CHUYÊN SÂU.
 
-=== DANH SÁCH CÂU SAI ===
-${incorrectRecords.length > 0 ? incorrectRecords.map((r, i) => `#${i + 1}: [${r.question.topic}|${r.question.level}] ${compressForPrompt(r.question.content)} → Đúng: ${JSON.stringify(r.question.correctAnswer)} | HS: ${JSON.stringify(r.studentAnswer)}`).join("\n") : "Không có câu nào làm sai."}
+=== DỮ LIỆU BÀI LÀM ===
+- Câu SAI: ${incorrectRecords.length}
+- Câu BỎ TRỐNG: ${skippedRecords.length}
 
-=== YÊU CẦU PHÂN TÍCH CHUẨN ĐOÁN ===
-Dựa vào chuẩn kiến thức GDPT 2018 môn Vật lý:
-1. Đánh giá tổng quan về các lỗ hổng kiến thức chính (redZones). Liệt kê cụ thể tên các chủ đề nhỏ bị rỗng. Dựa chủ yếu vào phần CÂU SAI.
-2. Viết Phản hồi (feedback) bằng Markdown để học sinh.
-${skippedRecords.length > 0 ? `   - [QUAN TRỌNG] Học sinh đã bỏ trống ${skippedRecords.length} câu! Hãy BẮT BUỘC đưa ra lời khuyên khắt khe về Chiến thuật quản lý thời gian, yêu cầu tuyệt đối không được bỏ trống vì thi trắc nghiệm không trừ điểm sai.` : ''}
-   - Tập trung kê đơn để lấp lỗ hổng cho các câu 'Làm sai'.
-3. Đếm số lỗi "careless" (ẩu, tính sai) và "fundamental" (sai bản chất vật lý) TỪ CÁC CÂU LÀM SAI.
-4. TẠO MA TRẬN KHẮC PHỤC (remedialMatrix): Tính toán phân bổ ĐÚNG 28 câu hỏi ưu tiên tập trung dồn dập vào chính các chủ đề (topic) mà học sinh làm sai ở trên. Ví dụ: Nếu sai nhiều ở "Động lực học", hãy phân cho nó 15 câu, các chủ đề khác bù vào sao cho tổng số đúng bằng 28. Trả về mảng các object { topic: string, count: number } với tổng count phải BẰNG CHÍNH XÁC 28.
+THỐNG KÊ LỖI THEO CHỦ ĐỀ:
+${topicSummary || 'Không có lỗi theo topic.'}
 
-Trả về ĐÚNG định dạng JSON Schema yêu cầu.
+CHI TIẾT CÂU SAI (tóm tắt):
+${incorrectRecords.slice(0, 12).map((r, i) =>
+  `#${i+1}: [${r.question.topic}|${r.question.level || '?'}|${r.question.subTopic || 'N/A'}] ${compressForPrompt(r.question.content, 120)}`
+).join('\n')}
+${prevNote}
+
+=== YÊU CẦU PHÂN TÍCH 5 TẦNG (theo chuẩn GDPT 2018 môn Vật lý Lớp ${grade}) ===
+
+1. TỔNG QUAN: Xếp hạng S/A/B/C và nhận xét hành vi học tập (chiến thuật, thái độ).
+
+2. ĐIỂM MẠNH: Liệt kê 2-3 điểm mạnh thực sự (dựa vào câu LÀM ĐÚNG/không sai).
+
+3. KẾ HOẠCH 3 BƯỚC: Viết 3 việc cụ thể học sinh cần làm ngay (tên chủ đề, dạng bài cụ thể).
+
+4. PHÂN TÍCH ĐIỂM YẾU (items): Với mỗi chủ đề làm sai:
+   - Xác định mã YCCĐ GDPT 2018 (ví dụ: "10.DLH.1 — Vận dụng định luật Newton")
+   - Phân loại lỗi: "fundamental" (sai bản chất vật lý) hay "careless" (biết nhưng tính sai)
+   - Mức Bloom yếu nhất: NB/TH/VD/VDC
+   - Mức ưu tiên: "critical" (>50% sai), "major" (25-50%), "minor" (<25%)
+   - remedialCount: số câu cần ôn (critical=10-12, major=6-8, minor=2-4)
+
+5. MA TRẬN ĐỀ CHỮA: 28 câu tổng, phân bổ theo logic SƯ PHẠM:
+   - Topic critical: lấy NB+TH trước (xây nền) rồi VD
+   - Topic major: bắt đầu từ TH → VD
+   - Không phân câu cho topic đã đúng >80%
+   - Thêm 2-3 câu VDC nếu HS đã masteróng NB+TH của topic đó
+   - feedBack: plain text markdown, ngôi thứ 2 (con/em), thân thiện nhưng cụ thể
+
+Trả về ĐÚNG JSON Schema yêu cầu.
   `.trim();
 
   try {
@@ -197,16 +246,16 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
           properties: {
             redZones: { type: Type.ARRAY, items: { type: Type.STRING } },
             feedback: { type: Type.STRING },
-            remedialMatrix: { 
-              type: Type.ARRAY, 
-              items: { 
-                type: Type.OBJECT, 
-                properties: { 
-                  topic: { type: Type.STRING }, 
-                  count: { type: Type.INTEGER } 
+            remedialMatrix: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  topic: { type: Type.STRING },
+                  count: { type: Type.INTEGER }
                 },
                 required: ["topic", "count"]
-              } 
+              }
             },
             behavioralAnalysis: {
               type: Type.OBJECT,
@@ -215,9 +264,51 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
                 fundamentalCount: { type: Type.INTEGER }
               },
               required: ["carelessCount", "fundamentalCount"]
+            },
+            weaknessProfile: {
+              type: Type.OBJECT,
+              properties: {
+                grade: { type: Type.INTEGER },
+                overallLevel: { type: Type.STRING },
+                behavioralNote: { type: Type.STRING },
+                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                actionPlan: { type: Type.ARRAY, items: { type: Type.STRING } },
+                items: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      topic: { type: Type.STRING },
+                      subTopic: { type: Type.STRING },
+                      yccDCode: { type: Type.STRING },
+                      weakLevel: { type: Type.STRING },
+                      errorType: { type: Type.STRING },
+                      wrongCount: { type: Type.INTEGER },
+                      correctRate: { type: Type.NUMBER },
+                      remedialCount: { type: Type.INTEGER },
+                      priority: { type: Type.STRING }
+                    },
+                    required: ["topic", "subTopic", "yccDCode", "weakLevel", "errorType", "wrongCount", "correctRate", "remedialCount", "priority"]
+                  }
+                },
+                remedialMatrix: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      topic: { type: Type.STRING },
+                      subTopic: { type: Type.STRING },
+                      levels: { type: Type.ARRAY, items: { type: Type.STRING } },
+                      count: { type: Type.INTEGER }
+                    },
+                    required: ["topic", "subTopic", "levels", "count"]
+                  }
+                }
+              },
+              required: ["grade", "overallLevel", "behavioralNote", "strengths", "actionPlan", "items", "remedialMatrix"]
             }
           },
-          required: ["redZones", "feedback", "remedialMatrix", "behavioralAnalysis"]
+          required: ["redZones", "feedback", "remedialMatrix", "behavioralAnalysis", "weaknessProfile"]
         }
       }
     });
@@ -228,16 +319,16 @@ Trả về ĐÚNG định dạng JSON Schema yêu cầu.
       feedback: 'Không thể phân tích dữ liệu lúc này.',
       remedialMatrix: [],
       behavioralAnalysis: { carelessCount: 0, fundamentalCount: 0, skippedCount: 0 }
-    }) as { feedback: string; redZones: string[]; remedialMatrix: { topic: string; count: number; }[]; behavioralAnalysis: { carelessCount: number; fundamentalCount: number; skippedCount: number; }; };
-    
-    // Đảm bảo có skippedCount trong kết quả trả về
+    }) as any;
+
     if (result.behavioralAnalysis && result.behavioralAnalysis.skippedCount === undefined) {
       result.behavioralAnalysis.skippedCount = skippedRecords.length;
     }
-    
-    // ── COST FIX: Cache result for this session ──
-    setDiagnosisCache(cacheKey, result);
+    if (result.weaknessProfile) {
+      result.weaknessProfile.grade = grade;
+    }
 
+    setDiagnosisCache(cacheKey, result);
     return result;
   } catch (error) {
     console.error("Gemini Batch Diagnosis Error:", error);

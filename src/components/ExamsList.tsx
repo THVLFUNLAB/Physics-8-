@@ -7,12 +7,14 @@ import { cn } from '../lib/utils';
 
 interface ExamsListProps {
   onStartExam: (exam: Exam) => void;
+  /** Khi truyền vào, ExamsList sẽ tự lock cứng vào khối đó và ẩn bộ tab filter */
+  gradeFilter?: number;
 }
 
-export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
+export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }) => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedGradeFilter, setSelectedGradeFilter] = useState<number | null>(null);
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState<number | null>(gradeFilter ?? null);
 
   useEffect(() => {
     // Listen for exams in realtime, ordered by creation time
@@ -36,8 +38,10 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
     return () => unsub();
   }, []);
 
-  const filteredExams = selectedGradeFilter 
-    ? exams.filter(e => e.targetGrade === selectedGradeFilter)
+  // Nếu gradeFilter được truyền từ props → lock cứng, không cho user chuyển tab
+  const activeFilter = gradeFilter ?? selectedGradeFilter;
+  const filteredExams = activeFilter 
+    ? exams.filter(e => e.targetGrade === activeFilter)
     : exams;
 
   return (
@@ -48,27 +52,30 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam }) => {
           Danh sách bài kiểm tra
         </h3>
         
-        <div className="flex bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 overflow-x-auto w-full md:w-auto">
-          {[
-            { label: 'Tất cả', value: null },
-            { label: 'Khối 12', value: 12 },
-            { label: 'Khối 11', value: 11 },
-            { label: 'Khối 10', value: 10 }
-          ].map(tab => (
-            <button
-              key={tab.label}
-              onClick={() => setSelectedGradeFilter(tab.value)}
-              className={cn(
-                "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 md:flex-none",
-                selectedGradeFilter === tab.value 
-                  ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
-                  : "text-slate-400 hover:text-white hover:bg-slate-700/50"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Chỉ hiển thị bộ tab lọc khi KHÔNG có gradeFilter cứng từ props */}
+        {!gradeFilter && (
+          <div className="flex bg-slate-800/50 p-1.5 rounded-xl border border-slate-700/50 overflow-x-auto w-full md:w-auto">
+            {[
+              { label: 'Tất cả', value: null },
+              { label: 'Khối 12', value: 12 },
+              { label: 'Khối 11', value: 11 },
+              { label: 'Khối 10', value: 10 }
+            ].map(tab => (
+              <button
+                key={tab.label}
+                onClick={() => setSelectedGradeFilter(tab.value)}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex-1 md:flex-none",
+                  selectedGradeFilter === tab.value 
+                    ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
+                    : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? (
