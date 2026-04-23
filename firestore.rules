@@ -249,10 +249,10 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════
     // 💬 AI Chat Logs
     // ═══════════════════════════════════════════════════════════════
-    match /aiChats/{chatId} {
-      allow read:   if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    match /ai_chat_logs/{chatId} {
+      allow read:   if isAuthenticated() && resource.data.studentId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.studentId == request.auth.uid;
       // Không cho xóa chat log (bảo toàn lịch sử)
       allow delete: if isAdmin();
     }
