@@ -19,6 +19,7 @@ import {
   addDoc, Timestamp, doc, getDoc
 } from '../firebase';
 import { UserProfile, Attempt, CampaignMessage, Exam, Question } from '../types';
+import { GoogleGenAI } from '@google/genai';
 
 // ═══════════════════════════════════════════════════════════════════════
 //  THROTTLE CONFIG
@@ -154,7 +155,6 @@ async function fetchRecentErrors(studentId: string): Promise<{ errors: string[],
 //  CALL GEMINI FOR ONE STUDENT
 // ═══════════════════════════════════════════════════════════════════════
 async function generateLetterForStudent(prompt: string): Promise<string> {
-  const { GoogleGenAI } = await import('@google/genai');
   const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error('VITE_GEMINI_API_KEY missing');
   const ai = new GoogleGenAI({ apiKey });

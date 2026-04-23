@@ -233,7 +233,7 @@ service cloud.firestore {
     // ═══════════════════════════════════════════════════════════════
     // 📬 Module 7: Chiến dịch Tâm Thư AI
     // ═══════════════════════════════════════════════════════════════
-    match /campaignMessages/{messageId} {
+    match /campaign_messages/{messageId} {
       // Học sinh chỉ đọc thư gửi cho chính mình
       allow read: if isAuthenticated() &&
                      resource.data.studentId == request.auth.uid;
