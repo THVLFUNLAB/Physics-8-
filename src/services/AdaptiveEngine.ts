@@ -46,10 +46,10 @@ export const EXAM_TYPE_MULTIPLIER: Record<AdaptiveExamType, number> = {
 // Chỉ áp dụng khi isFirstSubmitToday === true (CVE-4 fix)
 
 function getStreakBonus(streak: number): number {
-  if (streak >= 30) return 50;
-  if (streak >= 14) return 20;
-  if (streak >= 7)  return 10;
-  if (streak >= 3)  return 5;
+  if (streak >= 30) return 2500;
+  if (streak >= 14) return 1000;
+  if (streak >= 7)  return 500;
+  if (streak >= 3)  return 250;
   return 0;
 }
 

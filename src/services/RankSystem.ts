@@ -32,7 +32,7 @@ export const RANKS: RankDef[] = [
   {
     id: 2,
     name: 'Bạc Đoàn',
-    minStars: 50,
+    minStars: 2500,
     color: 'text-slate-300',
     bgColor: 'from-slate-500/20 to-slate-600/10',
     borderColor: 'border-slate-400/40',
@@ -42,7 +42,7 @@ export const RANKS: RankDef[] = [
   {
     id: 3,
     name: 'Vàng Đoàn',
-    minStars: 150,
+    minStars: 7500,
     color: 'text-yellow-400',
     bgColor: 'from-yellow-600/20 to-yellow-700/10',
     borderColor: 'border-yellow-500/40',
@@ -52,7 +52,7 @@ export const RANKS: RankDef[] = [
   {
     id: 4,
     name: 'Bạch Kim',
-    minStars: 300,
+    minStars: 15000,
     color: 'text-cyan-300',
     bgColor: 'from-cyan-600/20 to-cyan-700/10',
     borderColor: 'border-cyan-400/40',
@@ -62,7 +62,7 @@ export const RANKS: RankDef[] = [
   {
     id: 5,
     name: 'Kim Cương',
-    minStars: 500,
+    minStars: 25000,
     color: 'text-blue-300',
     bgColor: 'from-blue-500/20 to-blue-600/10',
     borderColor: 'border-blue-400/40',
@@ -72,7 +72,7 @@ export const RANKS: RankDef[] = [
   {
     id: 6,
     name: 'Tinh Anh',
-    minStars: 800,
+    minStars: 40000,
     color: 'text-purple-400',
     bgColor: 'from-purple-600/20 to-purple-700/10',
     borderColor: 'border-purple-400/40',
@@ -82,7 +82,7 @@ export const RANKS: RankDef[] = [
   {
     id: 7,
     name: 'Cao Thủ',
-    minStars: 1200,
+    minStars: 60000,
     color: 'text-rose-400',
     bgColor: 'from-rose-600/20 to-rose-700/10',
     borderColor: 'border-rose-400/40',
@@ -92,7 +92,7 @@ export const RANKS: RankDef[] = [
   {
     id: 8,
     name: 'Thách Đấu',
-    minStars: 1800,
+    minStars: 90000,
     color: 'text-red-400',
     bgColor: 'from-red-600/20 to-red-700/10',
     borderColor: 'border-red-500/40',
@@ -102,7 +102,7 @@ export const RANKS: RankDef[] = [
   {
     id: 9,
     name: 'Quán Quân',
-    minStars: 2500,
+    minStars: 125000,
     color: 'text-amber-300',
     bgColor: 'from-amber-500/20 to-amber-400/10',
     borderColor: 'border-amber-400/40',
@@ -112,7 +112,7 @@ export const RANKS: RankDef[] = [
   {
     id: 10,
     name: 'Bất Tử',
-    minStars: 3500,
+    minStars: 175000,
     color: 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500',
     bgColor: 'from-amber-500/20 via-rose-500/20 to-purple-500/20',
     borderColor: 'border-amber-400/60',
@@ -185,16 +185,16 @@ export type StarAction =
   | 'daily_login';        // Đăng nhập mỗi ngày
 
 const STAR_REWARDS: Record<StarAction, { stars: number; label: string }> = {
-  complete_test:    { stars: 2,  label: 'Hoàn thành bài test' },
-  high_score:       { stars: 3,  label: 'Đạt điểm cao (≥8.0)' },
-  perfect_score:    { stars: 10, label: 'Đạt điểm tuyệt đối!' },
-  daily_streak_3:   { stars: 5,  label: 'Streak 3 ngày 🔥' },
-  daily_streak_7:   { stars: 10, label: 'Streak 7 ngày 🔥🔥' },
-  daily_streak_14:  { stars: 20, label: 'Streak 14 ngày 🔥🔥🔥' },
-  daily_streak_30:  { stars: 50, label: 'Streak 30 ngày 🔥👑' },
-  master_topic:     { stars: 15, label: 'Master chủ đề mới!' },
-  first_login:      { stars: 5,  label: 'Chào mừng tân binh!' },
-  daily_login:      { stars: 1,  label: 'Đăng nhập hàng ngày' },
+  complete_test:    { stars: 100,  label: 'Hoàn thành bài test' },
+  high_score:       { stars: 150,  label: 'Đạt điểm cao (≥8.0)' },
+  perfect_score:    { stars: 500, label: 'Đạt điểm tuyệt đối!' },
+  daily_streak_3:   { stars: 250,  label: 'Streak 3 ngày 🔥' },
+  daily_streak_7:   { stars: 500, label: 'Streak 7 ngày 🔥🔥' },
+  daily_streak_14:  { stars: 1000, label: 'Streak 14 ngày 🔥🔥🔥' },
+  daily_streak_30:  { stars: 2500, label: 'Streak 30 ngày 🔥👑' },
+  master_topic:     { stars: 750, label: 'Master chủ đề mới!' },
+  first_login:      { stars: 250,  label: 'Chào mừng tân binh!' },
+  daily_login:      { stars: 50,  label: 'Đăng nhập hàng ngày' },
 };
 
 /**
