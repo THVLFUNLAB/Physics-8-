@@ -3,11 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Global Admin Bypass (MIỄN TỬ KIM BÀI CHO ADMIN)
+    // ⚡ Global Admin Bypass — MIỄN TỬ KIM BÀI CHO ADMIN
     // ===============================================================
-    // Cho phép Admin (thayhauvatly) toàn quyền Thêm/Sửa/Xóa mọi thứ, 
-    // không bị giới hạn bởi luật của học sinh. Nhờ cái này mà Tool Migration 
-    // mới có thể "bế" điểm số của học sinh qua DB mới mà không bị chặn!
+    // Thầy Hậu có toàn quyền đọc/ghi mọi collection mà không bị
+    // chặn bởi bất kỳ rule nào bên dưới. Cần thiết cho:
+    //   - Tool Migration chuyển dữ liệu giữa các DB
+    //   - Admin dashboard đọc tất cả attempts/users
+    //   - Khởi tạo energyState khi tạo phòng thi
     match /{document=**} {
       allow read, write: if isAuthenticated() && (
         request.auth.token.email == "haunn.vietanhschool@gmail.com" ||
@@ -16,7 +18,7 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Helper Functions
+    // 🔧 Helper Functions
     // ===============================================================
     function isAuthenticated() {
       return request.auth != null;
@@ -34,17 +36,19 @@ service cloud.firestore {
     }
 
     function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+      return email is string &&
+             email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
     // ===============================================================
-    // Domain Validators
+    // 🔍 Domain Validators
     // ===============================================================
     function isValidUser(data) {
       return (data.uid == request.auth.uid || isAdmin()) &&
              isValidEmail(data.email) &&
              data.role in ['student', 'admin', 'assistant'] &&
-             (data.targetGroup == null || data.targetGroup in ['Chống Sai Ngu', 'Master Physics']) &&
+             (data.targetGroup == null ||
+              data.targetGroup in ['Chống Sai Ngu', 'Master Physics']) &&
              (data.redZones == null || data.redZones is list);
     }
 
@@ -54,32 +58,48 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
-    // ===============================================================
-    // Collection Rules
-    // ===============================================================
-
-    match /users/{userId} {
-      // Học sinh đọc profile của chính mình (để kiểm tra lượt dùng thử)
-      allow read: if isOwner(userId) || isAdmin();
-
-      // Tạo profile mới: phải là chính user đó, validate schema đầy đủ
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
-
-      // Cập nhật profile (full update với schema validation)
-      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
-
-      // [FIX] Cho phép học sinh tự increment usedAttempts (đếm lượt thử)
-      // Đây là "atomic counter update" — chỉ cho phép tăng field usedAttempts
-      // Không cần validate toàn bộ schema vì đây là merge update 1 field
-      allow write: if isAuthenticated() && isOwner(userId);
+    // Validate energyState write: chỉ cho phép tăng energy trong giới hạn hợp lệ
+    function isValidEnergyUpdate(incoming) {
+      return incoming.totalEnergy is number &&
+             incoming.totalEnergy >= 0 &&
+             incoming.totalEnergy <= 100 &&
+             // Bảo vệ: không cho phép ghi trực tiếp điểm số (classAttempts fields)
+             !("score" in incoming) &&
+             !("answers" in incoming) &&
+             !("status" in incoming);
     }
 
+    // ===============================================================
+    // 📋 Collection Rules
+    // ===============================================================
+
+    // ─── Users ─────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+      // Cho phép học sinh tự cập nhật profile (merge update)
+      allow update: if isAuthenticated() && isOwner(userId);
+      // [FIX] Atomic counter increment (usedAttempts, totalAttempts, stars, streak...)
+      allow write: if isAuthenticated() && isOwner(userId);
+
+      // Sub-collection: Siêu Trí Nhớ SM-2 (mỗi học sinh có riêng)
+      match /memoryLogs/{logId} {
+        allow read:   if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+        // Chỉ owner mới được update interval/easeFactor của chính mình
+        allow update: if isOwner(userId) &&
+                         request.resource.data.questionId == resource.data.questionId;
+        // Không cho xóa log ôn tập (bảo toàn lịch sử học tập)
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ─── Questions & Content (read-only cho students) ───────────────
     match /questions/{questionId} {
       allow read: if isAuthenticated();
-      // Write đã được Admin Bypass lo
+      // Write chỉ qua Admin Bypass
     }
 
-    // [FIX] Khai báo bổ sung cho collection clusters bị thiếu
     match /clusters/{clusterId} {
       allow read: if isAuthenticated();
     }
@@ -100,58 +120,142 @@ service cloud.firestore {
       allow read: if isAuthenticated();
     }
 
+    // ─── Logging ───────────────────────────────────────────────────
     match /loginLogs/{logId} {
       allow create: if isAuthenticated();
+      allow read:   if isAdmin();
     }
 
-    // [FIX] Usage logs: ghi nhận lượt thi của học sinh
     match /usage_logs/{logId} {
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow read: if isAdmin();
+      allow create: if isAuthenticated() &&
+                       request.resource.data.userId == request.auth.uid;
+      allow read:   if isAdmin();
     }
 
+    // ─── Attempts (điểm cá nhân — KHÔNG LIÊN QUAN PHÒNG THI) ────────
     match /attempts/{attemptId} {
-      allow read: if isOwner(resource.data.userId);
+      allow read:   if isOwner(resource.data.userId) || isAdmin();
       allow create: if isAuthenticated() && isValidAttempt(request.resource.data);
+      // Học sinh không được update attempt đã tạo (chỉ admin mới sửa được)
+      allow update: if isAdmin();
     }
 
     match /reportedQuestions/{reportId} {
-      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+                       request.resource.data.studentId == request.auth.uid;
+      allow read:   if isAdmin();
+      // Chỉ Admin mới resolve báo cáo
+      allow update: if isAdmin();
     }
 
-    // ═══ Module 4: Phòng Thi Tập Trung ═══
-
-    match /classes/{classId} {
-      allow read: if isAuthenticated();
-      allow update: if isAuthenticated(); // Student join/leave
-    }
-
-    match /classExams/{examId} {
-      allow read: if isAuthenticated();
-
-      match /participants/{participantId} {
-        allow read: if isAuthenticated();
-        allow write: if isAuthenticated() && request.auth.uid == participantId;
-      }
-    }
-
-    match /classAttempts/{attemptId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.studentId == request.auth.uid;
-    }
-
-    // ═══ Module 5: Khảo thí Offline & Macro Analytics ═══
+    // ─── Offline Session & Reports ─────────────────────────────────
     match /offline_session_records/{sessionId} {
-      allow read: if isAuthenticated();
-      // Cho phép 'admin' hoặc 'assistant' tạo session offline
-      allow create, update: if isAuthenticated(); 
+      allow read:          if isAuthenticated();
+      allow create, update: if isAuthenticated();
     }
 
     match /exam_reports/{reportId} {
-      allow read: if isAuthenticated();
-      // Cho phép cập nhật báo cáo tổng hợp
+      allow read:          if isAuthenticated();
       allow create, update: if isAuthenticated();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🏫 Module 4: Phòng Thi Tập Trung (Live Class Exam)
+    // ═══════════════════════════════════════════════════════════════
+
+    match /classes/{classId} {
+      allow read:   if isAuthenticated();
+      // Student join bằng update (không create/delete lớp)
+      allow update: if isAuthenticated();
+    }
+
+    match /classExams/{classExamId} {
+      // Mọi học sinh đã login đều đọc được thông tin phòng thi
+      allow read: if isAuthenticated();
+
+      // ── Sub-collection: Participants ──────────────────────────────
+      match /participants/{participantId} {
+        allow read: if isAuthenticated();
+        // Học sinh chỉ ghi document của chính mình (uid == participantId)
+        allow write: if isAuthenticated() && request.auth.uid == participantId;
+      }
+
+      // ── Sub-collection: energyState (R1 — ISOLATED) ──────────────
+      // TÁCH BIỆT HOÀN TOÀN khỏi classAttempts.
+      // Học sinh CHỈ được update energy (không create, không delete).
+      // Admin khởi tạo document qua Admin Bypass ở trên.
+      match /energyState/{docId} {
+        // Ai cũng đọc được năng lượng phòng thi (projector + học sinh)
+        allow read: if isAuthenticated();
+
+        // Học sinh: CHỈ được update, KHÔNG được create hay delete
+        allow update: if isAuthenticated() &&
+                         isValidEnergyUpdate(request.resource.data);
+
+        // Create/delete: chỉ Admin (qua Global Bypass ở trên)
+        // → Không cần khai báo thêm vì Admin Bypass đã bao phủ
+      }
+    }
+
+    // ── classAttempts: BẢO VỆ TUYỆT ĐỐI ────────────────────────────
+    // Collection cốt lõi lưu điểm số phòng thi.
+    // KHÔNG được phép ghi bất kỳ field gamification nào vào đây.
+    match /classAttempts/{attemptId} {
+      // Mọi student trong phòng thi đọc được (để hiển thị leaderboard)
+      allow read: if isAuthenticated();
+
+      // Create: học sinh tự tạo attempt của mình
+      allow create: if isAuthenticated() &&
+                       request.resource.data.studentId == request.auth.uid &&
+                       request.resource.data.score is number &&
+                       request.resource.data.status == 'in_progress' &&
+                       // ⛔ Không cho phép tạo với energy fields
+                       !("teamEnergy" in request.resource.data) &&
+                       !("energy"     in request.resource.data);
+
+      // Update: học sinh chỉ cập nhật attempt của chính mình
+      allow update: if isAuthenticated() &&
+                       resource.data.studentId == request.auth.uid &&
+                       // ⛔ Chốt chặn: KHÔNG cho phép inject gamification fields
+                       !("teamEnergy"   in request.resource.data) &&
+                       !("energy"       in request.resource.data) &&
+                       !("totalEnergy"  in request.resource.data) &&
+                       // ✅ Score phải là số hợp lệ (0–10)
+                       request.resource.data.score is number &&
+                       request.resource.data.score >= 0 &&
+                       request.resource.data.score <= 10 &&
+                       // ✅ Status chỉ được là 2 giá trị này
+                       request.resource.data.status in ['in_progress', 'submitted'];
+
+      // Delete: chỉ Admin (qua Global Bypass)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 📬 Module 7: Chiến dịch Tâm Thư AI
+    // ═══════════════════════════════════════════════════════════════
+    match /campaignMessages/{messageId} {
+      // Học sinh chỉ đọc thư gửi cho chính mình
+      allow read: if isAuthenticated() &&
+                     resource.data.studentId == request.auth.uid;
+      // Học sinh cập nhật isRead = true (mark as read) — không sửa nội dung
+      allow update: if isAuthenticated() &&
+                       resource.data.studentId == request.auth.uid &&
+                       request.resource.data.isRead == true &&
+                       request.resource.data.content    == resource.data.content &&
+                       request.resource.data.studentId  == resource.data.studentId;
+      // Create/delete: chỉ Admin (qua Global Bypass)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 💬 AI Chat Logs
+    // ═══════════════════════════════════════════════════════════════
+    match /aiChats/{chatId} {
+      allow read:   if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Không cho xóa chat log (bảo toàn lịch sử)
+      allow delete: if isAdmin();
+    }
+
   }
 }

@@ -21,7 +21,9 @@ import {
 import type { SidebarTab, TargetGroup, Part } from './types';
 import { diagnoseUserExam } from './services/geminiService';
 
-import { getCurrentRank, calculateTestRewards } from './services/RankSystem';
+import { getCurrentRank } from './services/RankSystem';
+import { calculateAdaptiveXP } from './services/AdaptiveEngine';
+import type { AdaptiveExamType } from './services/AdaptiveEngine.types';
 import { useDashboardStats } from './hooks/useDashboardStats';
 import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
@@ -77,6 +79,7 @@ const AIChatLogsDashboard = lazy(() => import('./components/AIChatLogsDashboard'
 
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
+import { ResetNoticeModal } from './components/ResetNoticeModal';
 
 // ── Icons ──
 import {
@@ -129,7 +132,7 @@ export default function App() {
   const [results, setResults] = useState<Attempt | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean } | null>(null);
+  const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean; xpBreakdown?: import('./services/AdaptiveEngine.types').IXPBreakdown } | null>(null);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
 
   // ═══ [SESSION PERSISTENCE] Lưu & khôi phục phiên thi khi bị văng ra ═══
@@ -866,8 +869,8 @@ export default function App() {
       updatedUser.notifications = newNotifications;
       updatedUser.failedQuestionIds = Array.from(newFailedQuestionIds);
       
-      if (redZones.length > 0) {
-        updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...redZones]));
+      if (aiResult.redZones && aiResult.redZones.length > 0) {
+        updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...aiResult.redZones]));
       }
 
       if (user.prescriptions) {
@@ -879,63 +882,61 @@ export default function App() {
         });
       }
 
-      // ── Gamification: XP + STREAK ──
-      // Công thức mới: Phân cấp chất lượng — số sao phản ánh đúng năng lực
-      // Điểm <5.0   : chỉ thưởng hoàn thành (rất ít, tránh spam)
-      // Điểm 5.0-6.9: trung bình
-      // Điểm 7.0-7.9: khá
-      // Điểm 8.0-8.9: giỏi (x1.5 bonus)
-      // Điểm ≥9.0   : xuất sắc (x2.0 bonus — đây là đích thực)
-      let scoreXP: number;
-      if (totalScore >= 9.0) {
-        scoreXP = Math.round(totalScore * 50);        // 9.0→450, 10→500
-      } else if (totalScore >= 8.0) {
-        scoreXP = Math.round(totalScore * 35);        // 8.0→280, 8.9→311
-      } else if (totalScore >= 7.0) {
-        scoreXP = Math.round(totalScore * 20);        // 7.0→140, 7.9→158
-      } else if (totalScore >= 5.0) {
-        scoreXP = Math.round(totalScore * 10);        // 5.0→50, 6.9→69
-      } else {
-        scoreXP = Math.round(totalScore * 5);         // <5.0: tối đa 25 XP (chặn spam)
-      }
-      const bonusXP = totalScore >= 9.0 ? 150 : totalScore > 8.0 ? 80 : 0; // Thưởng nóng cao hơn cho điểm xuất sắc
-      const earnedXP = scoreXP + bonusXP;
-
-      const prevStars = user.stars || 0;
-      const prevRank = getCurrentRank(prevStars);
-      updatedUser.stars = prevStars + earnedXP;
-
-      const rewards = calculateTestRewards(totalScore, user.streak || 0);
-      const streakBonusStars = rewards
-        .filter(r => r.action.startsWith('daily_streak'))
-        .reduce((sum, r) => sum + r.stars, 0);
-      updatedUser.stars += streakBonusStars;
+      // ═══ GAMIFICATION: SPRINT 1 — Physics9+ Adaptive XP Engine ═══
+      // CVE-1: weightFactor ngăn farm với đề ngắn
+      // CVE-2: rankFloor — dưới ngưỡng nhận 0 XP
+      // CVE-3: xpMultiplier phân biệt loại đề (STANDARD/REMEDIAL/...)
+      // CVE-4: isFirstSubmitToday guard chặn streak spam
+      // CVE-5: điều kiện >= 8.0 đã được fix trong engine
 
       const today = new Date().toISOString().slice(0, 10);
       const lastDate = user.lastStreakDate;
-      let newStreak = 1;
 
+      // ─ Streak: giữ | +1 | reset ──────────────────────────────────
+      let newStreak = 1;
       if (lastDate) {
-        if (lastDate === today) { newStreak = user.streak || 1; }
-        else {
+        if (lastDate === today) {
+          newStreak = user.streak || 1;
+        } else {
           const yesterday = new Date();
           yesterday.setDate(yesterday.getDate() - 1);
           const yesterdayStr = yesterday.toISOString().slice(0, 10);
           newStreak = lastDate === yesterdayStr ? (user.streak || 0) + 1 : 1;
         }
       }
+      const isFirstSubmitToday = lastDate !== today; // CVE-4 guard
 
-      updatedUser.streak = newStreak;
+      // ─ Tính XP ───────────────────────────────────────────────────
+      const examType: AdaptiveExamType =
+        (activeTest as any).adaptiveConfig?.examType ?? 'STANDARD';
+
+      const xpBreakdown = calculateAdaptiveXP(
+        totalScore,
+        activeTest.questions.length,
+        getCurrentRank(user.stars ?? 0).id,
+        examType,
+        isFirstSubmitToday,
+        user.streak ?? 0,
+      );
+
+      const earnedXP = xpBreakdown.finalXP;
+
+      // ─ Áp dụng vào user ──────────────────────────────────────────
+      const prevStars = user.stars ?? 0;
+      const prevRank  = getCurrentRank(prevStars);
+      updatedUser.stars         = prevStars + earnedXP + xpBreakdown.streakBonus;
+      updatedUser.streak        = newStreak;
       updatedUser.lastStreakDate = today;
-      updatedUser.lastActive = Timestamp.now();
+      updatedUser.lastActive    = Timestamp.now();
 
+      // ─ Rank Up ───────────────────────────────────────────────────
       const newRank = getCurrentRank(updatedUser.stars);
       if (newRank.id > prevRank.id) {
         setShowConfetti(true);
         newNotifications.push({
           id: `rank_up_${Date.now()}`,
           title: `🎉 Thăng cấp ${newRank.icon} ${newRank.name}!`,
-          message: `Chúc mừng! Bạn đã thăng lên ${newRank.name} với ${updatedUser.stars} ⭐ (+${earnedXP} XP bài thi${bonusXP > 0 ? ' + 🔥100 XP thưởng nóng' : ''})!`,
+          message: `Chúc mừng! Bạn đã thăng lên ${newRank.name} với ${updatedUser.stars} ⭐ (+${earnedXP} XP${xpBreakdown.streakBonus > 0 ? ` + 🔥${xpBreakdown.streakBonus} streak` : ''})!`,
           type: 'success',
           read: false,
           timestamp: Timestamp.now(),
@@ -949,7 +950,7 @@ export default function App() {
       // ── Chạy ngầm Thuật toán Siêu trí nhớ SM-2 bằng Batch Write ──
       syncMemoryLogs(user.uid, sm2Evaluations).catch(e => console.error("SM2 Sync failed", e));
 
-      setSubmissionResult({ score: totalScore, earnedXP, show: true });
+      setSubmissionResult({ score: totalScore, earnedXP, show: true, xpBreakdown });
       setResults(attempt);
       clearExamSession();
       setShowVirtualLab(false);
@@ -1209,23 +1210,86 @@ export default function App() {
       )}>
         <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
         {!user ? (
-          /* ══════ LANDING PAGE ══════ */
-          <div className="relative py-20 overflow-hidden">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-red-600/10 blur-[120px] rounded-full -z-10 pointer-events-none" />
-            <div className="flex flex-col items-center justify-center text-center">
-              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: "easeOut" }} className="max-w-4xl">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mb-8">
-                  <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
+          /* ══════ LANDING PAGE — Cinematic Video Hero ══════ */
+          <div className="relative w-full min-h-screen overflow-hidden flex flex-col items-center justify-center py-20 -mx-4 -mt-6 md:-mx-6 md:-mt-12 px-0">
+            {/* ── Video Background ── */}
+            <video
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover z-0"
+              src="/1000028512.mp4"
+              aria-hidden="true"
+            />
+
+            {/* ── Dark Overlay ── */}
+            <div className="absolute inset-0 bg-[#0B0F19]/85 z-10" />
+
+            {/* ── Content ── */}
+            <div className="relative z-20 flex flex-col items-center text-center px-4 w-full max-w-5xl mx-auto">
+              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: "easeOut" }} className="w-full">
+                {/* ── Badge ── */}
+                <div
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-[11px] font-black uppercase tracking-[0.25em] mb-10"
+                  style={{ background: 'rgba(0,0,0,0.6)', borderColor: 'rgba(255,255,255,0.3)', color: '#e2e8f0', backdropFilter: 'blur(8px)' }}
+                >
+                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
                   Hệ thống luyện thi Vật lý 2026
                 </div>
-                <h1 className="text-4xl sm:text-5xl md:text-8xl font-black text-white mb-6 md:mb-8 leading-[0.9] tracking-tighter">
-                  CHINH PHỤC <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-amber-500">8.0+ VẬT LÝ</span>
+
+                {/* ── Heading: cân đối 3 dòng ── */}
+                <h1
+                  className="font-black tracking-tighter text-center mb-8"
+                  style={{ isolation: 'isolate' }}
+                >
+                  {/* CHINH PHỤC */}
+                  <span style={{
+                    display: 'block',
+                    color: '#ffffff',
+                    fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
+                    lineHeight: 1.1,
+                    letterSpacing: '-0.02em',
+                    textShadow: '0 2px 30px rgba(0,0,0,1)',
+                    marginBottom: '0.1em',
+                  }}>CHINH PHỤC</span>
+
+                  {/* 9.0+ — điểm nhấn, lớn hơn nhưng không quá chênh */}
+                  <span style={{
+                    display: 'block',
+                    fontSize: 'clamp(4rem, 14vw, 9rem)',
+                    fontWeight: 900,
+                    lineHeight: 0.95,
+                    background: 'linear-gradient(135deg, #ef4444 0%, #f97316 60%, #fbbf24 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    marginBottom: '0.05em',
+                  }}>9.0+</span>
+
+                  {/* VẬT LÝ */}
+                  <span style={{
+                    display: 'block',
+                    color: '#ffffff',
+                    fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
+                    lineHeight: 1.1,
+                    letterSpacing: '-0.02em',
+                    textShadow: '0 2px 30px rgba(0,0,0,1)',
+                  }}>VẬT LÝ</span>
                 </h1>
-                <p className="text-base sm:text-lg md:text-2xl text-slate-400 mb-8 md:mb-12 max-w-2xl mx-auto leading-relaxed font-medium">
-                  Hệ thống luyện thi chiến thuật tích hợp <span className="text-white">AI chẩn đoán sư phạm</span>, 
-                  giúp bạn tối ưu hóa điểm số theo cấu trúc đề thi mới nhất của Bộ GD&ĐT.
-                </p>
+
+                {/* ── Subtitle ── */}
+                <div
+                  className="mb-10 max-w-xl mx-auto rounded-2xl px-6 py-4"
+                  style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.1)' }}
+                >
+                  <p className="text-sm sm:text-base md:text-lg leading-relaxed font-medium" style={{ color: 'rgba(241,245,249,0.9)' }}>
+                    Hệ thống luyện thi chiến thuật tích hợp{' '}
+                    <span style={{ color: '#ffffff', fontWeight: 700 }}>AI chẩn đoán sư phạm</span>,{' '}
+                    giúp bạn tối ưu hóa điểm số theo cấu trúc đề thi mới nhất của Bộ GD&ĐT.
+                  </p>
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
                   <div className="flex flex-col items-center gap-3">
                     <button onClick={handleSignIn} className="group relative bg-red-600 hover:bg-red-700 text-white px-12 py-5 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-2xl shadow-red-600/40 flex items-center gap-3 overflow-hidden">
@@ -1240,23 +1304,33 @@ export default function App() {
                   </div>
                   <div className="flex -space-x-3">
                     {[1, 2, 3, 4].map(i => (
-                      <div key={i} className="w-12 h-12 rounded-full border-4 border-slate-950 bg-slate-800 flex items-center justify-center overflow-hidden">
+                      <div key={i} className="w-12 h-12 rounded-full border-4 border-[#0B0F19] bg-slate-800 flex items-center justify-center overflow-hidden">
                         <img src={`https://picsum.photos/seed/user${i}/100/100`} alt="User" referrerPolicy="no-referrer" />
                       </div>
                     ))}
-                    <div className="w-12 h-12 rounded-full border-4 border-slate-950 bg-slate-900 flex items-center justify-center text-[10px] font-black text-slate-400">+2K</div>
+                    <div className="w-12 h-12 rounded-full border-4 border-[#0B0F19] bg-white/10 backdrop-blur-md flex items-center justify-center text-[10px] font-black text-white">+2K</div>
                   </div>
                 </div>
-                <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+
+                {/* ── Glassmorphism Feature Cards ── */}
+                <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
                   {[
                     { title: 'AI Chẩn đoán', desc: 'Phát hiện chính xác lỗ hổng kiến thức qua từng câu trả lời.', icon: BrainCircuit },
                     { title: 'Đề thi chuẩn', desc: 'Cập nhật liên tục theo cấu trúc đề thi 2026 của Bộ GD&ĐT.', icon: Target },
                     { title: 'Bệnh án học tập', desc: 'Theo dõi tiến trình hồi phục điểm số như một hồ sơ y tế.', icon: Activity },
                   ].map((feature, i) => (
-                    <div key={i} className="p-6 bg-slate-900/50 border border-slate-800 rounded-3xl hover:border-red-600/30 transition-colors">
-                      <feature.icon className="w-8 h-8 text-red-600 mb-4" />
-                      <h3 className="text-lg font-bold text-white mb-2">{feature.title}</h3>
-                      <p className="text-sm text-slate-500 leading-relaxed">{feature.desc}</p>
+                    <div
+                      key={i}
+                      className="backdrop-blur-xl border rounded-2xl p-6 transition-all duration-300 hover:scale-[1.02]"
+                      style={{
+                        background: 'rgba(255,255,255,0.08)',
+                        borderColor: 'rgba(255,255,255,0.25)',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
+                      }}
+                    >
+                      <feature.icon className="w-8 h-8 text-red-400 mb-4 drop-shadow-[0_0_8px_rgba(248,113,113,0.6)]" />
+                      <h3 className="text-lg font-bold mb-2" style={{ color: '#ffffff' }}>{feature.title}</h3>
+                      <p className="text-sm leading-relaxed" style={{ color: 'rgba(226,232,240,0.9)' }}>{feature.desc}</p>
                     </div>
                   ))}
                 </div>
@@ -1286,14 +1360,45 @@ export default function App() {
                       <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-slate-300 text-center mb-8 text-lg font-medium px-4">
                         {submissionResult.score >= 8.0 ? 'Mức độ thông hiểu của bạn sặc mùi thủ khoa. Tuyệt vời!' : submissionResult.score >= 6.0 ? 'Làm tốt lắm. Giữ vững phong độ để bứt phá thêm nhé!' : 'Hệ thống AI đã phát hiện lỗ hổng nghiêm trọng ở chuyên đề này. Vùng kiến thức này đã được đưa vào Danh sách Cách Ly Đỏ!'}
                       </motion.p>
-                      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5, type: 'spring' }} className="bg-slate-950/80 border border-slate-700 p-6 rounded-3xl w-full max-w-[280px] flex items-center justify-between shadow-inner mb-10">
-                        <div>
-                          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1 mb-1">XP Thu Thập</p>
-                          <p className="text-3xl font-black text-amber-400">+{submissionResult.earnedXP} XP</p>
+                      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5, type: 'spring' }} className="w-full flex flex-col gap-4 mb-10">
+                        <div className="bg-slate-950/80 border border-slate-700 p-6 rounded-3xl w-full flex items-center justify-between shadow-inner mx-auto max-w-[280px]">
+                          <div>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1 mb-1">XP Thu Thập</p>
+                            <p className="text-3xl font-black text-amber-400">+{submissionResult.earnedXP} XP</p>
+                          </div>
+                          <div className="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center">
+                            <Star className="w-6 h-6 text-amber-400" />
+                          </div>
                         </div>
-                        <div className="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center">
-                          <Star className="w-6 h-6 text-amber-400" />
-                        </div>
+
+                        {submissionResult.xpBreakdown && (
+                          <div className="bg-slate-950/50 border border-slate-800/80 p-4 rounded-2xl w-full max-w-sm mx-auto space-y-2 text-xs md:text-sm text-slate-400 font-medium">
+                            <div className="flex justify-between">
+                              <span>Điểm cơ sở ({submissionResult.xpBreakdown.rawScore}đ):</span>
+                              <span className="text-slate-200">{submissionResult.xpBreakdown.baseXP} XP</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Độ dài đề ({submissionResult.xpBreakdown.numQuestions} câu):</span>
+                              <span className="text-slate-200">×{submissionResult.xpBreakdown.weightFactor.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Hệ số loại đề:</span>
+                              <span className="text-slate-200">×{submissionResult.xpBreakdown.typeMultiplier}</span>
+                            </div>
+                            {submissionResult.xpBreakdown.streakBonus > 0 && (
+                              <div className="flex justify-between text-amber-400/90 font-bold">
+                                <span className="flex items-center gap-1">🔥 Thưởng chuyên cần:</span>
+                                <span>+{submissionResult.xpBreakdown.streakBonus} XP</span>
+                              </div>
+                            )}
+                            {submissionResult.xpBreakdown.belowFloor && (
+                              <div className="flex justify-between text-red-400 font-bold border-t border-slate-800 pt-2 mt-2">
+                                <span>🚨 Dưới điểm sàn ({submissionResult.xpBreakdown.rankFloor}đ):</span>
+                                <span>Bị hủy toàn bộ XP</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </motion.div>
                       <motion.button initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} onClick={() => setSubmissionResult({ ...submissionResult, show: false })} className={`w-full py-4 sm:py-5 rounded-2xl font-black text-white text-lg transition-all active:scale-95 shadow-xl flex items-center justify-center gap-3 ${submissionResult.score >= 6.0 ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20' : 'bg-red-600 hover:bg-red-500 shadow-red-600/30 animate-pulse'}`}>
                         {submissionResult.score >= 6.0 ? 'NHẬN THƯỞNG & XEM LỜI GIẢI' : 'CHẤP NHẬN BỆNH ÁN & CHỮA LỖI'}
@@ -1370,7 +1475,22 @@ export default function App() {
 
             {/* ──── CONTENT ROUTING ──── */}
             {activeView === 'liveExam' && <LazyWrap><LiveClassExam user={user} /></LazyWrap>}
-            {activeView === 'adaptive' && <LazyWrap><AdaptiveDashboard user={user} attempts={attempts} /></LazyWrap>}
+            {activeView === 'adaptive' && (
+              <LazyWrap>
+                <AdaptiveDashboard 
+                  user={user} 
+                  attempts={attempts} 
+                  onStartAdaptiveTest={(questions, config, assessment) => {
+                    setActiveTest({
+                      topic: `Đề Thích Ứng: ${config.examType}`,
+                      questions,
+                      adaptiveConfig: config,
+                    } as any);
+                    setActiveView('liveExam');
+                  }}
+                />
+              </LazyWrap>
+            )}
             {activeView === 'StudentView' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
               <LazyWrap>
                 <StudentViewSimulator 
@@ -1386,7 +1506,7 @@ export default function App() {
               <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
             )}
 
-            {(activeView === 'dashboard' || activeView === 'tasks') && activeView !== 'liveExam' && activeView !== 'adaptive' && activeView !== 'grade10' && activeView !== 'grade11' && activeView !== 'StudentView' && activeView !== 'history' && (
+            {(activeView === 'dashboard' || activeView === 'tasks') && (
               <>
                 <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic, examId)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
                 <section id="diagnosis" className="mt-16">
@@ -1568,6 +1688,11 @@ export default function App() {
 
       {/* ── MODAL KHAI BÁO BẮT BUỘC KHI ĐĂNG NHẬP LẦN ĐẦU ── */}
       {user && <StudentOnboardingModal user={user} />}
+
+      {/* ── THÔNG BÁO NÂNG CẤP HỆ THỐNG & RESET RANK ── */}
+      {user && user.role === 'student' && (
+        <ResetNoticeModal userId={user.uid} userName={user.displayName || user.email} />
+      )}
 
       </div>
     </div>

@@ -8,7 +8,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toast } from './Toast';
 import { 
-  Wifi, WifiOff, Smartphone, Shield, Search
+  Wifi, WifiOff, Smartphone, Shield, Search,
+  Users, Radio, Play, Plus, Trash2, Copy, Clock,
+  CheckCircle2, ChevronRight, X, Monitor, Square,
+  AlertTriangle, Eye
 } from 'lucide-react';
 import { ReviewExam } from './ReviewExam';
 
@@ -43,6 +46,12 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
   const [examTitle, setExamTitle] = useState('');
   const [examDuration, setExamDuration] = useState(50);
   const [autoSubmit, setAutoSubmit] = useState(true);
+
+  // ── Team Battle State ──
+  const [teamMode, setTeamMode] = useState(false);
+  const [teamAssignment, setTeamAssignment] = useState<'auto' | 'manual'>('auto');
+  const [teamNameA, setTeamNameA] = useState('Đội Đỏ 🔴');
+  const [teamNameB, setTeamNameB] = useState('Đội Xanh 🔵');
 
   // ── Live Dashboard State ──
   const [activeClassExam, setActiveClassExam] = useState<ClassExam | null>(null);
@@ -196,19 +205,47 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
     }
     try {
       const classDoc = classes.find(c => c.id === selectedClassId);
-      const examDoc = exams.find(e => e.id === selectedExamId);
+      const examDoc  = exams.find(e => e.id === selectedExamId);
 
-      await addDoc(collection(db, 'classExams'), {
+      // Tạo phiên thi
+      const classExamRef = await addDoc(collection(db, 'classExams'), {
         classId: selectedClassId,
-        examId: selectedExamId,
-        title: examTitle.trim() || `Phiên thi: ${examDoc?.title || 'Không tên'} — ${classDoc?.name || ''}`,
-        startTime: Timestamp.now(),
-        duration: examDuration,
-        status: 'live',
+        examId:  selectedExamId,
+        title:   examTitle.trim() || `Phiên thi: ${examDoc?.title || 'Không tên'} — ${classDoc?.name || ''}`,
+        startTime:  Timestamp.now(),
+        duration:   examDuration,
+        status:     'live',
         autoSubmit,
-        createdAt: Timestamp.now(),
+        createdAt:  Timestamp.now(),
+        // ── Team Battle ──
+        ...(teamMode && {
+          teamMode:       true,
+          teamAssignment,
+          teamNames: { A: teamNameA.trim() || 'Đội Đỏ 🔴', B: teamNameB.trim() || 'Đội Xanh 🔵' },
+        }),
       });
-      toast.success('🔴 PHIÊN THI ĐÃ BẮT ĐẦU! Học sinh có thể join bằng mã lớp.');
+
+      const examId = classExamRef.id;
+      const baseState = { totalEnergy: 0, lastCorrectBy: '', lastCorrectName: '',
+                          lastUpdated: Timestamp.now(), recentEvents: [], memberCount: 0 };
+
+      if (teamMode) {
+        // Team Battle: khởi tạo cả 3 document (room giữ lại cho fallback)
+        Promise.all([
+          setDoc(doc(db, 'classExams', examId, 'energyState', 'teamA'), baseState, { merge: true }),
+          setDoc(doc(db, 'classExams', examId, 'energyState', 'teamB'), baseState, { merge: true }),
+          setDoc(doc(db, 'classExams', examId, 'energyState', 'room'),  baseState, { merge: true }),
+        ]).catch(e => console.warn('[EnergyState] Team init failed (non-critical):', e));
+      } else {
+        // Chế độ thường
+        setDoc(doc(db, 'classExams', examId, 'energyState', 'room'), baseState, { merge: true })
+          .catch(e => console.warn('[EnergyState] Init failed (non-critical):', e));
+      }
+
+      toast.success(teamMode
+        ? `⚤️ PHIÊN THI ĐẤU ĐỘI BẮT ĐẦU! ${teamNameA} vs ${teamNameB}`
+        : '🔴 PHIÊN THI ĐÃ BẮT ĐẦU! Học sinh có thể join bằng mã lớp.'
+      );
       setTab('live');
     } catch (e) {
       console.error(e);
@@ -247,6 +284,26 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
   const openProjector = (classExamId: string) => {
     const url = `${window.location.origin}${window.location.pathname}?projector=${classExamId}`;
     window.open(url, '_blank', 'width=1920,height=1080');
+  };
+
+  // ── Team Battle: Gán đội thủ công cho học sinh ───────────────────────────────
+  const assignTeam = async (attempt: ClassAttempt, teamId: 'A' | 'B') => {
+    if (!attempt.id || !activeClassExam?.id) return;
+    try {
+      // Ghi vào classAttempts
+      await updateDoc(doc(db, 'classAttempts', attempt.id), { teamId });
+      // Ghi vào participants để useEnergyBuffer đọc đúng
+      await setDoc(
+        doc(db, 'classExams', activeClassExam.id, 'participants', attempt.studentId),
+        { teamId },
+        { merge: true }
+      );
+      const teamName = activeClassExam.teamNames?.[teamId] ?? `Đội ${teamId}`;
+      toast.success(`✅ Đã gán ${attempt.studentName} → ${teamName}`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Lỗi khi gán đội.');
+    }
   };
 
   // ══════════════════════════════════════════
@@ -557,6 +614,91 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                 </div>
               </div>
 
+              {/* ── Team Battle Toggle ── */}
+              <div className="border-t border-slate-700 pt-6 space-y-4">
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={teamMode}
+                    onChange={e => setTeamMode(e.target.checked)}
+                    className="w-5 h-5 bg-slate-800 border-slate-700 rounded accent-fuchsia-500"
+                  />
+                  <span className="text-sm font-black text-white">
+                    ⚤️ Bật chế độ Thi Đấu Đội
+                  </span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-widest">
+                    Chia lớp thành 2 đội thi đấu trực tiếp
+                  </span>
+                </label>
+
+                {teamMode && (
+                  <div className="space-y-4 pl-8 border-l-2 border-fuchsia-600/30">
+                    {/* Chế độ chia đội */}
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cách chia đội</label>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setTeamAssignment('auto')}
+                          className={cn(
+                            'flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all',
+                            teamAssignment === 'auto'
+                              ? 'bg-fuchsia-600 border-fuchsia-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                          )}
+                        >
+                          🤖 Tự động cân bằng
+                        </button>
+                        <button
+                          onClick={() => setTeamAssignment('manual')}
+                          className={cn(
+                            'flex-1 py-2.5 rounded-xl text-xs font-bold border transition-all',
+                            teamAssignment === 'manual'
+                              ? 'bg-fuchsia-600 border-fuchsia-500 text-white'
+                              : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
+                          )}
+                        >
+                          🎯 Thầy chọn thủ công
+                        </button>
+                      </div>
+                      {teamAssignment === 'auto' && (
+                        <p className="text-[10px] text-slate-500">
+                          Học sinh join theo thứ tự → tự được gán vào đội ít người hơn.
+                        </p>
+                      )}
+                      {teamAssignment === 'manual' && (
+                        <p className="text-[10px] text-amber-400">
+                          ⚠️ Thầy sẽ chọn đội cho từng học sinh trong Live Dashboard.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Tên đội */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Đội A</label>
+                        <input
+                          type="text"
+                          value={teamNameA}
+                          onChange={e => setTeamNameA(e.target.value)}
+                          placeholder="Đội Đỏ 🔴"
+                          className="w-full bg-slate-800 border border-red-600/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-red-500/50 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Đội B</label>
+                        <input
+                          type="text"
+                          value={teamNameB}
+                          onChange={e => setTeamNameB(e.target.value)}
+                          placeholder="Đội Xanh 🔵"
+                          className="w-full bg-slate-800 border border-blue-600/30 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500/50 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Start Button */}
               <button
                 onClick={startExamSession}
@@ -779,6 +921,7 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                         <tr className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800">
                           <th className="p-3 text-left">#</th>
                           <th className="p-3 text-left">Học sinh</th>
+                          {activeClassExam.teamMode && <th className="p-3 text-center">Đội</th>}
                           <th className="p-3 text-center">Online</th>
                           <th className="p-3 text-center">Đã làm</th>
                           <th className="p-3 text-center">Trạng thái</th>
@@ -807,6 +950,49 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
                                 <p className="text-white font-bold">{attempt.studentName}</p>
                                 <p className="text-[10px] text-slate-500">{attempt.studentEmail}</p>
                               </td>
+
+                              {/* ── Team Battle: cột Đội ── */}
+                              {activeClassExam.teamMode && (
+                                <td className="p-3 text-center">
+                                  {activeClassExam.teamAssignment === 'manual' ? (
+                                    // Nút gán tay
+                                    <div className="flex gap-1 justify-center">
+                                      <button
+                                        onClick={() => assignTeam(attempt, 'A')}
+                                        className={cn(
+                                          'px-2 py-1 rounded-lg text-[10px] font-black border transition-all',
+                                          attempt.teamId === 'A'
+                                            ? 'bg-red-600 border-red-500 text-white'
+                                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-red-600/50'
+                                        )}
+                                      >
+                                        {activeClassExam.teamNames?.A?.slice(0,4) ?? 'A'}
+                                      </button>
+                                      <button
+                                        onClick={() => assignTeam(attempt, 'B')}
+                                        className={cn(
+                                          'px-2 py-1 rounded-lg text-[10px] font-black border transition-all',
+                                          attempt.teamId === 'B'
+                                            ? 'bg-blue-600 border-blue-500 text-white'
+                                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-blue-600/50'
+                                        )}
+                                      >
+                                        {activeClassExam.teamNames?.B?.slice(0,4) ?? 'B'}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    // Auto mode: chỉ hiển thị badge
+                                    <span className={cn(
+                                      'px-2 py-1 rounded-lg text-[10px] font-black border',
+                                      attempt.teamId === 'A' ? 'bg-red-600/20 text-red-400 border-red-600/30'
+                                        : attempt.teamId === 'B' ? 'bg-blue-600/20 text-blue-400 border-blue-600/30'
+                                        : 'text-slate-600 border-transparent'
+                                    )}>
+                                      {attempt.teamId ?? '—'}
+                                    </span>
+                                  )}
+                                </td>
+                              )}
                               <td className="p-3 text-center">
                                 {online ? (
                                   <Wifi className="w-4 h-4 text-green-400 mx-auto" />

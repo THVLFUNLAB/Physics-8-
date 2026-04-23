@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { voiceAITutor } from '../services/geminiService';
-import { Mic, MicOff, X, Volume2, Send } from 'lucide-react';
+import { Mic, MicOff, X, Send, MessageCircle } from 'lucide-react';
 import MathRenderer from '../lib/MathRenderer';
 import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -10,41 +10,15 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 const THAY_HAU_AVATAR = '/thay-hau-avatar.png';
 
 // ============================================================
-// VOICE TUTOR BUTTON — Gia sư AI giọng nói "Thầy Hậu"
+// VOICE TUTOR BUTTON — Gia sư AI "Thầy Hậu"
 // ============================================================
-// Tính năng chính:
-// 1. Speech-to-Text (Web Speech API) — Ghi nhận giọng nói học sinh
-// 2. AI Processing via Gemini Flash — Gợi mở tư duy, không giải hộ
-// 3. Text-to-Speech (speechSynthesis) — Đọc phản hồi AI bằng giọng nói
-// 4. Audio Visualizer CSS animation — Hiệu ứng sóng âm khi nói
-// 5. CustomEvent 'aivoice-active' — Phối hợp tạm dừng BackgroundMusic
+// Chế độ: TEXT-ONLY (không TTS, không đọc giọng)
+// 1. Speech-to-Text (Web Speech API) — Ghi nhận giọng nói, hiện thành text
+// 2. Text input — Học sinh gõ câu hỏi
+// 3. AI Processing via Gemini Flash — Trả lời đầy đủ bằng text + LaTeX
+// 4. MathRenderer — Render công thức chuẩn tuyệt đối, không lỗi font
+// 5. Firestore logging — Ghi log ai_chat_logs cho Admin theo dõi
 // ============================================================
-
-// NÂNG CẤP BỘ LỌC VĂN BẢN (Text Sanitizer)
-const sanitizeForSpeech = (text: string) => {
-  // Loại bỏ hoàn toàn các ký tự Markdown (**, *, #)
-  let clean = text.replace(/[*_#`]/g, '');
-  
-  // Chuyển đổi các công thức LaTeX cơ bản thành chữ tiếng Việt dễ đọc
-  clean = clean.replace(/\$\$?(.*?)\$\$?/g, (_, formula) => {
-    return formula
-      .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1 chia $2')
-      .replace(/\\sqrt\{([^}]+)\}/g, 'căn $1')
-      .replace(/\\Delta/g, 'delta')
-      .replace(/\\omega/g, 'omega')
-      .replace(/\\vec\{([^}]+)\}/g, 'vectơ $1')
-      .replace(/=/g, ' bằng ')
-      .replace(/\+/g, ' cộng ')
-      .replace(/-/g, ' trừ ')
-      .replace(/\*/g, ' nhân ')
-      .replace(/\//g, ' chia ');
-  });
-
-  // Xóa bỏ các ký hiệu gốc nếu còn sót
-  clean = clean.replace(/\\frac/g, '').replace(/\\sqrt/g, 'căn').replace(/\$|\\/g, '');
-
-  return clean.replace(/\s+/g, ' ').trim();
-};
 
 interface VoiceTutorButtonProps {
   questionContent: string;
@@ -52,8 +26,7 @@ interface VoiceTutorButtonProps {
   className?: string;
 }
 
-type TutorPhase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
-
+type TutorPhase = 'idle' | 'listening' | 'thinking' | 'error';
 
 // ── Detect Speech Recognition API ──
 const SpeechRecognitionAPI =
@@ -69,106 +42,42 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const [phase, setPhase] = useState<TutorPhase>('idle');
   const [isOpen, setIsOpen] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'student' | 'ai'; text: string }[]>([]);
   const [inputText, setInputText] = useState('');
 
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const currentCloudAudioRef = useRef<HTMLAudioElement | null>(null);
-  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
-  const cloudAudioCanceledRef = useRef<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<string>('');
-  const didUnlockAudioRef = useRef<boolean>(false);
-  const cloudAudioCtxRef = useRef<AudioContext | null>(null);
-  const cloudSourcesRef = useRef<AudioBufferSourceNode[]>([]);
-
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-
-  const stopCloudAudio = useCallback(() => {
-    cloudAudioCanceledRef.current = true;
-    if (cloudAudioCtxRef.current) {
-      cloudSourcesRef.current.forEach(s => { try { s.stop(); } catch(e){} });
-      cloudSourcesRef.current = [];
-    }
-    if (currentCloudAudioRef.current) {
-      currentCloudAudioRef.current.pause();
-    }
-  }, []);
-
-  // ── Dispatch aivoice-active custom event ──
-  const dispatchVoiceEvent = useCallback((active: boolean) => {
-    window.dispatchEvent(new CustomEvent('aivoice-active', { detail: { active } }));
-  }, []);
-
-  // ── Cleanup on unmount & Load Voices ──
-  useEffect(() => {
-    const loadVoices = () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        setAvailableVoices(window.speechSynthesis.getVoices());
-      }
-    };
-    
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
-
-    return () => {
-      recognitionRef.current?.abort?.();
-      window.speechSynthesis?.cancel();
-      stopCloudAudio();
-      dispatchVoiceEvent(false);
-    };
-  }, [dispatchVoiceEvent]);
 
   // ── Auto-scroll chat ──
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory]);
+  }, [chatHistory, phase]);
 
-  // ── Check browser support ──
+  // ── Cleanup on unmount ──
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort?.();
+    };
+  }, []);
+
   const isSpeechSupported = !!SpeechRecognitionAPI;
-  const isSynthSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   // ══════════════════════════════════════════
-  //  START LISTENING
+  //  START LISTENING (STT only — không TTS)
   // ══════════════════════════════════════════
   const startListening = useCallback(() => {
     if (!SpeechRecognitionAPI) {
-      setErrorMsg('Trình duyệt không hỗ trợ ghi âm giọng nói. Hãy dùng Chrome hoặc Edge.');
+      setErrorMsg('Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome hoặc Edge.');
       setPhase('error');
       return;
-    }
-
-    // Cancel any ongoing speech
-    window.speechSynthesis?.cancel();
-    stopCloudAudio();
-
-    // Mobile Audio Unlock
-    if (!didUnlockAudioRef.current && typeof window !== 'undefined') {
-        if (globalAudioRef.current) {
-            globalAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-            const p = globalAudioRef.current.play();
-            if (p !== undefined) {
-                 p.then(() => globalAudioRef.current?.pause()).catch(() => {});
-            }
-        }
-        if ('speechSynthesis' in window) {
-            const unlockUtterance = new SpeechSynthesisUtterance('');
-            unlockUtterance.volume = 0;
-            window.speechSynthesis.speak(unlockUtterance);
-            window.speechSynthesis.cancel();
-        }
-        didUnlockAudioRef.current = true;
     }
 
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = 'vi-VN';
     recognition.interimResults = true;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -176,7 +85,6 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       setTranscript('');
       transcriptRef.current = '';
       setErrorMsg('');
-      dispatchVoiceEvent(true);
     };
 
     recognition.onresult = (event: any) => {
@@ -190,25 +98,21 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
           interimText += result[0].transcript;
         }
       }
-      setTranscript(finalText || interimText);
-      transcriptRef.current = finalText || interimText;
+      const combined = finalText || interimText;
+      setTranscript(combined);
+      transcriptRef.current = combined;
     };
 
     recognition.onend = () => {
-      // Only process if we have transcript and were in listening mode
-      if (phase === 'listening' || recognitionRef.current) {
-        const currentTranscript = transcriptRef.current;
-        if (currentTranscript.trim()) {
-          processWithAI(currentTranscript.trim());
-        } else {
-          setPhase('idle');
-          dispatchVoiceEvent(false);
-        }
+      const currentTranscript = transcriptRef.current;
+      if (currentTranscript.trim()) {
+        processWithAI(currentTranscript.trim());
+      } else {
+        setPhase('idle');
       }
     };
 
     recognition.onerror = (event: any) => {
-      console.error('[VoiceTutor] Speech Recognition Error:', event.error);
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setErrorMsg('Mic bị chặn. Hãy cho phép truy cập Microphone trong cài đặt trình duyệt.');
       } else if (event.error === 'no-speech') {
@@ -219,7 +123,6 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
         setErrorMsg('Có lỗi xảy ra khi ghi âm. Thử lại nhé!');
       }
       setPhase('error');
-      dispatchVoiceEvent(false);
     };
 
     recognitionRef.current = recognition;
@@ -227,191 +130,21 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     try {
       recognition.start();
     } catch (e) {
-      console.error('[VoiceTutor] Failed to start recognition:', e);
       setErrorMsg('Không thể bật mic. Hãy kiểm tra quyền truy cập Microphone.');
       setPhase('error');
-      dispatchVoiceEvent(false);
     }
-  }, [phase, transcript, dispatchVoiceEvent]);
+  }, []);
 
-  // ══════════════════════════════════════════
-  //  STOP LISTENING
-  // ══════════════════════════════════════════
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop?.();
   }, []);
 
   // ══════════════════════════════════════════
-  //  TEXT-TO-SPEECH — Cloud-first strategy
-  //  (Google Translate TTS endpoint is reliable
-  //   across all devices including mobile)
-  // ══════════════════════════════════════════
-
-  /**
-   * Split text into sentences ≤ 180 chars each 
-   * (Google TTS endpoint limit is ~200 chars)
-   */
-  const splitIntoChunks = useCallback((text: string): string[] => {
-    // First split by sentence boundaries
-    const rawSentences = text.split(/(?<=[.!?。])\s+/).filter(s => s.trim());
-    const chunks: string[] = [];
-
-    for (const sentence of rawSentences) {
-      if (sentence.length <= 180) {
-        chunks.push(sentence);
-      } else {
-        // Split long sentences by comma/semicolon
-        const parts = sentence.split(/(?<=[,;:])\s+/);
-        let current = '';
-        for (const part of parts) {
-          if ((current + ' ' + part).trim().length > 180 && current) {
-            chunks.push(current.trim());
-            current = part;
-          } else {
-            current = current ? current + ' ' + part : part;
-          }
-        }
-        if (current.trim()) chunks.push(current.trim());
-      }
-    }
-
-    return chunks.length > 0 ? chunks : [text.substring(0, 180)];
-  }, []);
-
-  /**
-   * Cloud TTS (primary) — fetches audio from Google Translate TTS
-   * Uses Web Audio API for GAPLESS seamless playback across chunks!
-   */
-  const speakWithCloudTTS = useCallback(async (text: string) => {
-    stopCloudAudio();
-    cloudAudioCanceledRef.current = false;
-    const chunks = splitIntoChunks(text);
-    
-    setPhase('speaking');
-    dispatchVoiceEvent(true);
-
-    if (!cloudAudioCtxRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContextClass) {
-          cloudAudioCtxRef.current = new AudioContextClass();
-      }
-    }
-    const audioCtx = cloudAudioCtxRef.current;
-    
-    if (!audioCtx) {
-        throw new Error("Trình duyệt không hỗ trợ Web Audio API, thử dùng HTMLAudio");
-    }
-
-    if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-    }
-
-    const getAudioUrl = (sentence: string) => 
-      `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=vi&q=${encodeURIComponent(sentence.trim())}`;
-
-    let nextStartTime = audioCtx.currentTime + 0.1; // Chừa tí thời gian khởi tạo
-    let hasPlayedAny = false;
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (cloudAudioCanceledRef.current) break;
-
-      try {
-        const response = await fetch(getAudioUrl(chunks[i]));
-        if (!response.ok) throw new Error("Network error");
-        const arrayBuffer = await response.arrayBuffer();
-        
-        if (cloudAudioCanceledRef.current) break;
-
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        
-        if (cloudAudioCanceledRef.current) break;
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(audioCtx.destination);
-
-        const startTime = Math.max(audioCtx.currentTime, nextStartTime);
-        source.start(startTime);
-        cloudSourcesRef.current.push(source);
-        hasPlayedAny = true;
-
-        nextStartTime = startTime + audioBuffer.duration;
-
-        if (i === chunks.length - 1) {
-          source.onended = () => {
-             if (!cloudAudioCanceledRef.current) {
-                setPhase('idle');
-                dispatchVoiceEvent(false);
-             }
-          };
-        }
-      } catch (err) {
-         console.warn("[VoiceTutor] Failed block chunk:", err);
-      }
-    }
-
-    if (!hasPlayedAny && !cloudAudioCanceledRef.current) {
-       throw new Error("Không play được WebAudio nào.");
-    }
-  }, [dispatchVoiceEvent, splitIntoChunks, stopCloudAudio]);
-
-  /**
-   * Native TTS fallback — only used if Cloud TTS completely fails
-   */
-  const speakWithNativeTTS = useCallback((text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const viVoices = availableVoices.filter(v => v.lang.startsWith('vi'));
-    if (viVoices.length > 0) {
-      let bestVoice = viVoices.find(v => 
-        v.name.includes('Natural') || v.name.includes('Online') || 
-        v.name.includes('Google') || v.name.includes('HoaiMy')
-      );
-      if (!bestVoice) bestVoice = viVoices[0];
-      utterance.voice = bestVoice;
-    }
-
-    utterance.onstart = () => setPhase('speaking');
-    utterance.onend = () => { setPhase('idle'); dispatchVoiceEvent(false); };
-    utterance.onerror = () => { setPhase('idle'); dispatchVoiceEvent(false); };
-
-    synthRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  }, [dispatchVoiceEvent, availableVoices]);
-
-  // ══════════════════════════════════════════
-  //  SPEAK RESPONSE — Entry point
-  //  Strategy: Cloud-first, native fallback
-  // ══════════════════════════════════════════
-  const speakResponse = useCallback((text: string) => {
-    window.speechSynthesis?.cancel();
-    stopCloudAudio();
-
-    const cleanText = sanitizeForSpeech(text);
-    
-    // Always try Cloud TTS first — more reliable on mobile/cross-platform
-    cloudAudioCanceledRef.current = false;
-    speakWithCloudTTS(cleanText).catch((err) => {
-      console.warn('[VoiceTutor] Cloud TTS failed, trying native:', err);
-      // Fallback to native if cloud fails entirely
-      if (isSynthSupported) {
-        speakWithNativeTTS(cleanText);
-      } else {
-        setPhase('idle');
-        dispatchVoiceEvent(false);
-      }
-    });
-  }, [speakWithCloudTTS, speakWithNativeTTS, isSynthSupported, dispatchVoiceEvent, stopCloudAudio]);
-
-  // ══════════════════════════════════════════
-  //  PROCESS WITH AI (Gemini Flash)
+  //  PROCESS WITH AI — Text-only response
   // ══════════════════════════════════════════
   const processWithAI = useCallback(async (studentText: string) => {
     setPhase('thinking');
+    setTranscript('');
     setChatHistory(prev => [...prev, { role: 'student', text: studentText }]);
 
     try {
@@ -421,53 +154,42 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
         studentText
       );
 
-      setAiResponse(response);
       setChatHistory(prev => [...prev, { role: 'ai', text: response }]);
+      setPhase('idle');
 
-      // ── Ghi log lên Firestore cho Admin theo dõi ──
+      // ── Ghi log lên Firestore ──
       try {
         const user = auth.currentUser;
         if (user) {
           addDoc(collection(db, 'ai_chat_logs'), {
             studentId: user.uid,
             studentName: user.displayName || user.email || 'Ẩn danh',
-            questionContent: questionContent,
+            questionContent,
             studentChat: studentText,
             aiResponse: response,
-            timestamp: serverTimestamp()
+            timestamp: serverTimestamp(),
           });
         }
       } catch (logErr) {
-        console.error('[VoiceTutor] Bỏ qua lỗi ghi log:', logErr);
+        // Bỏ qua lỗi log, không ảnh hưởng UX
       }
-
-      // ── Muted Audio (Text-Only Mode) ──
-      setPhase('idle');
-      dispatchVoiceEvent(false);
     } catch (error) {
-      console.error('[VoiceTutor] AI Error:', error);
       setErrorMsg('AI đang gặp sự cố. Em thử lại sau nhé!');
       setPhase('error');
-      dispatchVoiceEvent(false);
     }
-  }, [questionContent, detailedSolution, dispatchVoiceEvent]);
+  }, [questionContent, detailedSolution]);
 
   // ══════════════════════════════════════════
   //  CLOSE / RESET
   // ══════════════════════════════════════════
   const handleClose = useCallback(() => {
     recognitionRef.current?.abort?.();
-    window.speechSynthesis?.cancel();
-    stopCloudAudio();
-    dispatchVoiceEvent(false);
     setPhase('idle');
     setTranscript('');
-    setAiResponse('');
     setErrorMsg('');
     setIsOpen(false);
-  }, [dispatchVoiceEvent, stopCloudAudio]);
+  }, []);
 
-  // ── Handle toggle of main button ──
   const handleToggle = useCallback(() => {
     if (isOpen) {
       handleClose();
@@ -477,56 +199,36 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     }
   }, [isOpen, handleClose]);
 
-  // ── Handle mic button click ──
   const handleMicClick = useCallback(() => {
-    // Note: Audio unlock is now handled in startListening using globalAudioRef
-
     if (phase === 'listening') {
       stopListening();
     } else if (phase === 'idle' || phase === 'error') {
       startListening();
-    } else if (phase === 'speaking') {
-      window.speechSynthesis?.cancel();
-      stopCloudAudio();
-      setPhase('idle');
-      dispatchVoiceEvent(false);
     }
-  }, [phase, startListening, stopListening, dispatchVoiceEvent, stopCloudAudio]);
+  }, [phase, startListening, stopListening]);
 
-  // ── Handle text submit ──
   const handleTextSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!inputText.trim()) return;
-    
-    // Stop any ongoing voice operations
-    window.speechSynthesis?.cancel();
-    stopCloudAudio();
+    if (!inputText.trim() || phase === 'thinking') return;
     recognitionRef.current?.stop?.();
-
     processWithAI(inputText.trim());
     setInputText('');
-  }, [inputText, processWithAI]);
+  }, [inputText, phase, processWithAI]);
 
   // ══════════════════════════════════════════
   //  RENDER
   // ══════════════════════════════════════════
-
   return (
     <>
-      {/* ═══ CSS Keyframes for Audio Visualizer ═══ */}
+      {/* ═══ CSS Keyframes ═══ */}
       <style>{`
-        @keyframes voiceBar1 { 0%,100%{height:6px} 50%{height:22px} }
-        @keyframes voiceBar2 { 0%,100%{height:10px} 50%{height:28px} }
-        @keyframes voiceBar3 { 0%,100%{height:4px} 50%{height:18px} }
-        @keyframes voiceBar4 { 0%,100%{height:8px} 50%{height:24px} }
-        @keyframes voiceBar5 { 0%,100%{height:6px} 50%{height:16px} }
-        @keyframes voicePulseRing {
-          0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(2.2); opacity: 0; }
-        }
         @keyframes thinkingDot {
           0%, 80%, 100% { transform: scale(0.6); opacity: 0.3; }
           40% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes voicePulseRing {
+          0% { transform: scale(1); opacity: 0.6; }
+          100% { transform: scale(2.2); opacity: 0; }
         }
       `}</style>
 
@@ -539,7 +241,6 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
             ? "bg-red-600/20 border-red-500/50 text-red-400 hover:bg-red-600/30"
             : "bg-gradient-to-r from-violet-600/20 to-cyan-600/20 border-violet-500/40 text-violet-300 hover:border-violet-400 hover:shadow-violet-500/20 hover:scale-105",
           phase === 'listening' && "animate-pulse border-green-500/50 bg-green-600/20 text-green-400",
-          phase === 'speaking' && "border-cyan-500/50 bg-cyan-600/20 text-cyan-400",
           className
         )}
         title={isOpen ? "Đóng Gia sư AI" : "Hỏi Thầy Hậu AI"}
@@ -553,8 +254,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
           </>
         )}
 
-        {/* Pulse ring when active */}
-        {(phase === 'listening' || phase === 'speaking') && (
+        {/* Pulse ring when listening */}
+        {phase === 'listening' && (
           <span
             className="absolute inset-0 rounded-2xl border-2 border-current pointer-events-none"
             style={{ animation: 'voicePulseRing 1.5s ease-out infinite' }}
@@ -562,18 +263,17 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
         )}
       </button>
 
-      {/* ═══ Chat Panel (Floating) ═══ */}
+      {/* ═══ Chat Panel ═══ */}
       {isOpen && (
-        <div className="fixed bottom-16 right-2 left-2 md:bottom-24 md:right-8 md:left-auto md:w-[380px] z-[250] max-h-[45vh] md:max-h-[70vh] bg-slate-950/95 backdrop-blur-xl border border-slate-700/60 rounded-3xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 zoom-in-95 duration-300">
-          <audio ref={globalAudioRef} preload="none" className="hidden" aria-hidden="true" />
+        <div className="fixed bottom-16 right-2 left-2 md:bottom-24 md:right-8 md:left-auto md:w-[420px] z-[250] max-h-[55vh] md:max-h-[72vh] bg-slate-950/97 backdrop-blur-xl border border-slate-700/60 rounded-3xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 zoom-in-95 duration-300">
+
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-slate-800/60 bg-gradient-to-r from-violet-950/40 to-cyan-950/40">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800/60 bg-gradient-to-r from-violet-950/40 to-cyan-950/40 flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className={cn(
-                "w-10 h-10 rounded-xl overflow-hidden transition-all ring-2",
-                phase === 'listening' ? "ring-green-500/60" :
-                phase === 'thinking' ? "ring-amber-500/60 animate-pulse" :
-                phase === 'speaking' ? "ring-cyan-500/60" :
+                "w-9 h-9 rounded-xl overflow-hidden ring-2 transition-all",
+                phase === 'listening' ? "ring-green-500/70" :
+                phase === 'thinking' ? "ring-amber-500/70 animate-pulse" :
                 "ring-violet-500/40"
               )}>
                 <img src={THAY_HAU_AVATAR} alt="Thầy Hậu AI" className="w-full h-full object-cover" />
@@ -582,63 +282,62 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
                 <h4 className="text-sm font-black text-white tracking-tight">Thầy Hậu AI</h4>
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                   {phase === 'idle' && 'Sẵn sàng hỗ trợ'}
-                  {phase === 'listening' && '🎤 Đang nghe em nói...'}
-                  {phase === 'thinking' && '🧠 Thầy đang nghĩ...'}
-                  {phase === 'speaking' && '🔊 Thầy đang nói...'}
+                  {phase === 'listening' && '🎤 Đang nghe...'}
+                  {phase === 'thinking' && '🧠 Thầy đang soạn trả lời...'}
                   {phase === 'error' && '⚠️ Có lỗi xảy ra'}
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleClose}
-              className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            >
+            <button onClick={handleClose} className="p-2 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar min-h-[120px]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[100px]">
+            {/* Trạng thái chào mừng */}
             {chatHistory.length === 0 && phase === 'idle' && (
               <div className="text-center py-6 space-y-3">
-                <div className="w-20 h-20 mx-auto rounded-2xl overflow-hidden ring-2 ring-violet-500/30 shadow-lg shadow-violet-500/10">
+                <div className="w-16 h-16 mx-auto rounded-2xl overflow-hidden ring-2 ring-violet-500/30 shadow-lg shadow-violet-500/10">
                   <img src={THAY_HAU_AVATAR} alt="Thầy Hậu AI" className="w-full h-full object-cover" />
                 </div>
                 <p className="text-sm font-bold text-white">Xin chào em! 👋</p>
                 <p className="text-xs text-slate-500 leading-relaxed px-4">
-                  Bấm nút bên dưới rồi hỏi Thầy bất kỳ điều gì về câu hỏi này nhé!
+                  Gõ câu hỏi hoặc bấm 🎤 để nói — Thầy sẽ giải thích đầy đủ bằng văn bản và công thức.
                 </p>
                 {!isSpeechSupported && (
-                  <p className="text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mx-2">
-                    ⚠️ Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome / Edge.
+                  <p className="text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2 mx-2">
+                    ⚠️ Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome / Edge hoặc gõ chữ bên dưới.
                   </p>
                 )}
               </div>
             )}
 
+            {/* Lịch sử chat */}
             {chatHistory.map((msg, idx) => (
               <div
                 key={idx}
                 className={cn(
-                  "max-w-[95%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words",
+                  "max-w-[96%] px-4 py-3 rounded-2xl text-sm leading-relaxed",
                   msg.role === 'student'
                     ? "ml-auto bg-violet-600/20 border border-violet-500/30 text-violet-100 rounded-br-md"
-                    : "mr-auto bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-bl-md"
+                    : "mr-auto bg-slate-800/80 border border-slate-700/50 text-slate-100 rounded-bl-md"
                 )}
               >
                 {msg.role === 'ai' && (
-                  <div className="flex items-center gap-1.5 mb-1.5">
+                  <div className="flex items-center gap-1.5 mb-2">
                     <img src={THAY_HAU_AVATAR} alt="" className="w-4 h-4 rounded-full" />
-                    <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-wider">Thầy Hậu AI</span>
+                    <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider">Thầy Hậu AI</span>
                   </div>
                 )}
-                <div className="[&_.katex]:!text-sm [&_.katex-display]:!my-1 [&_p]:mb-0">
+                {/* MathRenderer: render LaTeX $...$ và $$...$$ chuẩn tuyệt đối */}
+                <div className="[&_.katex]:!text-sm [&_.katex-display]:!my-2 [&_.katex-display]:overflow-x-auto [&_p]:mb-1 [&_p:last-child]:mb-0">
                   <MathRenderer content={msg.text} />
                 </div>
               </div>
             ))}
 
-            {/* Thinking indicator */}
+            {/* Thinking dots */}
             {phase === 'thinking' && (
               <div className="mr-auto bg-slate-800/80 border border-slate-700/50 rounded-2xl rounded-bl-md px-5 py-4 flex items-center gap-2">
                 {[0, 1, 2].map(i => (
@@ -648,13 +347,14 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
                     style={{ animation: `thinkingDot 1.4s ease-in-out ${i * 0.2}s infinite` }}
                   />
                 ))}
+                <span className="text-xs text-slate-500 ml-1">Thầy đang soạn câu trả lời...</span>
               </div>
             )}
 
-            {/* Live transcript */}
+            {/* Live transcript khi đang ghi âm */}
             {phase === 'listening' && transcript && (
               <div className="ml-auto max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md bg-green-600/10 border border-green-500/30 text-green-200 text-sm italic">
-                {transcript}...
+                {transcript}…
               </div>
             )}
 
@@ -669,70 +369,68 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
           </div>
 
           {/* ═══ Bottom Action Bar ═══ */}
-          <div className="border-t border-slate-800/60 p-4 bg-slate-950/80">
-            <div className="flex items-center gap-3">
-              {/* Text Input Row */}
+          <div className="border-t border-slate-800/60 p-3 bg-slate-950/80 flex-shrink-0">
+            <div className="flex items-center gap-2">
+
+              {/* Mic button */}
+              {isSpeechSupported && (
+                <button
+                  onClick={handleMicClick}
+                  disabled={phase === 'thinking'}
+                  title={phase === 'listening' ? "Dừng & Gửi" : "Nói câu hỏi"}
+                  className={cn(
+                    "relative w-11 h-11 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg overflow-hidden border-2",
+                    phase === 'listening'
+                      ? "border-red-500 bg-red-600/20 shadow-red-500/30 scale-105"
+                      : phase === 'thinking'
+                        ? "border-slate-700 opacity-50 cursor-wait"
+                        : "border-violet-500/50 hover:border-violet-400 hover:scale-105 bg-slate-900"
+                  )}
+                >
+                  <img src={THAY_HAU_AVATAR} alt="Mic" className="absolute inset-0 w-full h-full object-cover opacity-60" />
+                  <div className={cn(
+                    "relative z-10 w-5 h-5 rounded-full flex items-center justify-center",
+                    phase === 'listening' ? "bg-red-600" : "bg-violet-600"
+                  )}>
+                    {phase === 'listening'
+                      ? <MicOff className="w-3 h-3 text-white" />
+                      : <Mic className="w-3 h-3 text-white" />
+                    }
+                  </div>
+                  {phase === 'listening' && (
+                    <span
+                      className="absolute inset-0 rounded-full border-2 border-red-500 pointer-events-none"
+                      style={{ animation: 'voicePulseRing 1.5s ease-out infinite' }}
+                    />
+                  )}
+                </button>
+              )}
+
+              {/* Text input */}
               <form onSubmit={handleTextSubmit} className="flex-1 relative">
                 <input
                   type="text"
                   value={inputText}
                   disabled={phase === 'thinking'}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="Hỏi thầy bằng chữ..."
-                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white px-4 py-3 rounded-2xl focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-50 transition-all pr-12"
+                  placeholder={phase === 'listening' ? 'Đang nghe giọng nói...' : 'Gõ câu hỏi cho Thầy...'}
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white px-4 py-2.5 rounded-2xl focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-50 transition-all pr-10"
                 />
                 <button
                   type="submit"
                   disabled={!inputText.trim() || phase === 'thinking'}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-violet-400 hover:text-violet-300 disabled:opacity-30 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-violet-400 hover:text-violet-300 disabled:opacity-30 transition-colors"
                 >
                   <Send className="w-4 h-4" />
                 </button>
               </form>
-
-              {/* Central Action Button — Avatar + Mic overlay (Minimized for layout) */}
-              <button
-                onClick={handleMicClick}
-                title={phase === 'speaking' ? "Dừng Đọc" : "Bật Mic Chấm Hỏi"}
-                className={cn(
-                  "relative w-[48px] h-[48px] shrink-0 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl overflow-hidden",
-                  phase === 'listening'
-                    ? "ring-2 ring-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] scale-105"
-                    : phase === 'thinking'
-                      ? "ring-2 ring-amber-500/50 cursor-wait opacity-80"
-                      : phase === 'speaking'
-                        ? "ring-2 ring-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]"
-                        : "ring-2 ring-violet-500/50 hover:ring-violet-400 hover:scale-105 active:scale-95 shadow-violet-500/20",
-                )}
-              >
-                {/* Avatar background */}
-                <img src={THAY_HAU_AVATAR} alt="Thầy Hậu AI" className="w-full h-full object-cover" />
-
-                {/* State overlay icon */}
-                <div className={cn(
-                  "absolute bottom-0 right-0 w-4 h-4 rounded-full flex items-center justify-center border border-slate-950",
-                  phase === 'listening' ? "bg-red-600" :
-                  phase === 'thinking' ? "bg-amber-600 animate-pulse" :
-                  phase === 'speaking' ? "bg-cyan-600" :
-                  "bg-violet-600"
-                )}>
-                  {phase === 'listening' ? (
-                    <MicOff className="w-2.5 h-2.5 text-white" />
-                  ) : phase === 'speaking' ? (
-                    <Volume2 className="w-2.5 h-2.5 text-white" />
-                  ) : (
-                    <Mic className="w-2.5 h-2.5 text-white" />
-                  )}
-                </div>
-              </button>
             </div>
 
-            <p className="text-[9px] text-slate-600 text-center mt-3 font-medium flex items-center justify-center gap-1">
-              {phase === 'idle' && 'Gõ chữ hoặc ấn biểu tượng Mic để hỏi'}
-              {phase === 'listening' && <><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span> Đang ghi âm (ấn Mic để tắt)</>}
-              {phase === 'thinking' && 'Thầy đang suy nghĩ...'}
-              {phase === 'speaking' && 'Ấn Mic để tắt tiếng thầy giảng'}
-              {phase === 'error' && 'Gõ văn bản nếu Mic bị lỗi'}
+            <p className="text-[9px] text-slate-600 text-center mt-2 font-medium">
+              {phase === 'idle' && 'Câu trả lời hiển thị đầy đủ bằng text + công thức'}
+              {phase === 'listening' && <><span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse mr-1" />Đang ghi âm... (ấn lại Mic để gửi)</>}
+              {phase === 'thinking' && 'Thầy đang soạn câu trả lời chi tiết...'}
+              {phase === 'error' && 'Gõ văn bản bên trên nếu Mic bị lỗi'}
             </p>
           </div>
         </div>

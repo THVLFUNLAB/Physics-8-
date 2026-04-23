@@ -171,7 +171,7 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       // ── Auto-map: tìm [IMG_X] markers trong câu hỏi ──
       if (pendingJsonQuestions) {
         const preview: typeof imageMappingPreview = [];
-        const allMarkers: {marker: string; qIdx: number; content: string}[] = [];
+        const allMarkers: {marker: string; qIdx: number; content: string; num: number}[] = [];
 
         // Tìm các marker tĩnh (như [IMG_X], [CHÈN ẢNH TẠI ĐÂY], [HÌNH MINH HỌA])
         let legacyIndex = 1;

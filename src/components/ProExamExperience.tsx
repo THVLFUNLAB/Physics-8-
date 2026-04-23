@@ -17,7 +17,7 @@ export const ProExamExperience = ({
   onSubmit, 
   onCancel 
 }: { 
-  test: { topic: Topic, questions: Question[] }, 
+  test: { topic: string, questions: Question[], adaptiveConfig?: any }, 
   answers: Record<string, any>, 
   onAnswer: (questionId: string, ans: any) => void, 
   onSubmit: () => void,
@@ -199,8 +199,25 @@ export const ProExamExperience = ({
           <div className={cn("p-1.5 md:p-2 rounded-xl transition-all hidden sm:block", timeLeft < 300 ? "bg-red-600 animate-bounce" : "bg-blue-600")}>
             <Activity className="text-white w-4 h-4 md:w-6 md:h-6" />
           </div>
-          <div className="min-w-0">
-            <h2 className={cn("text-[11px] sm:text-base md:text-xl font-black uppercase tracking-tighter transition-colors truncate whitespace-nowrap", timeLeft < 300 ? "text-red-400" : "text-white")}>PHÒNG THI ZEN MODE</h2>
+          <div className="min-w-0 flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className={cn("text-[11px] sm:text-base md:text-xl font-black uppercase tracking-tighter transition-colors truncate", timeLeft < 300 ? "text-red-400" : "text-white")}>
+                PHÒNG THI ZEN MODE
+              </h2>
+              {test.adaptiveConfig && (
+                <span className={cn(
+                  "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border shrink-0",
+                  test.adaptiveConfig.examType === 'REMEDIAL' ? "bg-red-500/20 text-red-400 border-red-500/30" :
+                  test.adaptiveConfig.examType === 'PROGRESSIVE' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
+                  test.adaptiveConfig.examType === 'CHALLENGE' ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30" :
+                  "bg-slate-800 text-slate-400 border-slate-700"
+                )}>
+                  {test.adaptiveConfig.examType === 'REMEDIAL' ? 'Kê Đơn (×0.7 XP)' :
+                   test.adaptiveConfig.examType === 'PROGRESSIVE' ? 'Nâng Cấp (×1.3 XP)' :
+                   test.adaptiveConfig.examType === 'CHALLENGE' ? 'Thử Thách (×1.5 XP)' : 'Chuẩn (×1.0 XP)'}
+                </span>
+              )}
+            </div>
             <p className="text-[9px] md:text-sm text-slate-500 font-bold uppercase truncate w-full">Chủ đề: {test.topic}</p>
           </div>
         </div>
@@ -460,21 +477,40 @@ export const ProExamExperience = ({
                 {currentQuestion.part === 3 && (
                   <div className="space-y-4 pt-6">
                     <p className="text-xs md:text-sm text-slate-500 font-bold uppercase">Nhập kết quả số của bạn:</p>
-                    <input 
-                      type="text"
-                      inputMode="decimal"
-                      value={initialAnswers[currentQuestion.id || ''] ?? ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (/^-?\d*[,.]?\d*$/.test(val)) {
-                          onAnswer(currentQuestion.id || '', val);
-                        }
-                      }}
-                      onWheel={(e) => e.currentTarget.blur()}
-                      className="w-full bg-slate-900 border border-slate-800 p-6 rounded-2xl text-2xl font-black text-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-800"
-                      placeholder="0.00"
-                    />
-                    <p className="text-xs md:text-sm text-slate-600 italic">* Lưu ý quy tắc làm tròn số theo yêu cầu của đề bài.</p>
+                    <div className="flex items-stretch gap-3">
+                      {/* Nút +/- đảo dấu — giải quyết vấn đề bàn phím điện thoại thiếu dấu âm */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentVal = String(initialAnswers[currentQuestion.id || ''] ?? '');
+                          if (!currentVal || currentVal === '0' || currentVal === '') return;
+                          const toggled = currentVal.startsWith('-')
+                            ? currentVal.slice(1)          // Bỏ dấu âm
+                            : '-' + currentVal;            // Thêm dấu âm
+                          onAnswer(currentQuestion.id || '', toggled);
+                        }}
+                        className="shrink-0 w-16 md:w-20 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 hover:border-slate-500 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all touch-manipulation select-none group"
+                        title="Đảo dấu âm/dương"
+                      >
+                        <span className="text-2xl font-black text-slate-300 group-hover:text-white leading-none">±</span>
+                        <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-400 uppercase tracking-wider">đổi dấu</span>
+                      </button>
+                      <input 
+                        type="text"
+                        inputMode="decimal"
+                        value={initialAnswers[currentQuestion.id || ''] ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (/^-?\d*[,.]?\d*$/.test(val)) {
+                            onAnswer(currentQuestion.id || '', val);
+                          }
+                        }}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        className="flex-1 bg-slate-900 border border-slate-800 p-6 rounded-2xl text-2xl font-black text-white focus:border-blue-600 outline-none transition-all placeholder:text-slate-800"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <p className="text-xs md:text-sm text-slate-600 italic">* Lưu ý quy tắc làm tròn số theo yêu cầu của đề bài. Nhấn nút <strong className="text-slate-400">±</strong> để đổi sang số âm.</p>
                   </div>
                 )}
               </div>

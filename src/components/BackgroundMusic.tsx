@@ -80,19 +80,19 @@ export const BackgroundMusic = ({ className }: { className?: string }) => {
     }
   }, [isPlaying, currentIndex, playlist]);
 
-  const togglePlay = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const togglePlay = (e?: React.SyntheticEvent | Event) => {
+    if (e && 'stopPropagation' in e) e.stopPropagation();
     setIsPlaying(!isPlaying);
   };
   
-  const nextTrack = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const nextTrack = (e?: React.SyntheticEvent | Event) => {
+    if (e && 'stopPropagation' in e) e.stopPropagation();
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
     setIsPlaying(true);
   };
   
-  const prevTrack = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+  const prevTrack = (e?: React.SyntheticEvent | Event) => {
+    if (e && 'stopPropagation' in e) e.stopPropagation();
     setCurrentIndex((prev) => (prev - 1 + playlist.length) % playlist.length);
     setIsPlaying(true);
   };
@@ -143,6 +143,7 @@ export const BackgroundMusic = ({ className }: { className?: string }) => {
               <div className="flex items-center gap-2 overflow-hidden flex-1">
                 <Music className={cn("w-4 h-4 shrink-0", isPlaying ? "text-cyan-400 animate-pulse" : "text-slate-400")} />
                 <div className="text-xs font-bold text-slate-200 truncate pr-2 w-full" style={{ maxWidth: '100%' }}>
+                  {/* @ts-ignore */}
                   <marquee scrollamount="4">{currentTrack?.title}</marquee>
                 </div>
               </div>

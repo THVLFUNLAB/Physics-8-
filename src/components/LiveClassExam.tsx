@@ -16,6 +16,13 @@ import {
 } from 'lucide-react';
 import { VoiceTutorButton } from './VoiceTutorButton';
 import { syncMemoryLogs } from '../utils/spacedRepetition';
+// ── R4: Offline Defense ──────────────────────────────────────────────────
+import { useOfflineAnswerVault } from '../hooks/useOfflineAnswerVault';
+import { useConnectionGuard } from '../hooks/useConnectionGuard';
+import { useSubmitWithRetry } from '../hooks/useSubmitWithRetry';
+import ConnectionStatusBadge from './ConnectionStatusBadge';
+// ── R1+R2: Energy Buffer (Capacitor Overload) ────────────────────────────
+import { useEnergyBuffer } from '../hooks/useEnergyBuffer';
 
 // ── Device fingerprint (simple but effective) ──
 const getDeviceId = (): string => {
@@ -61,11 +68,39 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   // ── Review state ──
   const [showReview, setShowReview] = useState(false);
 
+  // ── Team Battle ──────────────────────────────────────────────────────────
+  const [myTeamId, setMyTeamId] = useState<'A' | 'B' | null>(null);
+
   // Use a ref for answers to avoid stale closures in auto-submit
   const answersRef = useRef<Record<string, any>>(answers);
   useEffect(() => {
     answersRef.current = answers;
   }, [answers]);
+
+  // ── R4: Offline Defense Hooks ─────────────────────────────────────────
+  // Layer 1: Answer Vault (localStorage backup)
+  const { saveToVault, loadFromVault, clearVault, hasValidVault } =
+    useOfflineAnswerVault(attemptId);
+
+  // Layer 2: Connection monitoring
+  const { connectionState, onOfflineCallback, onOnlineCallback } =
+    useConnectionGuard();
+
+  // Layer 3: Submit with retry
+  const { submitWithRetry } = useSubmitWithRetry();
+
+  // Wire offline callback → flush vault immediately when network drops
+  useEffect(() => {
+    onOfflineCallback.current = () => {
+      saveToVault(answersRef.current);
+    };
+  }, [onOfflineCallback, saveToVault]);
+
+  // ── R1+R2: Energy Buffer — teamId điều hướng ghi vào đúng đội ──────────────────────
+  const { onCorrectAnswer: addEnergy } = useEnergyBuffer(
+    classExam?.id ?? null,
+    { enabled: phase === 'exam', teamId: myTeamId }
+  );
 
   // Heartbeat interval ref
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -286,9 +321,23 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
         }
 
         setAttemptId(existing.id);
-        setAnswers(existingData.answers || {});
+
+        // ── R4 Layer 4: Recovery — ưu tiên vault local nếu mới hơn ──────
+        const vaultAnswers = loadFromVault();
+        const serverAnswers = existingData.answers || {};
+        const vaultSize  = Object.keys(vaultAnswers ?? {}).length;
+        const serverSize = Object.keys(serverAnswers).length;
+        const recoveredAnswers =
+          vaultAnswers && vaultSize >= serverSize ? vaultAnswers : serverAnswers;
+
+        setAnswers(recoveredAnswers);
         setPhase('exam');
-        toast.info('Tiếp tục bài thi từ lần trước.');
+
+        if (vaultAnswers && vaultSize > serverSize) {
+          toast.info(`♻️ Đã khôi phục ${vaultSize} câu trả lời từ bộ nhớ tạm.`);
+        } else {
+          toast.info('Tiếp tục bài thi từ lần trước.');
+        }
       } else {
         // Create new attempt
         const deviceId = getDeviceId();
@@ -309,15 +358,41 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
         setPhase('exam');
       }
 
-      // ── Register in participants sub-collection (scalable: 1 doc per student) ──
+      // ── Register in participants + Team Battle assignment ──────────────
       try {
+        let assignedTeam: 'A' | 'B' | null = null;
+
+        if (examData.teamMode) {
+          // Độc số thành viên hiện tại của mỗi đội
+          const participantsSnap = await getDocs(
+            collection(db, 'classExams', examDoc.id, 'participants')
+          );
+          const docs = participantsSnap.docs.map(d => d.data());
+          const countA = docs.filter(d => d.teamId === 'A').length;
+          const countB = docs.filter(d => d.teamId === 'B').length;
+
+          if (examData.teamAssignment === 'auto') {
+            // Gán vào đội ít người hơn (hoặc A nếu bằng nhau)
+            assignedTeam = countA <= countB ? 'A' : 'B';
+          }
+          // Manual mode: thầy sẽ gán sau trong Live Dashboard
+          setMyTeamId(assignedTeam);
+        }
+
         await setDoc(doc(db, 'classExams', examDoc.id, 'participants', user.uid), {
-          uid: user.uid,
+          uid:         user.uid,
           displayName: user.displayName,
-          email: user.email,
-          joinedAt: Timestamp.now(),
-          deviceId: getDeviceId(),
+          email:       user.email,
+          joinedAt:    Timestamp.now(),
+          deviceId:    getDeviceId(),
+          teamId:      assignedTeam,
         });
+
+        // Ghi teamId vào attempt (nếu vừa tạo mới)
+        if (assignedTeam && attemptId) {
+          updateDoc(doc(db, 'classAttempts', attemptId), { teamId: assignedTeam })
+            .catch(e => console.warn('teamId sync:', e));
+        }
       } catch (participantErr) {
         console.warn('Participant registration (non-blocking):', participantErr);
       }
@@ -338,29 +413,33 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   const handleAnswer = useCallback((questionId: string, answer: any) => {
     setAnswers(prev => {
       const updated = { ...prev, [questionId]: answer };
-      
-      // Sync to Firestore (debounced via the state update)
+
+      // ── R4 Layer 1: Lưu vault NGAY LẬP TỨC (đồng bộ, không thể fail) ──
+      saveToVault(updated);
+
+      // ── Sync to Firestore (fire-and-forget, có thể fail khi offline) ──
       if (attemptId) {
         const totalAnswered = Object.values(updated).filter(v => v !== undefined && v !== null && v !== '').length;
         updateDoc(doc(db, 'classAttempts', attemptId), {
           answers: updated,
           totalAnswered,
           lastPing: Timestamp.now(),
-        }).catch(e => console.warn('Answer sync failed:', e));
+        }).catch(e => console.warn('Answer sync failed (vault đã backup):', e));
       }
-      
+
       return updated;
     });
-  }, [attemptId]);
+  }, [attemptId, saveToVault]);
 
   const handleSubmit = async (isAutoSubmit = false) => {
     if (isSubmitting) return;
     if (!isAutoSubmit && !window.confirm('Nộp bài? Bạn không thể sửa sau khi nộp.')) return;
-    
+
     setIsSubmitting(true);
     try {
       const currentAnswers = answersRef.current;
-      // ── Score calculation (same logic as App.tsx) ──
+
+      // ── Score calculation (KHÔNG THAY ĐỔI logic gốc) ──────────────────
       let totalScore = 0;
       const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
       const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
@@ -389,24 +468,34 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
           isCorrect = !isNaN(sv) && Math.abs(sv - cv) < 0.01;
           if (isCorrect) totalScore += 0.25;
         }
-        
+
         if (q.id) {
           sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
+          // ── R1+R2: Nạp năng lượng cho câu đúng (vào sub-collection riêng) ──
+          if (isCorrect) {
+            addEnergy(user.uid, user.displayName);
+          }
         }
       }
 
       totalScore = Math.round(totalScore * 100) / 100;
 
+      // ── R4 Layer 3: Submit với retry — thay updateDoc trực tiếp ─────────
       if (attemptId) {
-        await updateDoc(doc(db, 'classAttempts', attemptId), {
+        const result = await submitWithRetry({
+          attemptId,
           answers: currentAnswers,
           score: totalScore,
           totalAnswered: Object.keys(currentAnswers).length,
-          status: 'submitted',
-          submittedAt: Timestamp.now(),
         });
-        
-        // ── Kích hoạt thuật toán Siêu Trí Nhớ ──
+
+        // Vault cleanup: chỉ xóa nếu sync thành công
+        if (result === 'success') {
+          clearVault();
+        }
+        // Nếu 'local_fallback': giữ vault, toast đã hiện trong hook
+
+        // ── SM-2 Siêu Trí Nhớ: chạy ngầm bất kể online/offline ──
         syncMemoryLogs(user.uid, sm2Evaluations).catch(console.error);
       }
 
@@ -414,7 +503,6 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       setPhase('results');
 
       if (classExam?.id) fetchRanking(classExam.id);
-
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
 
       toast.success(isAutoSubmit ? '⏰ Hết giờ — Bài đã tự động nộp.' : '✅ Nộp bài thành công!');
@@ -507,6 +595,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   if (phase === 'exam' && currentQuestion) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        {/* ── R4 Layer 2: Connection Badge (luôn render, tự ẩn khi online) ── */}
+        <ConnectionStatusBadge connectionState={connectionState} />
         <BackgroundMusic className="fixed bottom-[80px] left-4 md:bottom-8 md:left-8 z-[200]" />
         {highlightCoords && (
           <div 
@@ -547,6 +637,20 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
               />
             </div>
           </div>
+
+          {/* Team Battle Badge — tối giản, không chiếm không gian */}
+          {myTeamId && classExam?.teamMode && (
+            <span className={cn(
+              'px-2 py-1 rounded-lg text-[10px] font-black uppercase border hidden sm:inline-flex items-center gap-1',
+              myTeamId === 'A'
+                ? 'bg-red-600/15 text-red-400 border-red-600/30'
+                : 'bg-blue-600/15 text-blue-400 border-blue-600/30'
+            )}>
+              {myTeamId === 'A'
+                ? (classExam.teamNames?.A ?? 'Đội A')
+                : (classExam.teamNames?.B ?? 'Đội B')}
+            </span>
+          )}
 
           {/* Submit button */}
           <button

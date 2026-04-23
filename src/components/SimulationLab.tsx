@@ -58,6 +58,12 @@ export const SimulationViewer = ({
 }) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isLandscape, setIsLandscape] = useState(
+    () => window.innerWidth > window.innerHeight
+  );
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   useEffect(() => {
     decompressCode(simulation.html_code).then(c => {
@@ -66,56 +72,145 @@ export const SimulationViewer = ({
     });
   }, [simulation.html_code]);
 
+  // Theo dõi orientation thay đổi
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      setTimeout(() => {
+        setIsLandscape(window.innerWidth > window.innerHeight);
+      }, 100);
+    };
+    window.addEventListener('resize', handleOrientationChange);
+    window.addEventListener('orientationchange', handleOrientationChange);
+    return () => {
+      window.removeEventListener('resize', handleOrientationChange);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+    };
+  }, []);
+
+  // Theo dõi trạng thái fullscreen
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  // Fullscreen API
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Fallback: thêm class full-modal nếu browser không hỗ trợ
+      console.warn('[SimViewer] Fullscreen API không được hỗ trợ');
+    }
+  };
+
+  // Khoá scroll body khi modal mở
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
   return (
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4 md:p-8"
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/95 backdrop-blur-sm"
       >
         <motion.div
+          ref={containerRef}
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
-          className="w-full h-full max-w-7xl max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col"
+          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          className="w-full h-full md:max-w-7xl md:max-h-[95vh] md:rounded-3xl overflow-hidden bg-slate-900 border-0 md:border md:border-slate-800 shadow-2xl flex flex-col"
         >
-          <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-950">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600/20 flex items-center justify-center rounded-xl border border-blue-500/30">
-                <Beaker className="text-blue-400 w-5 h-5" />
+          {/* ── HEADER: compact trên mobile ── */}
+          <div className="flex items-center justify-between px-3 py-2 md:px-5 md:py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-600/20 flex items-center justify-center rounded-xl border border-blue-500/30 shrink-0">
+                <Beaker className="text-blue-400 w-4 h-4 md:w-5 md:h-5" />
               </div>
-              <div>
-                <h3 className="text-lg font-black text-white">{simulation.title}</h3>
-                <p className="text-xs text-slate-400">Chuyên mục: {simulation.category}</p>
+              <div className="min-w-0">
+                <h3 className="text-sm md:text-base font-black text-white truncate">{simulation.title}</h3>
+                <p className="text-[10px] text-slate-400 truncate hidden sm:block">{simulation.category}</p>
               </div>
             </div>
-            <button 
-              onClick={onClose}
-              className="p-2 hover:bg-red-500/20 hover:text-red-500 rounded-xl transition-colors text-slate-400"
-            >
-              <X className="w-6 h-6" />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {/* Nút Fullscreen */}
+              <button 
+                onClick={toggleFullscreen}
+                title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
+                className="p-2 hover:bg-blue-500/20 hover:text-blue-400 rounded-xl transition-colors text-slate-400"
+              >
+                {isFullscreen ? (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                ) : (
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+                )}
+              </button>
+              {/* Nút Đóng */}
+              <button 
+                onClick={onClose}
+                className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-xl transition-colors text-slate-400"
+                title="Đóng mô phỏng"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
+
+          {/* ── LANDSCAPE HINT cho mobile portrait ── */}
+          {isMobile && !isLandscape && !loading && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs font-bold shrink-0"
+            >
+              <svg className="w-4 h-4 shrink-0 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="4" y="2" width="16" height="20" rx="2"/>
+                <line x1="12" y1="18" x2="12" y2="18.01"/>
+              </svg>
+              <span>📱 Xoay ngang điện thoại để trải nghiệm tốt hơn!</span>
+            </motion.div>
+          )}
           
-          <div className="flex-1 bg-white relative">
+          {/* ── IFRAME CONTAINER: chiếm toàn bộ không gian còn lại ── */}
+          <div className="flex-1 bg-white relative min-h-0">
             {loading ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-4">
+                <Loader2 className="w-10 h-10 animate-spin text-blue-400" />
+                <p className="text-slate-400 text-sm">Đang tải mô phỏng...</p>
               </div>
             ) : (
               <iframe
                 title={simulation.title}
                 srcDoc={code}
-                sandbox="allow-scripts allow-same-origin"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+                allowFullScreen
                 className="absolute inset-0 w-full h-full border-0"
                 style={{ display: 'block' }}
               />
             )}
           </div>
           
-          <div className="p-4 bg-slate-950 border-t border-slate-800 text-sm text-slate-400">
-            <strong>Mô tả:</strong> {simulation.description}
+          {/* ── FOOTER: chỉ hiện trên desktop ── */}
+          <div className="hidden md:flex items-center justify-between px-5 py-3 bg-slate-950 border-t border-slate-800 text-sm text-slate-400 shrink-0">
+            <span><strong className="text-slate-300">Mô tả:</strong> {simulation.description}</span>
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center gap-2 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+              Toàn màn hình
+            </button>
           </div>
         </motion.div>
       </motion.div>

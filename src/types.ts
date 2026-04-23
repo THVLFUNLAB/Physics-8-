@@ -75,6 +75,7 @@ export interface UserProfile {
     }>;
     overallProgress: number;       // 0-100%
     weaknesses: string[];
+    weaknessProfile?: WeaknessProfile;
     lastAssessmentDate?: any;
   };
   failedQuestionIds?: string[];    // Bộ nhớ "Sai Ngu" định tuyến 70-30
@@ -93,6 +94,7 @@ export interface LoginLog {
 export interface Question {
   id?: string;
   part: Part;
+  targetGrade?: number;
   topic: Topic;
   subTopic?: string;
   level: QuestionLevel;
@@ -141,6 +143,7 @@ export interface Exam {
   title: string;
   targetGrade?: number;
   questions: Question[];
+  questionIds?: string[];
   createdAt: any;
   createdBy: string;
   type: 'Matrix' | 'AI_Diagnosis' | 'Custom' | 'Digitized';
@@ -181,7 +184,7 @@ export interface Attempt {
   score: number;
   weaknessProfile?: WeaknessProfile;  // Chẩn đoán năng lực chi tiết (mới)
   analysis?: {
-    errorTracking: Record<string, string>;
+    errorTracking?: Record<string, string>;
     feedback: string;
     redZones: Topic[];
     remedialMatrix?: { topic: string; count: number }[];
@@ -191,6 +194,8 @@ export interface Attempt {
     };
   };
   personal_ai_diagnosis?: string;
+  topic?: string;
+  timeSpent?: number;
   timestamp: any;
 }
 
@@ -256,6 +261,10 @@ export interface ClassExam {
   status: 'scheduled' | 'live' | 'ended';
   autoSubmit: boolean;
   createdAt: any;
+  // ── Team Battle Mode ──
+  teamMode?: boolean;                     // Bật chế độ thi đấu đội
+  teamAssignment?: 'auto' | 'manual';     // Cách chia đội
+  teamNames?: { A: string; B: string };   // Tên đội tuỳ chỉnh
 }
 
 export interface ClassAttempt {
@@ -272,6 +281,7 @@ export interface ClassAttempt {
   status: 'in_progress' | 'submitted';
   deviceId: string;      // fingerprint thiết bị để phát hiện multi-device
   lastPing: any;         // Heartbeat timestamp để đếm online chính xác
+  teamId?: 'A' | 'B' | null; // Team Battle: đội của học sinh
 }
 
 export type SidebarTab = string;

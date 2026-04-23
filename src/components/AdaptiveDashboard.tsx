@@ -45,13 +45,14 @@ interface TopicMastery {
 interface AdaptiveDashboardProps {
   user: UserProfile;
   attempts: Attempt[];
+  onStartAdaptiveTest?: (questions: Question[], config: any, assessment: any) => void;
 }
 
 // ══════════════════════════════════════════
 //  COMPONENT
 // ══════════════════════════════════════════
 
-const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts }) => {
+const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts, onStartAdaptiveTest }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPrescription, setGeneratedPrescription] = useState<string | null>(null);
 
@@ -118,149 +119,34 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts })
       .slice(0, 3);
   }, [topicMastery]);
 
-  // ══════════════════════════════════════════
-  //  KHU VỰC 3: AUTO-REMEDIAL TRIGGER
-  //  Query questions → random 10 → create exam
-  // ══════════════════════════════════════════
-
-  const handleAutoRemedial = useCallback(async () => {
-    if (redZones.length === 0) {
-      toast.info('Chưa phát hiện vùng yếu! Hãy làm thêm bài để hệ thống phân tích.');
-      return;
-    }
-
+  const handleStartAdaptive = useCallback(async () => {
     setIsGenerating(true);
     setGeneratedPrescription(null);
 
     try {
-      // 1. Fetch SM-2 questions due for review
-      const dueSnap = await getDocs(
-        query(
-          collection(db, `users/${user.uid}/memoryLogs`),
-          where('nextReviewDate', '<=', Timestamp.now())
-        )
-      );
+      // Import động để tránh circular dependency hoặc block UI
+      const { generateAdaptiveTest } = await import('../services/AdaptiveEngine');
       
-      let dueQuestionIds = dueSnap.docs.map(d => d.data().questionId);
-      dueQuestionIds = dueQuestionIds.sort(() => Math.random() - 0.5);
+      const result = await generateAdaptiveTest(user.uid, user);
       
-      let selectedFailedIds = dueQuestionIds.slice(0, 7);
-      
-      // Fallback: Nếu không đủ 7 câu từ SM-2, bù bằng failedQuestionIds cũ (Legacy)
-      if (selectedFailedIds.length < 7) {
-        const legacyFailedIds = new Set(user.failedQuestionIds || []);
-        dueQuestionIds.forEach(id => legacyFailedIds.delete(id));
-        const legacyArray = Array.from(legacyFailedIds).sort(() => Math.random() - 0.5);
-        const needed = 7 - selectedFailedIds.length;
-        selectedFailedIds = [...selectedFailedIds, ...legacyArray.slice(0, needed)];
-      }
-
-      // 2. Tải chi tiết các câu hỏi cũ
-      const failedCandidates: Question[] = [];
-      if (selectedFailedIds.length > 0) {
-        const failedPromises = selectedFailedIds.map(id => getDoc(doc(db, 'questions', id)));
-        const failedSnaps = await Promise.all(failedPromises);
-        failedSnaps.forEach(d => {
-          if (d.exists()) {
-            const q = d.data() as Question;
-            if ((q.status || 'draft') !== 'draft') {
-              failedCandidates.push({ ...q, id: d.id });
-            }
-          }
-        });
-      }
-
-      // 3. Phân tích vùng yếu & nhặt câu hỏi MỚI TINH (Tối đa 3 câu)
-      const weakTopics = redZones.map(rz => rz.topic);
-      const newCandidates: Question[] = [];
-      const correctQuestionIds = new Set<string>();
-
-      for (const attempt of attempts) {
-        const errorKeys = new Set(Object.keys(attempt.analysis?.errorTracking || {}));
-        for (const [qId] of Object.entries(attempt.answers || {})) {
-          if (!errorKeys.has(qId)) correctQuestionIds.add(qId);
-        }
-      }
-
-      if (weakTopics.length > 0) {
-        for (const topic of weakTopics) {
-          const qSnap = await getDocs(
-            query(collection(db, 'questions'), where('topic', '==', topic))
-          );
-          qSnap.forEach(d => {
-            const q = { ...d.data(), id: d.id } as Question;
-            if ((q.status || 'draft') === 'draft') return;
-            
-            // Bỏ qua nếu đã làm đúng, hoặc đã được chọn vào diện SM-2 (ôn lại)
-            if (!correctQuestionIds.has(q.id || '') && !selectedFailedIds.includes(q.id || '')) {
-              newCandidates.push(q);
-            }
-          });
-        }
-      }
-
-      if (failedCandidates.length === 0 && newCandidates.length === 0) {
-        toast.error('Không tìm thấy câu hỏi cho vùng yếu hoặc đến hạn SM-2.');
+      if (result.questions.length === 0) {
+        toast.error('Không tìm thấy câu hỏi phù hợp trong ngân hàng đề.');
         setIsGenerating(false);
         return;
       }
 
-      // 4. Trộn thuật toán 70-30 sinh đơn thuốc
-      // failedCandidates đã được chặn max 7 từ đầu
-      const shuffledNew = newCandidates.sort(() => Math.random() - 0.5);
-      const remainingSlots = 10 - failedCandidates.length;
-      const selectedNew = shuffledNew.slice(0, remainingSlots);
+      toast.success(`Hệ thống đã tạo đề: ${result.config.examType} với ${result.questions.length} câu!`);
       
-      const combined = [...failedCandidates, ...selectedNew];
-      const selected = combined.sort(() => Math.random() - 0.5); // Trộn đều vị trí
-
-      // 5. Create a new Exam document
-      const examTitle = `🩺 Đơn thuốc: ${weakTopics.join(' + ')} — ${new Date().toLocaleDateString('vi-VN')}`;
-      const examRef = await addDoc(collection(db, 'exams'), {
-        title: examTitle,
-        questions: selected.map(q => {
-          // Strip undefined fields
-          const clean: Record<string, any> = { ...q };
-          Object.keys(clean).forEach(k => {
-            if (clean[k] === undefined) delete clean[k];
-          });
-          return clean;
-        }),
-        createdAt: Timestamp.now(),
-        createdBy: 'system_adaptive',
-        type: 'AI_Diagnosis' as const,
-        targetStudentId: user.uid,
-      });
-
-      // 6. Add to user's prescriptions
-      const newPrescription: Prescription = {
-        id: examRef.id,
-        examId: examRef.id,
-        title: examTitle,
-        assignedAt: Timestamp.now(),
-        status: 'pending',
-      };
-
-      const currentPrescriptions = user.prescriptions || [];
-      await updateDoc(doc(db, 'users', user.uid), {
-        prescriptions: [...currentPrescriptions, {
-          id: newPrescription.id,
-          examId: newPrescription.examId,
-          title: newPrescription.title,
-          assignedAt: newPrescription.assignedAt,
-          status: newPrescription.status,
-        }],
-      });
-
-      setGeneratedPrescription(examTitle);
-      toast.success(`✅ Đã tạo đơn thuốc: ${selected.length} câu từ ${weakTopics.length} vùng yếu!`);
+      if (onStartAdaptiveTest) {
+        onStartAdaptiveTest(result.questions, result.config, result.assessment);
+      }
     } catch (err) {
-      console.error('[AutoRemedial]', err);
-      toast.error('Lỗi tạo đơn thuốc. Vui lòng thử lại.');
+      console.error('[AdaptiveEngine]', err);
+      toast.error('Lỗi khởi tạo đề thích ứng. Vui lòng thử lại.');
     } finally {
       setIsGenerating(false);
     }
-  }, [redZones, attempts, user]);
+  }, [user, onStartAdaptiveTest]);
 
   // ══════════════════════════════════════════
   //  RENDER
@@ -474,38 +360,22 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts })
               )}
             </div>
 
-            {/* ── AUTO-REMEDIAL TRIGGER ── */}
+            {/* ── ADAPTIVE EXAM LAUNCHER ── */}
             <div className="bg-gradient-to-br from-slate-900 to-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h4 className="text-lg font-black text-white flex items-center gap-2">
                 <Pill className="w-5 h-5 text-fuchsia-400" />
-                Kê Đơn Tự Động
+                Vào Thi Thích Ứng (Physics9+)
               </h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Hệ thống sẽ phân tích vùng yếu, bốc ngẫu nhiên 10 câu hỏi chưa làm đúng, và tạo bài test riêng cho bạn.
+                AI sẽ phân tích {attempts.length} bài thi gần nhất để đưa ra cấu hình đề phù hợp nhất: Lấp lỗ hổng, nâng cao, hoặc thử thách.
               </p>
 
-              {generatedPrescription && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="p-3 bg-green-600/10 border border-green-600/30 rounded-xl"
-                >
-                  <p className="text-xs font-bold text-green-400 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" />
-                    Đơn thuốc đã sẵn sàng!
-                  </p>
-                  <p className="text-[10px] text-green-300 mt-1 truncate">
-                    {generatedPrescription}
-                  </p>
-                </motion.div>
-              )}
-
               <button
-                onClick={handleAutoRemedial}
-                disabled={isGenerating || redZones.length === 0}
+                onClick={handleStartAdaptive}
+                disabled={isGenerating}
                 className={cn(
                   "w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-xl",
-                  redZones.length === 0
+                  isGenerating
                     ? "bg-slate-800 text-slate-500 cursor-not-allowed"
                     : "bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-500 hover:to-violet-500 text-white shadow-fuchsia-600/20"
                 )}
@@ -513,21 +383,15 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts })
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    ĐANG KÊ ĐƠN...
+                    ĐANG KHỞI TẠO ĐỀ...
                   </>
                 ) : (
                   <>
                     <Zap className="w-5 h-5" />
-                    {redZones.length === 0 ? 'CHƯA CÓ VÙNG YẾU' : `KÊ ĐƠN — ${redZones.length} VÙNG YẾU`}
+                    BẮT ĐẦU NGAY
                   </>
                 )}
               </button>
-
-              {redZones.length > 0 && (
-                <p className="text-[10px] text-slate-500 text-center">
-                  Bốc {Math.min(10, redZones.length * 5)} câu từ: {redZones.map(r => r.topic).join(', ')}
-                </p>
-              )}
             </div>
 
             {/* ── MASTERY OVERVIEW ── */}

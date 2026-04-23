@@ -27,6 +27,16 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
   const [generatedExam, setGeneratedExam] = useState<Exam | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genType, setGenType] = useState<'AI' | 'Matrix'>('AI');
+  const [selectedGrade, setSelectedGrade] = useState<'all' | 10 | 11 | 12>('all');
+
+  const getQuestionGrade = (q: Question) => {
+    if (q.targetGrade) return q.targetGrade;
+    // Fallback: check topic against PHYSICS_TOPICS
+    if (PHYSICS_TOPICS[0].topics.some(t => matchesTopic(q.topic, t.name))) return 10;
+    if (PHYSICS_TOPICS[1].topics.some(t => matchesTopic(q.topic, t.name))) return 11;
+    if (PHYSICS_TOPICS[2].topics.some(t => matchesTopic(q.topic, t.name))) return 12;
+    return null;
+  };
 
   useEffect(() => {
     // Fetch students — 1 lần, cache-first
@@ -128,10 +138,20 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
         }
       }
 
+      // ── Lọc theo Khối (Grade) nếu có chọn ──
+      let poolOfQuestions = allQuestions;
+      if (selectedGrade !== 'all') {
+        const targetG = Number(selectedGrade);
+        poolOfQuestions = allQuestions.filter(q => {
+          const g = getQuestionGrade(q);
+          return g === targetG;
+        });
+      }
+
       // ── Phân loại theo Part ──
-      const p1 = allQuestions.filter(q => q.part === 1);
-      const p2 = allQuestions.filter(q => q.part === 2);
-      const p3 = allQuestions.filter(q => q.part === 3);
+      const p1 = poolOfQuestions.filter(q => q.part === 1);
+      const p2 = poolOfQuestions.filter(q => q.part === 2);
+      const p3 = poolOfQuestions.filter(q => q.part === 3);
 
       if (p1.length < 18 || p2.length < 4 || p3.length < 6) {
         toast.error("Không đủ câu hỏi cho từng phần (Cần 18 câu Phần I, 4 câu Phần II, 6 câu Phần III).");
@@ -171,7 +191,7 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
       ];
 
       const newExam: Exam = {
-        title: `ĐỀ TRỊ BỆNH: ${selectedStudent?.displayName || 'HỌC SINH'} - ${new Date().toLocaleDateString('vi-VN')}`,
+        title: `ĐỀ ${genType === 'AI' ? 'TRỊ BỆNH' : 'THEO MA TRẬN'}: ${selectedGrade !== 'all' ? `KHỐI ${selectedGrade} - ` : ''}${selectedStudent?.displayName || 'CHUNG'} - ${new Date().toLocaleDateString('vi-VN')}`,
         questions: selected,
         createdAt: Timestamp.now(),
         createdBy: user.uid,
@@ -294,6 +314,24 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
               </div>
             </div>
           )}
+
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-slate-500 uppercase">{genType === 'AI' ? '3' : '2'}. PHẠM VI KIẾN THỨC (KHỐI LỚP)</p>
+            <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+              {(['all', 10, 11, 12] as const).map(grade => (
+                <button 
+                  key={grade}
+                  onClick={() => setSelectedGrade(grade)}
+                  className={cn(
+                    "flex-1 py-3 rounded-lg text-xs font-bold transition-all",
+                    selectedGrade === grade ? "bg-fuchsia-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200"
+                  )}
+                >
+                  {grade === 'all' ? 'Tất cả' : `Khối ${grade}`}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <button
             onClick={generateExam}

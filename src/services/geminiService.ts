@@ -1236,18 +1236,29 @@ QUY TẮC BẮT BUỘC:
 3. Nếu học sinh sai kiến thức nền, sửa lỗi trực tiếp.
 4. Nếu học sinh chào hỏi chung, hãy vui vẻ chào lại và hỏi em cần giúp gì về câu hỏi này.
 
-VĂN PHONG: Xưng "Thầy" gọi "Em". Khích lệ, thân thiện, đi thẳng vào vấn đề.
-ĐỊNH DẠNG & ĐỘ DÀI: 
-- Bắt buộc dùng chuẩn LaTeX ($công thức$ hoặc $$công thức$$) cho mọi công thức Toán/Lý để hiển thị đẹp mắt (vd: $F=ma$, $\frac{A}{B}$).
-- Không nói dài dòng. Tối đa 100 từ, có thể xuống dòng cho thoáng mắt.`;
+VĂN PHONG: Xưng "Thầy" gọi "Em". Khích lệ, thân thiện, đi thẳng vào vấn đề. Đặc biệt, hãy thể hiện phong cách dí dỏm, nghiêm khắc đặc trưng của Thầy Hậu bằng cách thỉnh thoảng chêm vào các câu nói sau khi học sinh sai kiến thức cơ bản, cẩu thả hoặc quên đổi đơn vị:
+- "Câu này mà làm không được chắc về nhà cưới vợ cưới chồng hết quá"
+- "Câu này mà làm không được - Lực lượng vũ trang nhân dân Việt Nam đang chờ đón em"
+- "Không phải bạn sai N gu đâu mà bị N gu mới sai câu này"
+- "Truyền thuyết kể về những bạn HS hay không đổi đơn vị"
+- "Câu này mà không làm được, bạn đã trao lại cơ hội cho người khác"
+- "Cứ cẩu thả đi, 0,1 điểm thôi tháng 7 tới đây sẽ làm em thất vọng"
+
+ĐỊNH DẠNG BẮT BUỘC (Text-Only — hiển thị trực tiếp cho học sinh đọc):
+- Mọi công thức phải viết đúng chuẩn LaTeX: $công thức inline$ hoặc $$công thức riêng dòng$$.
+  Ví dụ đúng: $F = ma$, $v = \frac{s}{t}$, $$\Delta x = v_0 t + \frac{1}{2}at^2$$
+  Tuyệt đối KHÔNG viết công thức bằng ASCII thường (không viết "F bang m nhan a").
+- Có thể dùng danh sách, xuống dòng để trình bày từng bước rõ ràng.
+- Độ dài tối đa 300 từ. Trả lời đầy đủ, không bỏ sót bước quan trọng nào.`;
 
 /**
- * Voice AI Tutor — Gọi Gemini Flash để sinh phản hồi giọng nói ngắn gọn.
+ * Voice AI Tutor — Text-Only Mode
+ * Trả lời đầy đủ bằng text + LaTeX, không TTS.
  *
  * @param questionContent  - Nội dung câu hỏi học sinh đang làm
- * @param detailedSolution - Lời giải chi tiết từ database (có thể null/rỗng)
- * @param studentVoiceInput - Câu hỏi/thắc mắc của học sinh (đã chuyển text từ giọng nói)
- * @returns Phản hồi text ngắn gọn từ AI (tối ưu cho TTS)
+ * @param detailedSolution - Lời giải chi tiết từ database (có thể null)
+ * @param studentVoiceInput - Câu hỏi của học sinh (từ mic hoặc text)
+ * @returns Phản hồi đầy đủ bằng text + LaTeX
  */
 export async function voiceAITutor(
   questionContent: string,
@@ -1286,7 +1297,7 @@ Hãy phản hồi ngắn gọn, gợi mở tư duy, KHÔNG giải hộ.`;
         contents: userPrompt,
         config: {
           systemInstruction: VOICE_TUTOR_SYSTEM_PROMPT,
-          maxOutputTokens: 512,
+          maxOutputTokens: 1024,
           temperature: 0.7,
         }
       });

@@ -1,0 +1,56 @@
+[
+  {
+    "part": 1,
+    "topic": "Tên chủ đề vật lí (VD: Dao động cơ, Sóng cơ...)",
+    "subTopic": "Tên tiểu chủ đề (nếu có)",
+    "level": "Nhận biết",
+    "yccdCode": "Nội dung YCCĐ trích xuất chính xác theo GDPT 2018",
+    "content": "Nội dung câu hỏi (chú ý công thức LaTeX phải escape double: \\\\frac). Chèn [IMG_X] nếu có ảnh.",
+    "options": [
+      "Đáp án 1 (không dính A,)",
+      "Đáp án 2 (không dính B,)",
+      "Đáp án 3 (không dính C,)",
+      "Đáp án 4 (không dính D,)"
+    ],
+    "correctAnswer": 0,
+    "explanation": "Hướng dẫn giải chi tiết copy nguyên văn từ file gốc (escape latex).\\n\\n--- \\n**[AI PHẢN BIỆN / GÓP Ý]:** Nếu thấy đề có lỗi, hãy ghi chú xuống tận cùng như thế này, KHÔNG ĐƯỢC tự ý sửa đề bài gốc.",
+    "status": "draft",
+    "isTrap": false,
+    "tags": ["tag_goi_y"],
+    "groupId": "id_ngau_nhien_neu_cac_cau_lien_ket_nhau",
+    "clusterId": "",
+    "clusterOrder": 0
+  },
+  {
+    "part": 2,
+    "topic": "Từ trường",
+    "level": "Vận dụng",
+    "yccdCode": "...",
+    "content": "Cho các phát biểu sau đây về từ trường...",
+    "options": [
+      "Phát biểu a",
+      "Phát biểu b",
+      "Phát biểu c",
+      "Phát biểu d"
+    ],
+    "correctAnswer": [true, false, true, false],
+    "explanation": "Lời giải thích cho từng ý a, b, c, d.",
+    "status": "draft"
+  },
+  {
+    "part": 3,
+    "topic": "Vật lí hạt nhân",
+    "level": "Vận dụng cao",
+    "yccdCode": "...",
+    "content": "Tính năng lượng liên kết riêng (MeV/nuclon). Điền số...",
+    "correctAnswer": 7.1,
+    "explanation": "Chi tiết cách tính ra 7.1.",
+    "status": "draft"
+  },
+  {
+    "_imageMap": {
+      "IMG_1": "Biểu đồ dao động, thuộc câu 1",
+      "IMG_2": "Sơ đồ mạch điện, thuộc câu 5"
+    }
+  }
+]
