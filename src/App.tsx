@@ -1509,37 +1509,6 @@ export default function App() {
             {(activeView === 'dashboard' || activeView === 'tasks') && (
               <>
                 <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic, examId)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
-                <section id="diagnosis" className="mt-16">
-                  <div className="flex justify-between items-center mb-8">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-2"><BrainCircuit className="text-red-500" /> CHẨN ĐOÁN & ĐIỀU TRỊ</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {(['Vật lí nhiệt', 'Khí lí tưởng', 'Từ trường', 'Vật lí hạt nhân'] as Topic[]).map(topic => (
-                      <TopicCard key={topic} topic={topic} isLocked={user.redZones?.includes(topic) || false} onClick={() => startTest(topic)} />
-                    ))}
-                  </div>
-                </section>
-                <section id="treatment" className="mt-16"></section>
-                <section className="mt-16">
-                  <div className="space-y-6">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-2"><Settings className="text-red-500" /> CẤU HÌNH CHIẾN THUẬT</h3>
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-6 max-w-2xl">
-                      <div>
-                        <p className="text-xs font-bold text-slate-500 uppercase mb-3">Nhóm mục tiêu</p>
-                        <div className="flex gap-2">
-                          {(['Chống Sai Ngu', 'Master Physics'] as TargetGroup[]).map(group => (
-                            <button key={group} onClick={async () => { const updatedUser = { ...user, targetGroup: group }; await setDoc(doc(db, 'users', user.uid), updatedUser); setUser(updatedUser); }} className={cn("flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all", user.targetGroup === group ? "bg-red-600 border-red-600 text-white shadow-lg shadow-red-600/20" : "bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-500")}>{group}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="p-4 bg-red-600/5 border border-red-600/20 rounded-2xl">
-                        <p className="text-xs text-red-500 font-medium leading-relaxed">
-                          {user.targetGroup === 'Chống Sai Ngu' ? "Chiến thuật: Tập trung 100% vào Phần I và II để lấy chắc 7.0 - 8.0 điểm." : "Chiến thuật: Tấn công trực diện Phần III và các bài toán tích hợp để đạt > 8.5."}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </section>
               </>
             )}
 
