@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { cn } from '../lib/utils';
-import { voiceAITutor } from '../services/geminiService';
-import { Mic, MicOff, X, Send, MessageCircle } from 'lucide-react';
+import { voiceAITutor, TutorMessage } from '../services/geminiService';
+import { Mic, MicOff, X, Send } from 'lucide-react';
 import MathRenderer from '../lib/MathRenderer';
 import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -46,6 +46,21 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   const [chatHistory, setChatHistory] = useState<{ role: 'student' | 'ai'; text: string }[]>([]);
   const [inputText, setInputText] = useState('');
 
+  // ── Cooldown giữa các lượt hỏi ──
+  const COOLDOWN_SECS = 20;
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Quy định: HS phải xác nhận trước khi bắt đầu ──
+  const [rulesAccepted, setRulesAccepted] = useState(false);
+
+  // ── Socratic multi-turn memory ──
+  // Lưu lịch sử hội thoại theo định dạng Gemini API (role: user/model).
+  // Được reset mỗi khi đóng panel để không lẫn ngữ cảnh giữa các câu hỏi.
+  const [apiHistory, setApiHistory] = useState<TutorMessage[]>([]);
+  // Ref để processWithAI luôn đọc được history mới nhất (tránh stale closure)
+  const apiHistoryRef = useRef<TutorMessage[]>([]);
+
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<string>('');
@@ -59,7 +74,24 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
   useEffect(() => {
     return () => {
       recognitionRef.current?.abort?.();
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
     };
+  }, []);
+
+  // ── Cooldown countdown ticker ──
+  const startCooldown = useCallback(() => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    setCooldownRemaining(COOLDOWN_SECS);
+    cooldownRef.current = setInterval(() => {
+      setCooldownRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current!);
+          cooldownRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   }, []);
 
   const isSpeechSupported = !!SpeechRecognitionAPI;
@@ -139,23 +171,45 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     recognitionRef.current?.stop?.();
   }, []);
 
+  // ── Đồng bộ apiHistory → apiHistoryRef để tránh stale closure ──
+  useEffect(() => {
+    apiHistoryRef.current = apiHistory;
+  }, [apiHistory]);
+
   // ══════════════════════════════════════════
-  //  PROCESS WITH AI — Text-only response
+  //  PROCESS WITH AI — Multi-turn Socratic
   // ══════════════════════════════════════════
   const processWithAI = useCallback(async (studentText: string) => {
     setPhase('thinking');
     setTranscript('');
+
+    // Snapshot history tại thời điểm gửi (đọc qua ref, luôn mới nhất)
+    const currentHistory = apiHistoryRef.current;
+
     setChatHistory(prev => [...prev, { role: 'student', text: studentText }]);
 
     try {
       const response = await voiceAITutor(
         questionContent,
         detailedSolution,
-        studentText
+        studentText,
+        currentHistory  // ← Truyền lịch sử đa lượt vào API
       );
+
+      // ── Append cặp [user, model] vào lịch sử API ──
+      const newUserMsg: TutorMessage = {
+        role: 'user',
+        parts: [{ text: studentText }],
+      };
+      const newModelMsg: TutorMessage = {
+        role: 'model',
+        parts: [{ text: response }],
+      };
+      setApiHistory(prev => [...prev, newUserMsg, newModelMsg]);
 
       setChatHistory(prev => [...prev, { role: 'ai', text: response }]);
       setPhase('idle');
+      startCooldown(); // ← Bắt đầu cooldown sau khi AI trả lời xong
 
       // ── Ghi log lên Firestore ──
       try {
@@ -167,6 +221,7 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
             questionContent,
             studentChat: studentText,
             aiResponse: response,
+            turnCount: currentHistory.length / 2 + 1,  // Số lượt hội thoại
             timestamp: serverTimestamp(),
           });
         }
@@ -177,17 +232,23 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
       setErrorMsg('AI đang gặp sự cố. Em thử lại sau nhé!');
       setPhase('error');
     }
-  }, [questionContent, detailedSolution]);
+  }, [questionContent, detailedSolution, startCooldown]);  // apiHistoryRef đọc qua ref — không cần trong deps
 
   // ══════════════════════════════════════════
   //  CLOSE / RESET
   // ══════════════════════════════════════════
   const handleClose = useCallback(() => {
     recognitionRef.current?.abort?.();
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
     setPhase('idle');
     setTranscript('');
     setErrorMsg('');
     setIsOpen(false);
+    setCooldownRemaining(0);
+    setRulesAccepted(false);
+    // Reset Socratic memory khi đóng panel — tránh lẫn ngữ cảnh sang câu hỏi khác
+    setApiHistory([]);
+    apiHistoryRef.current = [];
   }, []);
 
   const handleToggle = useCallback(() => {
@@ -196,24 +257,31 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
     } else {
       setIsOpen(true);
       setChatHistory([]);
+      setRulesAccepted(false);
+      setCooldownRemaining(0);
+      // Đảm bảo history sạch khi mở chat mới
+      setApiHistory([]);
+      apiHistoryRef.current = [];
     }
   }, [isOpen, handleClose]);
 
   const handleMicClick = useCallback(() => {
+    if (cooldownRemaining > 0) return; // Chặn mic trong cooldown
     if (phase === 'listening') {
       stopListening();
     } else if (phase === 'idle' || phase === 'error') {
       startListening();
     }
-  }, [phase, startListening, stopListening]);
+  }, [phase, cooldownRemaining, startListening, stopListening]);
 
   const handleTextSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!inputText.trim() || phase === 'thinking') return;
+    if (!inputText.trim() || phase === 'thinking' || cooldownRemaining > 0) return;
     recognitionRef.current?.stop?.();
-    processWithAI(inputText.trim());
-    setInputText('');
-  }, [inputText, phase, processWithAI]);
+    const text = inputText.trim();
+    setInputText(''); // Clear ngay để tránh double-submit
+    processWithAI(text);
+  }, [inputText, phase, cooldownRemaining, processWithAI]);
 
   // ══════════════════════════════════════════
   //  RENDER
@@ -295,22 +363,62 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
           {/* Chat Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[100px]">
-            {/* Trạng thái chào mừng */}
+            {/* Trạng thái chào mừng / Banner quy định */}
             {chatHistory.length === 0 && phase === 'idle' && (
-              <div className="text-center py-6 space-y-3">
-                <div className="w-16 h-16 mx-auto rounded-2xl overflow-hidden ring-2 ring-violet-500/30 shadow-lg shadow-violet-500/10">
-                  <img src={THAY_HAU_AVATAR} alt="Thầy Hậu AI" className="w-full h-full object-cover" />
+              !rulesAccepted ? (
+                /* ═══ BANNER QUY ĐỊNH ═══ */
+                <div className="px-2 py-4 space-y-4">
+                  <div className="flex flex-col items-center gap-2 mb-2">
+                    <div className="w-14 h-14 rounded-2xl overflow-hidden ring-2 ring-violet-500/40 shadow-lg">
+                      <img src={THAY_HAU_AVATAR} alt="Thầy Hậu AI" className="w-full h-full object-cover" />
+                    </div>
+                    <p className="text-sm font-black text-white tracking-tight">Chào em! Thầy Hậu đây 👋</p>
+                  </div>
+
+                  <div className="bg-violet-950/60 border border-violet-500/30 rounded-2xl p-4 space-y-2.5">
+                    <p className="text-[11px] font-black text-violet-300 uppercase tracking-widest mb-1">📋 Quy định sử dụng</p>
+                    <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                      <div className="flex items-start gap-2">
+                        <span className="text-violet-400 font-black shrink-0 mt-0.5">①</span>
+                        <span>Mỗi lượt hỏi, Thầy cần <strong className="text-white">20 giây</strong> để xử lý xong hoàn toàn trước khi em gửi tiếp. Điều này đảm bảo câu trả lời <strong className="text-white">không bị cắt ngắn giữa chừng</strong>.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-cyan-400 font-black shrink-0 mt-0.5">②</span>
+                        <span>Thầy dạy theo phương pháp <strong className="text-white">Socratic</strong> — không đưa đáp án thẳng, mà dẫn dắt em tự suy luận.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-emerald-400 font-black shrink-0 mt-0.5">③</span>
+                        <span>Công thức Vật lý được hiển thị đầy đủ bằng LaTeX — em có thể <strong className="text-white">copy</strong> để dùng trong bài.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-amber-400 font-black shrink-0 mt-0.5">④</span>
+                        <span>Nếu câu hỏi chưa rõ , Thầy sẽ hỏi lại trước — em hãy trả lời để Thầy hiểu đúng điểm em đang bí.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!isSpeechSupported && (
+                    <p className="text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2">
+                      ⚠️ Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome / Edge hoặc gõ chữ bên dưới.
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => setRulesAccepted(true)}
+                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-violet-600 to-cyan-600 text-white text-sm font-black tracking-wide hover:from-violet-500 hover:to-cyan-500 transition-all shadow-lg shadow-violet-500/20 active:scale-95"
+                  >
+                    Đã hiểu, bắt đầu hỏi Thầy! 🚀
+                  </button>
                 </div>
-                <p className="text-sm font-bold text-white">Xin chào em! 👋</p>
-                <p className="text-xs text-slate-500 leading-relaxed px-4">
-                  Gõ câu hỏi hoặc bấm 🎤 để nói — Thầy sẽ giải thích đầy đủ bằng văn bản và công thức.
-                </p>
-                {!isSpeechSupported && (
-                  <p className="text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl p-2 mx-2">
-                    ⚠️ Trình duyệt không hỗ trợ ghi âm. Hãy dùng Chrome / Edge hoặc gõ chữ bên dưới.
+              ) : (
+                /* ═══ WELCOME NGẮN SAU KHI CHẤP NHẬN QUY ĐỊNH ═══ */
+                <div className="text-center py-4 space-y-2">
+                  <p className="text-sm font-bold text-white">Sẵn sàng! Em hỏi đi Thầy nghe f9d0</p>
+                  <p className="text-xs text-slate-500 leading-relaxed px-4">
+                    Gõ câu hỏi hoặc bấm 🎤 để nói — Thầy sẽ trả lời đầy đủ không ngắt quãng.
                   </p>
-                )}
-              </div>
+                </div>
+              )
             )}
 
             {/* Lịch sử chat */}
@@ -370,20 +478,43 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
 
           {/* ═══ Bottom Action Bar ═══ */}
           <div className="border-t border-slate-800/60 p-3 bg-slate-950/80 flex-shrink-0">
+
+            {/* Cooldown Bar */}
+            {cooldownRemaining > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Đang chuẩn bị cho lượt tiếp theo...
+                  </span>
+                  <span className="text-[10px] font-black text-amber-300">{cooldownRemaining}s</span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full transition-all duration-1000"
+                    style={{ width: `${(cooldownRemaining / COOLDOWN_SECS) * 100}%` }}
+                  />
+                </div>
+                <p className="text-[9px] text-slate-500 text-center mt-1">
+                  Em vui lòng chờ {cooldownRemaining} giây để đảm bảo câu trả lời hoàn chỉnh, không ngắt quãng
+                </p>
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
 
               {/* Mic button */}
               {isSpeechSupported && (
                 <button
                   onClick={handleMicClick}
-                  disabled={phase === 'thinking'}
-                  title={phase === 'listening' ? "Dừng & Gửi" : "Nói câu hỏi"}
+                  disabled={phase === 'thinking' || cooldownRemaining > 0 || !rulesAccepted}
+                  title={cooldownRemaining > 0 ? `Chờ ${cooldownRemaining}s nữa` : phase === 'listening' ? "Dừng & Gửi" : "Nói câu hỏi"}
                   className={cn(
                     "relative w-11 h-11 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg overflow-hidden border-2",
                     phase === 'listening'
                       ? "border-red-500 bg-red-600/20 shadow-red-500/30 scale-105"
-                      : phase === 'thinking'
-                        ? "border-slate-700 opacity-50 cursor-wait"
+                      : phase === 'thinking' || cooldownRemaining > 0 || !rulesAccepted
+                        ? "border-slate-700 opacity-40 cursor-not-allowed"
                         : "border-violet-500/50 hover:border-violet-400 hover:scale-105 bg-slate-900"
                   )}
                 >
@@ -411,14 +542,19 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
                 <input
                   type="text"
                   value={inputText}
-                  disabled={phase === 'thinking'}
+                  disabled={phase === 'thinking' || cooldownRemaining > 0 || !rulesAccepted}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder={phase === 'listening' ? 'Đang nghe giọng nói...' : 'Gõ câu hỏi cho Thầy...'}
-                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white px-4 py-2.5 rounded-2xl focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-50 transition-all pr-10"
+                  placeholder={
+                    !rulesAccepted ? 'Hãy đọc và xác nhận quy định trước...'
+                    : cooldownRemaining > 0 ? `Đợi ${cooldownRemaining}s rồi hỏi tiếp nhé...`
+                    : phase === 'listening' ? 'Đang nghe giọng nói...'
+                    : 'Gõ câu hỏi cho Thầy...'
+                  }
+                  className="w-full bg-slate-900 border border-slate-700 text-sm text-white px-4 py-2.5 rounded-2xl focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all pr-10"
                 />
                 <button
                   type="submit"
-                  disabled={!inputText.trim() || phase === 'thinking'}
+                  disabled={!inputText.trim() || phase === 'thinking' || cooldownRemaining > 0 || !rulesAccepted}
                   className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-violet-400 hover:text-violet-300 disabled:opacity-30 transition-colors"
                 >
                   <Send className="w-4 h-4" />
@@ -427,7 +563,8 @@ export const VoiceTutorButton: React.FC<VoiceTutorButtonProps> = ({
             </div>
 
             <p className="text-[9px] text-slate-600 text-center mt-2 font-medium">
-              {phase === 'idle' && 'Câu trả lời hiển thị đầy đủ bằng text + công thức'}
+              {cooldownRemaining > 0 && <><span className="text-amber-500 font-black">⚡ Hệ thống đang chuẩn bị</span> — trả lời tiếp sau {cooldownRemaining}s</>}
+              {cooldownRemaining === 0 && phase === 'idle' && 'Câu trả lời hiển thị đầy đủ bằng text + công thức'}
               {phase === 'listening' && <><span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse mr-1" />Đang ghi âm... (ấn lại Mic để gửi)</>}
               {phase === 'thinking' && 'Thầy đang soạn câu trả lời chi tiết...'}
               {phase === 'error' && 'Gõ văn bản bên trên nếu Mic bị lỗi'}

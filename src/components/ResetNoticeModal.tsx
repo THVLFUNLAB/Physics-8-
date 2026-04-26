@@ -54,7 +54,7 @@ export const ResetNoticeModal: React.FC<ResetNoticeModalProps> = ({ userId, user
             transition={{ type: 'spring', damping: 26, stiffness: 260 }}
             className="fixed inset-0 z-[501] flex items-center justify-center p-4"
           >
-            <div className="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/60 rounded-[2rem] overflow-hidden shadow-2xl shadow-black/60">
+            <div className="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-700/60 rounded-[2rem] overflow-y-auto shadow-2xl shadow-black/60 max-h-[90dvh]">
 
               {/* ── Header gradient banner ── */}
               <div className="relative bg-gradient-to-br from-red-600/30 via-orange-500/20 to-amber-500/10 px-8 pt-10 pb-8 text-center overflow-hidden">

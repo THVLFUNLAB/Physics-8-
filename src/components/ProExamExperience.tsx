@@ -41,6 +41,9 @@ export const ProExamExperience = ({
   const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
+  // ── Guard chống double-submit và thay thế confirm() native ──
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   // --- Fix stale closure in timeout ---
   const onSubmitRef = useRef(onSubmit);
@@ -137,8 +140,12 @@ export const ProExamExperience = ({
   }, [showResumeModal]);
 
   const handleSubmit = () => {
+    // Guard chống double-submit: nếu đang xử lý thì bỏ qua
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setShowSubmitConfirm(false);
     localStorage.removeItem(DRAFT_KEY);
-    localStorage.removeItem('phys8_active_exam_session'); // Xóa session key
+    localStorage.removeItem('phys8_active_exam_session');
     onSubmitRef.current();
   };
 
@@ -233,11 +240,21 @@ export const ProExamExperience = ({
           
           <button 
             onClick={() => {
-              if (confirm("Bạn có chắc chắn muốn nộp bài sớm?")) handleSubmit();
+              // Mở modal xác nhận thay vì dùng confirm() native (không tin cậy trên mobile)
+              if (!isSubmitting) setShowSubmitConfirm(true);
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 md:px-8 py-1.5 md:py-2 rounded-lg md:rounded-2xl font-black text-[9px] md:text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20 whitespace-nowrap"
+            disabled={isSubmitting}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white px-3 md:px-8 py-1.5 md:py-2 rounded-lg md:rounded-2xl font-black text-[9px] md:text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-900/20 whitespace-nowrap flex items-center gap-1.5"
           >
-            Nộp bài
+            {isSubmitting ? (
+              <>
+                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
+                Đang nộp...
+              </>
+            ) : 'Nộp bài'}
           </button>
         </div>
       </header>
@@ -605,6 +622,55 @@ export const ProExamExperience = ({
                   className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all text-sm uppercase tracking-widest shadow-lg shadow-blue-500/20"
                 >
                   Làm tiếp
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ XÁC NHẬN NỘP BÀI — Custom modal thay thế confirm() native ═══
+           Lý do: confirm() trên iOS Safari / Android Chrome trong PWA
+           đôi khi bị block hoặc auto-dismiss khiến HS cảm giác click không phản hồi.
+      */}
+      <AnimatePresence>
+        {showSubmitConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[400] flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 10 }}
+              className="bg-slate-900 border border-blue-500/40 p-8 rounded-3xl max-w-sm w-full text-center space-y-5 shadow-2xl shadow-blue-900/30"
+            >
+              <div className="w-16 h-16 bg-blue-600/15 rounded-2xl flex items-center justify-center mx-auto">
+                <svg className="w-8 h-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tight mb-2">Xác nhận nộp bài?</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  Bạn có chắc muốn nộp bài ngay bây giờ?<br/>
+                  <span className="text-amber-400 font-bold">Câu chưa làm sẽ được tính là sai.</span>
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={() => setShowSubmitConfirm(false)}
+                  className="py-3 rounded-2xl font-bold text-sm bg-slate-800 hover:bg-slate-700 text-white transition-all border border-slate-700"
+                >
+                  ⏪ Quay lại làm
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="py-3 rounded-2xl font-black text-sm bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg shadow-blue-900/30 uppercase tracking-widest"
+                >
+                  Nộp ngay ✓
                 </button>
               </div>
             </motion.div>

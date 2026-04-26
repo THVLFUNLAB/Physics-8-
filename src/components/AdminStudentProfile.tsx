@@ -3,6 +3,7 @@ import { UserProfile, Attempt } from '../types';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { Trophy, TrendingUp, AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { isVipUser } from '../lib/userUtils';
 
 interface AdminStudentProfileProps {
   user: UserProfile;
@@ -97,7 +98,7 @@ const AdminStudentProfile: React.FC<AdminStudentProfileProps> = ({ user, attempt
               "px-2.5 py-1 text-xs font-bold rounded-md", 
               user.tier === 'vip' || user.isUnlimited ? "bg-amber-500/20 text-amber-400" : "bg-blue-500/20 text-blue-400"
             )}>
-              {user.tier === 'vip' || user.isUnlimited ? '💎 Gói Pro/VIP' : 'Gói Cơ bản'}
+              {isVipUser(user) ? '💎 Gói Pro/VIP' : 'Gói Cơ bản'}
             </span>
             <span className="px-2.5 py-1 text-xs font-bold rounded-md bg-slate-800 text-slate-300">
               {user.className || 'Chưa cập nhật Lớp'}
@@ -109,13 +110,13 @@ const AdminStudentProfile: React.FC<AdminStudentProfileProps> = ({ user, attempt
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-sm flex flex-col justify-center min-h-[140px]">
           <p className="text-sm font-medium text-slate-400">Số lượt thử đã dùng</p>
           <div className="flex items-baseline gap-2 mt-2">
-            <p className="text-3xl font-semibold text-white">{user.tier === 'vip' || user.isUnlimited ? '∞' : user.usedAttempts || 0}</p>
-            <p className="text-sm text-slate-500">/ {user.tier === 'vip' || user.isUnlimited ? '∞' : user.maxAttempts || 30}</p>
+            <p className="text-3xl font-semibold text-white">{isVipUser(user) ? '∞' : user.usedAttempts || 0}</p>
+            <p className="text-sm text-slate-500">/ {isVipUser(user) ? '∞' : user.maxAttempts || 30}</p>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-1.5 mt-4">
             <div 
-              className={cn("h-1.5 rounded-full transition-all duration-1000", user.tier === 'vip' || user.isUnlimited ? 'bg-amber-500' : 'bg-indigo-500')} 
-              style={{ width: user.tier === 'vip' || user.isUnlimited ? '100%' : `${Math.min(((user.usedAttempts || 0) / (user.maxAttempts || 30)) * 100, 100)}%` }}
+              className={cn("h-1.5 rounded-full transition-all duration-1000", isVipUser(user) ? 'bg-amber-500' : 'bg-indigo-500')} 
+              style={{ width: isVipUser(user) ? '100%' : `${Math.min(((user.usedAttempts || 0) / (user.maxAttempts || 30)) * 100, 100)}%` }}
             />
           </div>
         </div>

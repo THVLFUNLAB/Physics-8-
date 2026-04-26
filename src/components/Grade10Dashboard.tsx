@@ -208,6 +208,26 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam }: G
         </div>
       </div>
 
+      {/* ── Đề Thi & Nhiệm Vụ GV Giao ── */}
+      <div className="bg-slate-900/50 backdrop-blur-md border border-emerald-500/20 rounded-3xl p-8 relative overflow-hidden shadow-xl">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50" />
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="flex justify-between items-center mb-8 relative z-10">
+          <h3 className="text-2xl sm:text-3xl font-black flex items-center gap-3 font-headline tracking-tight text-emerald-400">
+            <BookOpen className="text-emerald-400 w-8 h-8" />
+            Nhiệm Vụ GV Giao
+          </h3>
+          <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-black rounded-full uppercase tracking-widest">
+            0 Mới
+          </div>
+        </div>
+        <div className="bg-slate-950/80 border border-slate-800 border-dashed p-10 rounded-2xl flex flex-col items-center justify-center text-center relative z-10">
+           <BookOpen className="w-12 h-12 text-slate-700 mb-4" />
+           <h4 className="text-xl font-black text-slate-400 mb-2">Chưa có nhiệm vụ</h4>
+           <p className="text-sm text-slate-500">Giáo viên của bạn chưa giao bài tập hoặc đề thi nào mới.</p>
+        </div>
+      </div>
+
       {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 10) ── */}
       {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={10} />}
     </div>

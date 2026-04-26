@@ -51,6 +51,7 @@ interface TopicMatrixConfig {
 
 export default function ExamMatrixGenerator() {
   const [examTitle, setExamTitle] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState<'all' | 10 | 11 | 12>('all');
   const [topicsConfig, setTopicsConfig] = useState<TopicMatrixConfig[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState<string>('');
@@ -348,6 +349,7 @@ export default function ExamMatrixGenerator() {
         createdBy: auth.currentUser?.uid || 'admin',
         published: false,
         type: 'Matrix',
+        ...(selectedGrade !== 'all' && { targetGrade: selectedGrade })
       };
 
       await addDoc(collection(db, 'exams'), newExam);
@@ -449,15 +451,34 @@ export default function ExamMatrixGenerator() {
         <div className="flex-1 h-px bg-slate-800" />
       </div>
 
-      <div className="space-y-4 relative z-10">
-        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tiêu đề Kỳ thi *</label>
-        <input 
-          type="text" 
-          placeholder="VD: Kiểm tra cuối kì 1 — Khối 12"
-          value={examTitle}
-          onChange={(e) => setExamTitle(e.target.value)}
-          className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-5 py-4 text-base text-white placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 outline-none transition-all shadow-inner"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+        <div className="space-y-4">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tiêu đề Kỳ thi *</label>
+          <input 
+            type="text" 
+            placeholder="VD: Kiểm tra cuối kì 1 — Khối 12"
+            value={examTitle}
+            onChange={(e) => setExamTitle(e.target.value)}
+            className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-5 py-4 text-base text-white placeholder-slate-500 focus:ring-2 focus:ring-cyan-500/50 outline-none transition-all shadow-inner"
+          />
+        </div>
+        <div className="space-y-4">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Khối lớp áp dụng</label>
+          <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 h-[58px]">
+            {(['all', 10, 11, 12] as const).map(grade => (
+              <button 
+                key={grade}
+                onClick={() => setSelectedGrade(grade)}
+                className={cn(
+                  "flex-1 rounded-lg text-xs font-bold transition-all h-full",
+                  selectedGrade === grade ? "bg-cyan-600 text-white shadow-lg" : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                {grade === 'all' ? 'Tất cả' : `Khối ${grade}`}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {errors.length > 0 && (

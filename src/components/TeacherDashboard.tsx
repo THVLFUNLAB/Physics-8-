@@ -25,11 +25,13 @@ import {
   orderBy,
   Timestamp,
   limit,
+  auth,
 } from '../firebase';
 import { UserProfile, Exam, Attempt, Question } from '../types';
 import { ReviewExam } from './ReviewExam';
 import AdminStudentProfile from './AdminStudentProfile';
 import { cn } from '../lib/utils';
+import { VipLinkGenerator } from './VipLinkGenerator';
 import { motion, AnimatePresence } from 'motion/react';
 import { SkeletonText, SkeletonNumber } from './SkeletonLoader';
 import {
@@ -161,6 +163,14 @@ const TeacherDashboard: React.FC = () => {
   const [sortAsc, setSortAsc] = useState(true);
   const [reviewingData, setReviewingData] = useState<{ test: { topic: string, questions: Question[] }, answers: Record<string, any> } | null>(null);
   const [selectedStudentProfile, setSelectedStudentProfile] = useState<UserProfile | null>(null);
+
+  // Build adminUserProfile từ auth.currentUser (dùng cho VipLinkGenerator)
+  const adminUserProfile = auth.currentUser ? {
+    uid: auth.currentUser.uid,
+    email: auth.currentUser.email || '',
+    displayName: auth.currentUser.displayName || '',
+    role: 'admin' as const,
+  } as UserProfile : null;
 
   // ═══════════════════════════════════════════════════════════
   //  DATA FETCHING (tối ưu: 3 queries total)
@@ -804,6 +814,13 @@ const TeacherDashboard: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ══════ MAGIC LINK VIP GENERATOR ══════ */}
+      {adminUserProfile && (
+        <div className="border-t border-slate-800 pt-6">
+          <VipLinkGenerator adminUser={adminUserProfile} />
+        </div>
+      )}
     </div>
   );
 };

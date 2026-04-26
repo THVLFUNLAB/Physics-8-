@@ -1,9 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, doc, updateDoc } from '../firebase';
+import { db, doc, updateDoc, setDoc } from '../firebase';
 import { UserProfile } from '../types';
 import { toast } from './Toast';
 import { User, ShieldAlert, CheckCircle2, ChevronDown, GraduationCap } from 'lucide-react';
+import { Timestamp } from 'firebase/firestore';
+
+// ── Free Trial Class IDs (map từ biến môi trường hoặc fallback hàrdcode) ──
+const FREE_CLASS_MAP: Record<'10' | '11' | '12', string> = {
+  '10': import.meta.env.VITE_FREE_CLASS_10 || 'free_trial_grade10',
+  '11': import.meta.env.VITE_FREE_CLASS_11 || 'free_trial_grade11',
+  '12': import.meta.env.VITE_FREE_CLASS_12 || 'free_trial_grade12',
+};
+
+/** Lấy grade (10/11/12) từ công thức lớp (ví dụ: '12L1' → '12') */
+const getGradeFromClass = (cls: string): '10' | '11' | '12' | null => {
+  if (cls.startsWith('12')) return '12';
+  if (cls.startsWith('11')) return '11';
+  if (cls.startsWith('10')) return '10';
+  return null;
+};
 
 interface StudentOnboardingModalProps {
   user: UserProfile;
@@ -38,11 +54,39 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
 
     setIsSubmitting(true);
     try {
+      // 1. Cập nhật profile user (giữ nguyên, không đụng field quota)
       await updateDoc(doc(db, 'users', user.uid), {
         displayName: displayName.trim(),
         className: className,
       });
-      toast.success('Cập nhật thông tin thành công! Chào mừng em đến với hệ thống.');
+
+      // 2. Tự động ghi danh vào lớp Free Trial tương ứng với khối
+      const grade = getGradeFromClass(className);
+      if (grade) {
+        const freeClassId = FREE_CLASS_MAP[grade];
+        const memberDocId = `${freeClassId}_${user.uid}`;
+        try {
+          await setDoc(
+            doc(db, 'class_members', memberDocId),
+            {
+              classId:     freeClassId,
+              userId:      user.uid,
+              displayName: displayName.trim(),
+              email:       user.email || '',
+              grade,
+              className,
+              joinedAt:    Timestamp.now(),
+              source:      'onboarding_auto',
+            },
+            { merge: true } // idempotent — an toàn khi réresh
+          );
+        } catch (memberErr) {
+          // Non-blocking: lỗi ghi danh không chặn flow đăng ký
+          console.warn('[Onboarding] Không ghi được class_members:', memberErr);
+        }
+      }
+
+      toast.success('Chào mừng em đến với hệ thống! Đã xếp em vào lớp học thử nghiệm.');
       setIsOpen(false);
     } catch (err: any) {
       console.error(err);

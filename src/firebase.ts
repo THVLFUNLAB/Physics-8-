@@ -245,7 +245,7 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
 
   const userRef = doc(db, 'users', userId);
 
-  // Đọc profile user (server → cache → graceful allow)
+  // Đọc profile user (server → cache → block nếu không thể xác minh quota)
   let userDoc;
   try {
     userDoc = await getDoc(userRef);
@@ -253,18 +253,17 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
     const errCode = netErr?.code || '';
     const errMsg  = String(netErr?.message || netErr);
 
-    // [QUAN TRỌNG] Nếu lỗi Firestore Rules (permission-denied) → cho vào bài,
-    // đừng block HS vì Rules chưa cập nhật hoặc chưa khởi tạo tài khoản.
+    // ⛔ [SECURITY FIX] Nếu bị chặn quyền đọc → KHÔNG cho vào bài (có thể bị tampered)
     if (errCode === 'permission-denied' || errMsg.includes('Missing or insufficient permissions')) {
-      console.warn('[startExamAttempt] Firestore Rules chưa cho phép đọc users/{uid}. Cho qua (graceful).');
-      return true;
+      console.warn('[startExamAttempt] Không đọc được user doc do Rules. Chặn vào bài.');
+      throw new Error('EXCEEDED_LIMIT');
     }
 
     console.warn('[startExamAttempt] Lỗi mạng khi getDoc, thử đọc cache...', netErr);
     try {
       userDoc = await getDocFromCache(userRef);
     } catch {
-      // Không có cache → cho phép vào bài (graceful degradation), không block HS
+      // Không có cache và không phải lỗi bảo mật → cho phép vào bài (offline graceful)
       console.warn('[startExamAttempt] Không có cache, cho phép vào bài ở chế độ offline.');
       return true;
     }
@@ -314,12 +313,14 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
   } catch (writeErr: any) {
     const errCode = writeErr?.code || '';
     const errMsg  = String(writeErr?.message || writeErr);
-    // Nếu lỗi ghi (permission / network) → vẫn cho vào bài, chỉ là không đếm được lượt
+    // ⛔ [SECURITY FIX] Lỗi quyền khi ghi: Rules đã chặn → nhảy EXCEEDED_LIMIT
+    // (Chương trình hợp lệ không bao giờ bị lỗi này nếu Rules được cài đúng)
     if (errCode === 'permission-denied' || errMsg.includes('Missing or insufficient permissions')) {
-      console.warn('[startExamAttempt] Không ghi được lượt thi do Rules, HS vẫn được vào bài.');
-      return true;
+      console.warn('[startExamAttempt] Rules từ chối ghi quota increment — chặn vào bài.');
+      throw new Error('EXCEEDED_LIMIT');
     }
-    console.warn('[startExamAttempt] Lỗi ghi batch, HS vẫn được vào bài:', writeErr);
+    // Lỗi mạng thuần túy (timeout, offline): vẫn cho vào bài nhưng ghi log
+    console.warn('[startExamAttempt] Lỗi ghi batch (mạng), HS vẫn được vào bài:', writeErr);
     return true;
   }
 

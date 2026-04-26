@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, X, Save, Trash2, Code2, LayoutTemplate, Beaker,
-  Wand2, Send, Loader2, AlertCircle, Copy, Check, ChevronDown, ChevronUp
+  Wand2, Send, Loader2, AlertCircle, Copy, Check, ChevronDown, ChevronUp,
+  ExternalLink, Maximize2
 } from 'lucide-react';
 import { collection, addDoc, getDocs, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Simulation } from '../types';
+import { LabPlayer } from './LabPlayer';
 
 // ─── Giới hạn kích thước: Firestore 1MB per document ─────────────────────
 const MAX_CODE_BYTES = 900_000; // 900KB limit to be safe
@@ -49,72 +51,67 @@ const formatSize = (bytes: number) => bytes < 1024 ? `${bytes}B` : `${(bytes/102
 // ==========================================
 // 1. Giao diện Cửa sổ xem Mô phỏng (Viewer)
 // ==========================================
-export const SimulationViewer = ({ 
-  simulation, 
-  onClose 
-}: { 
-  simulation: Simulation, 
-  onClose: () => void 
+// ── SimulationViewer: Modal wrapper dùng LabPlayer ───────────────────────────
+export const SimulationViewer = ({
+  simulation,
+  onClose,
+}: {
+  simulation: Simulation;
+  onClose: () => void;
 }) => {
-  const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [isLandscape, setIsLandscape] = useState(
-    () => window.innerWidth > window.innerHeight
-  );
+  const [htmlSource, setHtmlSource] = useState<string | null>(null);
+  const [loadingCode, setLoadingCode] = useState(!simulation.sourceUrl);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(() => window.innerWidth > window.innerHeight);
   const containerRef = useRef<HTMLDivElement>(null);
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
+  // Nếu không có sourceUrl → giải nén html_code để truyền vào LabPlayer dưới dạng srcDoc
   useEffect(() => {
-    decompressCode(simulation.html_code).then(c => {
-      setCode(c);
-      setLoading(false);
-    });
-  }, [simulation.html_code]);
+    if (simulation.sourceUrl) {
+      setLoadingCode(false); // LabPlayer tự xử lý loading state
+      return;
+    }
+    if (!simulation.html_code) {
+      setHtmlSource('<h1 style="color:white;font-family:sans-serif;padding:2rem">Lỗi: Không tìm thấy mã nguồn mô phỏng.</h1>');
+      setLoadingCode(false);
+      return;
+    }
+    decompressCode(simulation.html_code)
+      .then(c => { setHtmlSource(c); setLoadingCode(false); })
+      .catch(() => { setHtmlSource('<h1>Lỗi giải nén mô phỏng.</h1>'); setLoadingCode(false); });
+  }, [simulation.sourceUrl, simulation.html_code]);
 
-  // Theo dõi orientation thay đổi
+  // Orientation
   useEffect(() => {
-    const handleOrientationChange = () => {
-      setTimeout(() => {
-        setIsLandscape(window.innerWidth > window.innerHeight);
-      }, 100);
-    };
-    window.addEventListener('resize', handleOrientationChange);
-    window.addEventListener('orientationchange', handleOrientationChange);
-    return () => {
-      window.removeEventListener('resize', handleOrientationChange);
-      window.removeEventListener('orientationchange', handleOrientationChange);
-    };
+    const handler = () => setTimeout(() => setIsLandscape(window.innerWidth > window.innerHeight), 100);
+    window.addEventListener('resize', handler);
+    window.addEventListener('orientationchange', handler);
+    return () => { window.removeEventListener('resize', handler); window.removeEventListener('orientationchange', handler); };
   }, []);
 
-  // Theo dõi trạng thái fullscreen
+  // Fullscreen
   useEffect(() => {
-    const handleFsChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
-  // Fullscreen API
   const toggleFullscreen = async () => {
     try {
-      if (!document.fullscreenElement) {
-        await containerRef.current?.requestFullscreen();
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch {
-      // Fallback: thêm class full-modal nếu browser không hỗ trợ
-      console.warn('[SimViewer] Fullscreen API không được hỗ trợ');
-    }
+      if (!document.fullscreenElement) await containerRef.current?.requestFullscreen();
+      else await document.exitFullscreen();
+    } catch { console.warn('[SimViewer] Fullscreen API không hỗ trợ'); }
   };
 
-  // Khoá scroll body khi modal mở
+  // Lock scroll
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  // Nguồn truyền vào LabPlayer
+  const labSource = simulation.sourceUrl ?? htmlSource ?? '';
 
   return (
     <AnimatePresence>
@@ -132,7 +129,7 @@ export const SimulationViewer = ({
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           className="w-full h-full md:max-w-7xl md:max-h-[95vh] md:rounded-3xl overflow-hidden bg-slate-900 border-0 md:border md:border-slate-800 shadow-2xl flex flex-col"
         >
-          {/* ── HEADER: compact trên mobile ── */}
+          {/* ── HEADER ── */}
           <div className="flex items-center justify-between px-3 py-2 md:px-5 md:py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-8 h-8 md:w-10 md:h-10 bg-blue-600/20 flex items-center justify-center rounded-xl border border-blue-500/30 shrink-0">
@@ -144,72 +141,53 @@ export const SimulationViewer = ({
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0 ml-2">
-              {/* Nút Fullscreen */}
-              <button 
-                onClick={toggleFullscreen}
-                title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
-                className="p-2 hover:bg-blue-500/20 hover:text-blue-400 rounded-xl transition-colors text-slate-400"
-              >
-                {isFullscreen ? (
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-                ) : (
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
-                )}
+              {simulation.sourceUrl && (
+                <a
+                  href={simulation.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Mở trong tab mới"
+                  className="p-2 hover:bg-blue-500/20 hover:text-blue-400 rounded-xl transition-colors text-slate-400"
+                >
+                  <ExternalLink className="w-5 h-5" />
+                </a>
+              )}
+              <button onClick={toggleFullscreen} title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
+                className="p-2 hover:bg-blue-500/20 hover:text-blue-400 rounded-xl transition-colors text-slate-400">
+                <Maximize2 className="w-5 h-5" />
               </button>
-              {/* Nút Đóng */}
-              <button 
-                onClick={onClose}
-                className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-xl transition-colors text-slate-400"
-                title="Đóng mô phỏng"
-              >
+              <button onClick={onClose} className="p-2 hover:bg-red-500/20 hover:text-red-400 rounded-xl transition-colors text-slate-400" title="Đóng">
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* ── LANDSCAPE HINT cho mobile portrait ── */}
-          {isMobile && !isLandscape && !loading && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs font-bold shrink-0"
-            >
-              <svg className="w-4 h-4 shrink-0 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="4" y="2" width="16" height="20" rx="2"/>
-                <line x1="12" y1="18" x2="12" y2="18.01"/>
-              </svg>
+          {/* ── LANDSCAPE HINT ── */}
+          {isMobile && !isLandscape && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs font-bold shrink-0">
               <span>📱 Xoay ngang điện thoại để trải nghiệm tốt hơn!</span>
             </motion.div>
           )}
-          
-          {/* ── IFRAME CONTAINER: chiếm toàn bộ không gian còn lại ── */}
-          <div className="flex-1 bg-white relative min-h-0">
-            {loading ? (
+
+          {/* ── LAB PLAYER (sandbox iframe) ── */}
+          <div className="flex-1 relative min-h-0">
+            {loadingCode ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-4">
                 <Loader2 className="w-10 h-10 animate-spin text-blue-400" />
-                <p className="text-slate-400 text-sm">Đang tải mô phỏng...</p>
+                <p className="text-slate-400 text-sm">Đang giải nén mô phỏng...</p>
               </div>
             ) : (
-              <iframe
-                title={simulation.title}
-                srcDoc={code}
-                sandbox="allow-scripts allow-same-origin allow-forms"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full border-0"
-                style={{ display: 'block' }}
-              />
+              <LabPlayer title={simulation.title} source={labSource} className="w-full h-full" />
             )}
           </div>
-          
-          {/* ── FOOTER: chỉ hiện trên desktop ── */}
+
+          {/* ── FOOTER ── */}
           <div className="hidden md:flex items-center justify-between px-5 py-3 bg-slate-950 border-t border-slate-800 text-sm text-slate-400 shrink-0">
             <span><strong className="text-slate-300">Mô tả:</strong> {simulation.description}</span>
-            <button
-              onClick={toggleFullscreen}
-              className="flex items-center gap-2 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
-              Toàn màn hình
+            <button onClick={toggleFullscreen}
+              className="flex items-center gap-2 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors">
+              <Maximize2 className="w-4 h-4" /> Toàn màn hình
             </button>
           </div>
         </motion.div>

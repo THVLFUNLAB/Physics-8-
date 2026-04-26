@@ -1,16 +1,23 @@
 /**
  * ═══════════════════════════════════════════════════════════════
  *  DANH SÁCH YÊU CẦU CẦN ĐẠT (YCCĐ) — GDPT 2018
- *  Chuẩn hóa bởi Bộ GD&ĐT, sử dụng cho hệ thống PHYS-9+
+ *  Nguồn: Thông tư 32/2018/TT-BGDĐT
+ *  Chuẩn hóa cho hệ thống PHYS-9+ — Cập nhật lớp 12 đầy đủ
  * ═══════════════════════════════════════════════════════════════
+ *
+ *  Cấu trúc mã YCCĐ lớp 12 (semantic):
+ *    Core: 12.<mạch>.<thứ tự>  → ví dụ: 12.1.1 (Vật lí nhiệt)
+ *    Chuyên đề: CĐ12.<số>.<thứ tự> → ví dụ: CĐ12.1.1 (DĐXC nâng cao)
  */
 
 export interface YCCD {
-  code: string;       // Mã định danh duy nhất: YCCD_10_01, YCCD_12_05, ...
-  grade: string;      // "10", "11", "12", "Chuyên đề 12.1", "Chuyên đề 12.2", "Chuyên đề 12.3"
-  topic: string;      // Tên chủ đề lớn
-  content: string;    // Nội dung YCCĐ đầy đủ
-  keywords: string[]; // Từ khóa để auto-matching
+  code: string;       // Auto-generated (backward compat): YCCD_12_01 …
+  yccdId: string;     // Mã ngữ nghĩa chuẩn TT32: "12.1.1", "CĐ12.1.3" …
+  chapter: string;    // Mạch nội dung: "12.1 - Vật lí nhiệt", "CĐ12.1 - Dòng điện xoay chiều" …
+  grade: string;      // "10" | "11" | "12" | "Chuyên đề 12.1" | "Chuyên đề 12.2" | "Chuyên đề 12.3"
+  topic: string;      // Tên chủ đề / tiểu mục
+  content: string;    // Nội dung YCCĐ đầy đủ (văn bản gốc TT32)
+  keywords: string[]; // Từ khóa để auto-matching với câu hỏi ngân hàng
 }
 
 // ── Helper: trích xuất từ khóa tự động từ nội dung YCCĐ ──
@@ -133,89 +140,98 @@ const RAW_YCCD_DATA = [
   { grade: "11", topic: "Dòng điện, mạch điện", content: "Định nghĩa điện trở, nguyên nhân gây ra điện trở. Vẽ và thảo luận đường đặc trưng I - U của kim loại. Ảnh hưởng của nhiệt độ lên điện trở (điện trở nhiệt)." },
   { grade: "11", topic: "Dòng điện, mạch điện", content: "Phát biểu định luật Ohm cho vật dẫn kim loại. Định nghĩa suất điện động của nguồn điện. Mô tả ảnh hưởng của điện trở trong lên hiệu điện thế hai cực nguồn." },
   { grade: "11", topic: "Dòng điện, mạch điện", content: "Nêu được năng lượng điện tiêu thụ và công suất điện. Tính được năng lượng điện và công suất tiêu thụ năng lượng điện của đoạn mạch." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Sử dụng mô hình động học phân tử, nêu được sơ lược cấu trúc của chất rắn, chất lỏng, chất khí. Giải thích được sơ lược một số hiện tượng vật lí liên quan đến sự chuyển thể: sự nóng chảy, sự hoá hơi." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Thực hiện thí nghiệm, nêu được: mối liên hệ nội năng của vật với năng lượng của các phân tử tạo nên vật, định luật 1 của nhiệt động lực học. Vận dụng được định luật 1 của nhiệt động lực học trong một số trường hợp đơn giản." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Thực hiện thí nghiệm đơn giản, thảo luận để nêu được sự chênh lệch nhiệt độ giữa hai vật tiếp xúc nhau có thể cho ta biết chiều truyền năng lượng nhiệt giữa chúng; từ đó nêu được khi hai vật tiếp xúc với nhau, ở cùng nhiệt độ, sẽ không có sự truyền năng lượng nhiệt giữa chúng." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Thảo luận để nêu được mỗi độ chia (1°C) trong thang Celsius bằng 1/100 của khoảng cách giữa nhiệt độ tan chảy của nước tinh khiết đóng băng và nhiệt độ sôi của nước tinh khiết. Mỗi độ chia (1 K) trong thang Kelvin bằng 1/273,16 của khoảng cách giữa nhiệt độ không tuyệt đối và nhiệt độ điểm ba của nước." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Nêu được nhiệt độ không tuyệt đối là nhiệt độ mà tại đó tất cả các chất có động năng chuyển động nhiệt của các phân tử hoặc nguyên tử bằng không và thế năng của chúng là tối thiểu. Chuyển đổi được nhiệt độ đo theo thang Celsius sang nhiệt độ đo theo thang Kelvin và ngược lại." },
-  { grade: "12", topic: "Vật lí nhiệt", content: "Nêu được định nghĩa nhiệt dung riêng, nhiệt nóng chảy riêng, nhiệt hoá hơi riêng. Thảo luận để thiết kế phương án hoặc lựa chọn phương án và thực hiện phương án, đo được nhiệt dung riêng, nhiệt nóng chảy riêng, nhiệt hoá hơi riêng bằng dụng cụ thực hành." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Phân tích mô hình chuyển động Brown, nêu được các phân tử trong chất khí chuyển động hỗn loạn. Từ các kết quả thực nghiệm hoặc mô hình, thảo luận để nêu được các giả thuyết của thuyết động học phân tử chất khí." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Thực hiện thí nghiệm khảo sát được định luật Boyle: Khi giữ không đổi nhiệt độ của một khối lượng khí xác định thì áp suất gây ra bởi khí tỉ lệ nghịch với thể tích của nó." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Thực hiện thí nghiệm minh hoạ được định luật Charles: Khi giữ không đổi áp suất của một khối lượng khí xác định thì thể tích của khí tỉ lệ với nhiệt độ tuyệt đối của nó." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Sử dụng định luật Boyle và định luật Charles rút ra được phương trình trạng thái của khí lí tưởng. Vận dụng được phương trình trạng thái của khí lí tưởng." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Giải thích được chuyển động của các phân tử ảnh hưởng như thế nào đến áp suất tác dụng lên thành bình và từ đó rút ra được hệ thức p = (1/3)nm(v^2) với n là số phân tử trong một đơn vị thể tích." },
-  { grade: "12", topic: "Khí lí tưởng", content: "Nêu được biểu thức hằng số Boltzmann, k = R/NA. So sánh pV = (1/3)Nm(v^2) với pV = nRT, rút ra được động năng tịnh tiến trung bình của phân tử tỉ lệ với nhiệt độ T." },
-  { grade: "12", topic: "Trường từ (Từ trường)", content: "Thực hiện thí nghiệm tạo ra được các đường sức từ bằng các dụng cụ đơn giản. Nêu được từ trường là trường lực gây ra bởi dòng điện hoặc nam châm, biểu hiện cụ thể là sự xuất hiện của lực từ tác dụng lên một dòng điện hay một nam châm đặt trong đó." },
-  { grade: "12", topic: "Trường từ (Từ trường)", content: "Thực hiện thí nghiệm để mô tả được hướng của lực từ tác dụng lên đoạn dây dẫn mang dòng điện đặt trong từ trường. Xác định được độ lớn và hướng của lực từ tác dụng lên đoạn dây dẫn mang dòng điện đặt trong từ trường." },
-  { grade: "12", topic: "Trường từ (Từ trường)", content: "Định nghĩa được cảm ứng từ B và đơn vị tesla. Nêu được đơn vị cơ bản và dẫn xuất để đo các đại lượng từ." },
-  { grade: "12", topic: "Trường từ (Từ trường)", content: "Thảo luận để thiết kế phương án, lựa chọn phương án, thực hiện phương án, đo được (hoặc mô tả được phương pháp đo) cảm ứng từ bằng cân dòng điện. Vận dụng được biểu thức tính lực F = BILsin(alpha)." },
-  { grade: "12", topic: "Cảm ứng điện từ", content: "Định nghĩa được từ thông và đơn vị weber. Tiến hành các thí nghiệm đơn giản minh hoạ được hiện tượng cảm ứng điện từ." },
-  { grade: "12", topic: "Cảm ứng điện từ", content: "Vận dụng được định luật Faraday và định luật Lenz về cảm ứng điện từ. Giải thích được một số ứng dụng đơn giản của hiện tượng cảm ứng điện từ." },
-  { grade: "12", topic: "Cảm ứng điện từ", content: "Mô tả được mô hình sóng điện từ và ứng dụng để giải thích sự tạo thành và lan truyền của các sóng điện từ trong thang sóng điện từ." },
-  { grade: "12", topic: "Cảm ứng điện từ", content: "Thảo luận để thiết kế phương án (hoặc mô tả được phương pháp) tạo ra dòng điện xoay chiều. Nêu được: chu kì, tần số, giá trị cực đại, giá trị hiệu dụng của cường độ dòng điện và điện áp xoay chiều." },
-  { grade: "12", topic: "Cảm ứng điện từ", content: "Thảo luận để nêu được một số ứng dụng của dòng điện xoay chiều trong cuộc sống, tầm quan trọng của việc tuân thủ quy tắc an toàn khi sử dụng dòng điện xoay chiều trong cuộc sống." },
-  { grade: "12", topic: "Vật lí hạt nhân và phóng xạ", content: "Rút ra được sự tồn tại và đánh giá được kích thước của hạt nhân từ phân tích kết quả thí nghiệm tán xạ hạt alpha. Biểu diễn được kí hiệu hạt nhân của nguyên tử bằng số nucleon và số proton. Mô tả được mô hình đơn giản của nguyên tử gồm proton, neutron và electron." },
-  { grade: "12", topic: "Vật lí hạt nhân và phóng xạ", content: "Viết được đúng phương trình phân rã hạt nhân đơn giản. Thảo luận hệ thức E = mc^2, nêu được liên hệ giữa khối lượng và năng lượng. Nêu được mối liên hệ giữa năng lượng liên kết riêng và độ bền vững của hạt nhân." },
-  { grade: "12", topic: "Vật lí hạt nhân và phóng xạ", content: "Nêu được sự phân hạch và sự tổng hợp hạt nhân. Thảo luận để đánh giá được vai trò của một số ngành công nghiệp hạt nhân trong đời sống." },
-  { grade: "12", topic: "Vật lí hạt nhân và phóng xạ", content: "Nêu được bản chất tự phát và ngẫu nhiên của sự phân rã phóng xạ. Định nghĩa được độ phóng xạ, hằng số phóng xạ và vận dụng được liên hệ H = lambda.N. Vận dụng được công thức x = x0.e^(-lambda.t) với x là độ phóng xạ, số hạt chưa phân rã hoặc tốc độ số hạt đếm được." },
-  { grade: "12", topic: "Vật lí hạt nhân và phóng xạ", content: "Định nghĩa được chu kì bán rã. Mô tả được sơ lược một số tính chất của các phóng xạ alpha, beta và gamma. Nhận biết được dấu hiệu vị trí có phóng xạ thông qua các biển báo. Nêu được các nguyên tắc an toàn phóng xạ; tuân thủ quy tắc an toàn phóng xạ." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Thảo luận để thiết kế phương án, chọn phương án, thực hiện phương án, đo được (hoặc mô tả được phương pháp đo): tần số, điện áp xoay chiều bằng dụng cụ thực hành." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Nêu được: công suất toả nhiệt trung bình trên điện trở thuần bằng một nửa công suất cực đại của dòng điện xoay chiều hình sin (chạy qua điện trở thuần này)." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Mô tả được bằng biểu thức đại số hoặc đồ thị: cường độ dòng điện, điện áp xoay chiều; so sánh được giá trị hiệu dụng và giá trị cực đại." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Thảo luận để thiết kế phương án hoặc lựa chọn phương án và thực hiện phương án, khảo sát được đoạn mạch xoay chiều RLC mắc nối tiếp bằng dụng cụ thực hành." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Nêu được nguyên tắc hoạt động của máy biến áp. Nêu được ưu điểm của dòng điện và điện áp xoay chiều trong truyền tải năng lượng điện về phương diện khoa học và kinh tế. Thảo luận để đánh giá được vai trò của máy biến áp trong việc giảm hao phí năng lượng điện khi truyền dòng điện đi xa." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Thực hiện thí nghiệm, vẽ được đồ thị biểu diễn quan hệ giữa dòng điện chạy qua diode bán dẫn và điện áp giữa hai cực của nó. Vẽ được mạch chỉnh lưu nửa chu kì sử dụng diode." },
-  { grade: "Chuyên đề 12.1", topic: "Dòng điện xoay chiều", content: "Vẽ được mạch chỉnh lưu cả chu kì sử dụng cầu chỉnh lưu. So sánh được đồ thị chỉnh lưu nửa chu kì và chỉnh lưu cả chu kì." },
-  { grade: "Chuyên đề 12.2", topic: "Một số ứng dụng vật lí trong chẩn đoán y học", content: "Nêu được cách tạo ra tia X, cách điều khiển tia X, sự suy giảm tia X. Thảo luận để đánh giá được vai trò của tia X trong đời sống và trong khoa học." },
-  { grade: "Chuyên đề 12.2", topic: "Một số ứng dụng vật lí trong chẩn đoán y học", content: "Mô tả được sơ lược cách chụp ảnh bằng tia X. Từ tranh ảnh (tài liệu đa phương tiện) thảo luận để rút ra được một số cách cải thiện ảnh chụp bằng tia X: giảm liều chiếu, cải thiện độ sắc nét, cải thiện độ tương phản." },
-  { grade: "Chuyên đề 12.2", topic: "Một số ứng dụng vật lí trong chẩn đoán y học", content: "Nêu được sơ lược cách tạo siêu âm. Nêu được sơ lược cách tạo ra hình ảnh siêu âm các cấu trúc bên trong cơ thể. Từ tranh ảnh (tài liệu đa phương tiện) thảo luận để đánh giá được vai trò của siêu âm trong đời sống và trong khoa học." },
-  { grade: "Chuyên đề 12.2", topic: "Một số ứng dụng vật lí trong chẩn đoán y học", content: "Mô tả được sơ lược cách chụp ảnh cắt lớp. Thực hiện dự án hay đề tài nghiên cứu, thiết kế được một mô hình chụp cắt lớp đơn giản. Nêu được sơ lược nguyên lí chụp cộng hưởng từ." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Nêu được tính lượng tử của bức xạ điện từ, năng lượng photon. Vận dụng được công thức tính năng lượng photon, E = hf." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Nêu được hiệu ứng quang điện là bằng chứng cho tính chất hạt của bức xạ điện từ, giao thoa và nhiễu xạ là bằng chứng cho tính chất sóng của bức xạ điện từ." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Mô tả được khái niệm giới hạn quang điện, công thoát. Giải thích được hiệu ứng quang điện dựa trên năng lượng photon và công thoát." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Giải thích được: động năng ban đầu cực đại của quang điện tử không phụ thuộc cường độ chùm sáng, cường độ dòng quang điện bão hoà tỉ lệ với cường độ chùm sáng chiếu vào. Vận dụng được phương trình Einstein để giải thích các định luật quang điện." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Ước lượng được năng lượng của các bức xạ điện từ cơ bản trong thang sóng điện từ. Thảo luận để thiết kế phương án hoặc lựa chọn phương án và thực hiện phương án, khảo sát được dòng quang điện bằng dụng cụ thực hành." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Mô tả (hoặc giải thích) được tính chất sóng của electron bằng hiện tượng nhiễu xạ electron. Vận dụng được công thức bước sóng de Broglie: lambda = h/p với p là động lượng của hạt." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Mô tả được sự tồn tại của các mức năng lượng dừng của nguyên tử. Giải thích được sự tạo thành vạch quang phổ. So sánh được quang phổ phát xạ và quang phổ vạch hấp thụ. Vận dụng được biểu thức chuyển mức năng lượng hf = E1 - E2." },
-  { grade: "Chuyên đề 12.3", topic: "Vật lí lượng tử", content: "Nêu được các vùng năng lượng trong chất rắn theo mô hình vùng năng lượng đơn giản. Sử dụng được lí thuyết vùng năng lượng đơn giản để giải thích được: Sự phụ thuộc vào nhiệt độ của điện trở kim loại và bán dẫn không pha tạp; Sự phụ thuộc của điện trở của các điện trở quang (LDR) vào cường độ sáng." },
+  // ── LỚP 12 — Mạch 1: Vật lí nhiệt (14 tiết) ──────────────────────
+  { grade: "12", yccdId: "12.1.1", chapter: "12.1 - Vật lí nhiệt", topic: "Vật lí nhiệt", content: "Sử dụng mô hình động học phân tử, nêu được sơ lược cấu trúc của chất rắn, chất lỏng, chất khí." },
+  { grade: "12", yccdId: "12.1.2", chapter: "12.1 - Vật lí nhiệt", topic: "Vật lí nhiệt", content: "Giải thích được sơ lược sự chuyển thể: sự nóng chảy, sự hoá hơi." },
+  { grade: "12", yccdId: "12.1.3", chapter: "12.1 - Vật lí nhiệt", topic: "Vật lí nhiệt", content: "Nêu được mối liên hệ nội năng của vật với năng lượng của các phân tử tạo nên vật. Nêu và vận dụng được định luật 1 của nhiệt động lực học trong một số trường hợp đơn giản." },
+  { grade: "12", yccdId: "12.1.4", chapter: "12.1 - Vật lí nhiệt", topic: "Vật lí nhiệt", content: "Chuyển đổi được nhiệt độ đo theo thang Celsius sang nhiệt độ đo theo thang Kelvin và ngược lại. Nêu được nhiệt độ không tuyệt đối là nhiệt độ mà tại đó động năng chuyển động nhiệt của các phân tử bằng không." },
+  { grade: "12", yccdId: "12.1.5", chapter: "12.1 - Vật lí nhiệt", topic: "Vật lí nhiệt", content: "Thực hành: Đo được nhiệt dung riêng, nhiệt nóng chảy riêng, nhiệt hoá hơi riêng bằng dụng cụ thực hành." },
+
+  // ── LỚP 12 — Mạch 2: Khí lí tưởng (12 tiết) ──────────────────────
+  { grade: "12", yccdId: "12.2.1", chapter: "12.2 - Khí lí tưởng", topic: "Khí lí tưởng", content: "Phân tích mô hình chuyển động Brown; thảo luận để nêu được các giả thuyết của thuyết động học phân tử chất khí." },
+  { grade: "12", yccdId: "12.2.2", chapter: "12.2 - Khí lí tưởng", topic: "Khí lí tưởng", content: "Thực hiện thí nghiệm khảo sát định luật Boyle: áp suất tỉ lệ nghịch với thể tích khi nhiệt độ không đổi (p ~ 1/V). Thực hiện thí nghiệm minh hoạ định luật Charles: thể tích tỉ lệ với nhiệt độ tuyệt đối khi áp suất không đổi (V ~ T)." },
+  { grade: "12", yccdId: "12.2.3", chapter: "12.2 - Khí lí tưởng", topic: "Khí lí tưởng", content: "Sử dụng định luật Boyle và Charles, rút ra và vận dụng được phương trình trạng thái của khí lí tưởng: pV/T = const." },
+  { grade: "12", yccdId: "12.2.4", chapter: "12.2 - Khí lí tưởng", topic: "Khí lí tưởng", content: "Giải thích được chuyển động phân tử ảnh hưởng đến áp suất thành bình; rút ra được hệ thức p = (1/3)nm(v^2). Nêu được hằng số Boltzmann k = R/NA và liên hệ động năng tịnh tiến trung bình phân tử tỉ lệ với nhiệt độ T." },
+
+  // ── LỚP 12 — Mạch 3: Từ trường (18 tiết) ─────────────────────────
+  { grade: "12", yccdId: "12.3.1", chapter: "12.3 - Từ trường", topic: "Từ trường", content: "Nêu được từ trường là trường lực gây ra bởi dòng điện hoặc nam châm. Thực hiện thí nghiệm tạo ra được các đường sức từ bằng dụng cụ đơn giản." },
+  { grade: "12", yccdId: "12.3.2", chapter: "12.3 - Từ trường", topic: "Từ trường", content: "Thực hiện thí nghiệm mô tả được hướng của lực từ tác dụng lên đoạn dây dẫn mang dòng điện. Định nghĩa cảm ứng từ B và đơn vị tesla. Vận dụng được biểu thức F = BILsin(α)." },
+  { grade: "12", yccdId: "12.3.3", chapter: "12.3 - Từ trường", topic: "Cảm ứng điện từ", content: "Định nghĩa được từ thông và đơn vị weber. Vận dụng được định luật Faraday và định luật Lenz về cảm ứng điện từ. Giải thích được một số ứng dụng đơn giản của hiện tượng cảm ứng điện từ." },
+  { grade: "12", yccdId: "12.3.4", chapter: "12.3 - Từ trường", topic: "Cảm ứng điện từ", content: "Nêu được: chu kì, tần số, giá trị cực đại, giá trị hiệu dụng của cường độ dòng điện và điện áp xoay chiều. Thảo luận về một số ứng dụng và quy tắc an toàn khi sử dụng dòng điện xoay chiều." },
+
+  // ── LỚP 12 — Mạch 4: Vật lí hạt nhân và phóng xạ (16 tiết) ───────
+  { grade: "12", yccdId: "12.4.1", chapter: "12.4 - Vật lí hạt nhân và phóng xạ", topic: "Vật lí hạt nhân và phóng xạ", content: "Biểu diễn được kí hiệu hạt nhân nguyên tử bằng số nucleon và số proton. Mô tả được mô hình đơn giản của nguyên tử gồm proton, neutron và electron. Viết được đúng phương trình phân rã hạt nhân đơn giản." },
+  { grade: "12", yccdId: "12.4.2", chapter: "12.4 - Vật lí hạt nhân và phóng xạ", topic: "Vật lí hạt nhân và phóng xạ", content: "Thảo luận hệ thức E = mc^2; nêu được liên hệ giữa khối lượng và năng lượng. Nêu được mối liên hệ giữa năng lượng liên kết riêng và độ bền vững của hạt nhân. Nêu được sự phân hạch và sự tổng hợp hạt nhân." },
+  { grade: "12", yccdId: "12.4.3", chapter: "12.4 - Vật lí hạt nhân và phóng xạ", topic: "Vật lí hạt nhân và phóng xạ", content: "Nêu được bản chất tự phát và ngẫu nhiên của sự phân rã phóng xạ. Định nghĩa được độ phóng xạ, hằng số phóng xạ, chu kì bán rã. Vận dụng được công thức x = x0.e^(-λt) và liên hệ H = λN." },
+  { grade: "12", yccdId: "12.4.4", chapter: "12.4 - Vật lí hạt nhân và phóng xạ", topic: "Vật lí hạt nhân và phóng xạ", content: "Mô tả được sơ lược tính chất của các phóng xạ alpha, beta và gamma. Nhận biết được biển báo phóng xạ. Nêu và tuân thủ được các nguyên tắc an toàn phóng xạ." },
+
+  // ── CHUYÊN ĐỀ 12.1: Dòng điện xoay chiều nâng cao (35 tiết) ───────
+  { grade: "Chuyên đề 12.1", yccdId: "CĐ12.1.1", chapter: "CĐ12.1 - Dòng điện xoay chiều", topic: "Dòng điện xoay chiều", content: "Đo được tần số, điện áp xoay chiều bằng dụng cụ thực hành. Nêu được: công suất toả nhiệt trung bình trên điện trở thuần bằng một nửa công suất cực đại của dòng điện xoay chiều hình sin." },
+  { grade: "Chuyên đề 12.1", yccdId: "CĐ12.1.2", chapter: "CĐ12.1 - Dòng điện xoay chiều", topic: "Dòng điện xoay chiều", content: "Mô tả được bằng biểu thức đại số hoặc đồ thị: cường độ dòng điện, điện áp xoay chiều; so sánh được giá trị hiệu dụng và giá trị cực đại. Khảo sát được đoạn mạch xoay chiều RLC mắc nối tiếp bằng dụng cụ thực hành." },
+  { grade: "Chuyên đề 12.1", yccdId: "CĐ12.1.3", chapter: "CĐ12.1 - Dòng điện xoay chiều", topic: "Dòng điện xoay chiều", content: "Nêu được nguyên tắc hoạt động của máy biến áp. Đánh giá được vai trò của máy biến áp trong việc giảm hao phí năng lượng điện khi truyền tải đi xa." },
+  { grade: "Chuyên đề 12.1", yccdId: "CĐ12.1.4", chapter: "CĐ12.1 - Dòng điện xoay chiều", topic: "Dòng điện xoay chiều", content: "Vẽ được đặc trưng I-U của diode bán dẫn. Vẽ và phân tích được mạch chỉnh lưu nửa chu kì (dùng diode) và mạch chỉnh lưu cả chu kì (cầu chỉnh lưu)." },
+
+  // ── CHUYÊN ĐỀ 12.2: Ứng dụng Vật lí trong y học ──────────────────
+  { grade: "Chuyên đề 12.2", yccdId: "CĐ12.2.1", chapter: "CĐ12.2 - Ứng dụng Vật lí trong y học", topic: "Ứng dụng Vật lí trong y học", content: "Nêu được cách tạo ra tia X, cách điều khiển tia X, sự suy giảm tia X. Đánh giá được vai trò của tia X trong đời sống và khoa học." },
+  { grade: "Chuyên đề 12.2", yccdId: "CĐ12.2.2", chapter: "CĐ12.2 - Ứng dụng Vật lí trong y học", topic: "Ứng dụng Vật lí trong y học", content: "Mô tả được sơ lược cách chụp ảnh bằng tia X và một số cách cải thiện ảnh chụp X-quang: giảm liều chiếu, cải thiện độ sắc nét, cải thiện độ tương phản." },
+  { grade: "Chuyên đề 12.2", yccdId: "CĐ12.2.3", chapter: "CĐ12.2 - Ứng dụng Vật lí trong y học", topic: "Ứng dụng Vật lí trong y học", content: "Nêu được sơ lược cách tạo siêu âm và cách tạo ra hình ảnh siêu âm các cấu trúc bên trong cơ thể. Đánh giá được vai trò của siêu âm trong đời sống và khoa học." },
+  { grade: "Chuyên đề 12.2", yccdId: "CĐ12.2.4", chapter: "CĐ12.2 - Ứng dụng Vật lí trong y học", topic: "Ứng dụng Vật lí trong y học", content: "Mô tả được sơ lược cách chụp ảnh cắt lớp CT. Nêu được sơ lược nguyên lí chụp cộng hưởng từ MRI." },
+
+  // ── CHUYÊN ĐỀ 12.3: Vật lí lượng tử ─────────────────────────────
+  { grade: "Chuyên đề 12.3", yccdId: "CĐ12.3.1", chapter: "CĐ12.3 - Vật lí lượng tử", topic: "Vật lí lượng tử", content: "Nêu được tính lượng tử của bức xạ điện từ, năng lượng photon. Vận dụng được công thức tính năng lượng photon E = hf." },
+  { grade: "Chuyên đề 12.3", yccdId: "CĐ12.3.2", chapter: "CĐ12.3 - Vật lí lượng tử", topic: "Vật lí lượng tử", content: "Nêu được hiệu ứng quang điện là bằng chứng cho tính chất hạt của bức xạ điện từ. Mô tả khái niệm giới hạn quang điện, công thoát. Vận dụng phương trình Einstein để giải thích các định luật quang điện." },
+  { grade: "Chuyên đề 12.3", yccdId: "CĐ12.3.3", chapter: "CĐ12.3 - Vật lí lượng tử", topic: "Vật lí lượng tử", content: "Mô tả được tính chất sóng của electron bằng hiện tượng nhiễu xạ electron. Vận dụng được công thức bước sóng de Broglie: λ = h/p với p là động lượng của hạt." },
+  { grade: "Chuyên đề 12.3", yccdId: "CĐ12.3.4", chapter: "CĐ12.3 - Vật lí lượng tử", topic: "Vật lí lượng tử", content: "Mô tả được sự tồn tại của các mức năng lượng dừng của nguyên tử. Giải thích được sự tạo thành vạch quang phổ. So sánh quang phổ phát xạ và quang phổ vạch hấp thụ. Vận dụng được biểu thức hf = E1 - E2." },
+  { grade: "Chuyên đề 12.3", yccdId: "CĐ12.3.5", chapter: "CĐ12.3 - Vật lí lượng tử", topic: "Vật lí lượng tử", content: "Nêu được các vùng năng lượng trong chất rắn theo mô hình vùng năng lượng đơn giản. Giải thích được sự phụ thuộc vào nhiệt độ của điện trở kim loại và bán dẫn; sự phụ thuộc của điện trở quang LDR vào cường độ sáng." },
 ];
 
-// ── Tạo mã YCCĐ tự động + keywords ──
-function generateYCCDCode(grade: string, index: number): string {
+// ── Build final dataset ──────────────────────────────────────────────
+// Grade 12 entries có yccdId semantic → dùng làm code.
+// Grade 10/11 (không có yccdId) → dùng legacy code YCCD_10_01...
+function generateLegacyCode(grade: string, index: number): string {
   const gradeCode = grade.replace(/\s+/g, '').replace('Chuyênđề', 'CD');
   return `YCCD_${gradeCode}_${String(index).padStart(2, '0')}`;
 }
 
-// ── Build final dataset ──
 const counterMap = new Map<string, number>();
 
-export const YCCD_LIST: YCCD[] = RAW_YCCD_DATA.map((item) => {
+export const YCCD_LIST: YCCD[] = (RAW_YCCD_DATA as any[]).map((item) => {
   const current = (counterMap.get(item.grade) || 0) + 1;
   counterMap.set(item.grade, current);
-
+  const code = item.yccdId ?? generateLegacyCode(item.grade, current);
   return {
-    code: generateYCCDCode(item.grade, current),
-    grade: item.grade,
-    topic: item.topic,
+    code,
+    yccdId:  item.yccdId  ?? code,
+    chapter: item.chapter ?? item.topic,
+    grade:   item.grade,
+    topic:   item.topic,
     content: item.content,
     keywords: extractKeywords(item.content),
-  };
+  } satisfies YCCD;
 });
 
-// ── Helper: Lấy YCCĐ theo mã ──
+// ── Helpers ───────────────────────────────────────────────────────────
 export function getYCCDByCode(code: string): YCCD | undefined {
-  return YCCD_LIST.find(y => y.code === code);
+  return YCCD_LIST.find(y => y.code === code || y.yccdId === code);
 }
-
-// ── Helper: Lấy YCCĐ theo grade ──
 export function getYCCDByGrade(grade: string): YCCD[] {
   return YCCD_LIST.filter(y => y.grade === grade);
 }
-
-// ── Helper: Lấy display text ngắn ──
+export function getYCCDByChapter(chapter: string): YCCD[] {
+  return YCCD_LIST.filter(y => y.chapter === chapter);
+}
 export function getYCCDShortLabel(code: string): string {
   const item = getYCCDByCode(code);
   if (!item) return code;
   const short = item.content.length > 80 ? item.content.substring(0, 80) + '...' : item.content;
-  return `[${item.grade}] ${item.topic}: ${short}`;
+  return `[${item.yccdId}] ${item.topic}: ${short}`;
 }
+export const GRADE12_CHAPTER_MAP: Record<string, string[]> = {
+  'Vật lí nhiệt':                     ['12.1.1','12.1.2','12.1.3','12.1.4','12.1.5'],
+  'Khí lí tưởng':                     ['12.2.1','12.2.2','12.2.3','12.2.4'],
+  'Từ trường':                         ['12.3.1','12.3.2','12.3.3','12.3.4'],
+  'Vật lí hạt nhân và phóng xạ':      ['12.4.1','12.4.2','12.4.3','12.4.4'],
+  'Dòng điện xoay chiều (Chuyên đề)': ['CĐ12.1.1','CĐ12.1.2','CĐ12.1.3','CĐ12.1.4'],
+  'Ứng dụng Vật lí trong y học':      ['CĐ12.2.1','CĐ12.2.2','CĐ12.2.3','CĐ12.2.4'],
+  'Vật lí lượng tử (Chuyên đề)':      ['CĐ12.3.1','CĐ12.3.2','CĐ12.3.3','CĐ12.3.4','CĐ12.3.5'],
+};

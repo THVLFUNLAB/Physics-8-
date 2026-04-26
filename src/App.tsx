@@ -24,6 +24,8 @@ import { diagnoseUserExam } from './services/geminiService';
 import { getCurrentRank } from './services/RankSystem';
 import { calculateAdaptiveXP } from './services/AdaptiveEngine';
 import type { AdaptiveExamType } from './services/AdaptiveEngine.types';
+import { refreshTopicProgress, popResolvedFailures } from './services/profileUpdater';
+import type { ScoredQuestion } from './services/profileUpdater';
 import { useDashboardStats } from './hooks/useDashboardStats';
 import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
@@ -55,6 +57,7 @@ import ExamGenerator from './components/ExamGenerator';
 import { DuplicateReviewHubWrapper } from './components/DuplicateReviewHubWrapper';
 import { ReviewExam } from './components/ReviewExam';
 import { HistoryDashboard } from './components/HistoryDashboard';
+import { InvitePage } from './components/InvitePage';
 
 // ── Lazy-loaded Admin Modules ──
 const ExamMatrixGenerator = lazy(() => import('./components/ExamMatrixGenerator'));
@@ -69,9 +72,10 @@ const LiveClassExam = lazy(() => import('./components/LiveClassExam'));
 const Grade10Dashboard = lazy(() => import('./components/Grade10Dashboard'));
 const Grade11Dashboard = lazy(() => import('./components/Grade11Dashboard'));
 const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationTool'));
+const ScoreRecalibrationTool = lazy(() => import('./components/ScoreRecalibrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
-const SimulationViewer = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default })));
+const SimulationViewer: React.FC<{simulation: Simulation, onClose: () => void}> = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default }))) as any;
 const AICampaignManager = lazy(() => import('./components/AICampaignManager'));
 const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
 const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
@@ -111,9 +115,15 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats', 'RecalibScore'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
+
+  // ── Magic Link: đọc ?invite=<token> từ URL khi app khởi động ──
+  const [inviteToken, setInviteToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('invite') || null;
+  });
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
   const handleSidebarNavigate = (tab: SidebarTab) => {
@@ -784,6 +794,11 @@ export default function App() {
   const submitTest = async () => {
     if (!activeTest || !user) return;
     setIsAnalyzing(true);
+
+    // ── Xác định khối lớp để áp dụng thang điểm phù hợp ──────────────
+    // Lớp 12: Part 3 = 0.25đ/câu | Lớp 10-11: Part 3 = 0.5đ/câu
+    const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
+    const part3ScorePerQuestion = gradeNumber <= 11 ? 0.5 : 0.25;
     
     let totalScore = 0;
     const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
@@ -791,34 +806,47 @@ export default function App() {
     const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
     const incorrectRecords: any[] = [];
     const skippedRecords: any[] = [];
+    // ── Danh sách câu đã chấm — truyền cho profileUpdater ──
+    const scoredQuestions: ScoredQuestion[] = [];
+    // ── ID câu trả lời ĐÚNG trong lần này — để pop failedQuestionIds ──
+    const correctQuestionIds: string[] = [];
 
     for (const q of activeTest.questions) {
       const studentAns = answers[q.id];
       let isCorrect = false;
 
       if (q.part === 1) {
+        // Phần 1 — Trắc nghiệm 4 lựa chọn: 0.25đ/câu đúng
         isCorrect = studentAns === q.correctAnswer;
         if (isCorrect) totalScore += 0.25;
       } else if (q.part === 2) {
-        let correctCount = 0;
-        for (let i = 0; i < 4; i++) {
+        // Phần 2 — Trắc nghiệm Đúng/Sai (theo quy định THPTQG 2025)
+        // 4/4 ý đúng = 1.0đ | 3/4 = 0.5đ | 2/4 = 0.25đ | 1/4 = 0.1đ | 0/4 = 0đ
+        const totalSubItems = Array.isArray(q.correctAnswer) ? (q.correctAnswer as boolean[]).length : 4;
+        let correctSubCount = 0;
+        for (let i = 0; i < totalSubItems; i++) {
           if (Array.isArray(studentAns) && studentAns[i] !== undefined && studentAns[i] === (q.correctAnswer as boolean[])[i]) {
-            correctCount++;
+            correctSubCount++;
           }
         }
-        if (correctCount === 4) { isCorrect = true; totalScore += 1.0; }
-        else if (correctCount === 3) totalScore += 0.5;
-        else if (correctCount === 2) totalScore += 0.25;
-        else if (correctCount === 1) totalScore += 0.1;
+        if (correctSubCount === totalSubItems)    totalScore += 1.0;
+        else if (correctSubCount === totalSubItems - 1) totalScore += 0.5;
+        else if (correctSubCount === totalSubItems - 2) totalScore += 0.25;
+        else if (correctSubCount === 1)                 totalScore += 0.1;
+        // 0 ý đúng = 0đ
+        isCorrect = correctSubCount === totalSubItems; // Chỉ "đúng" hoàn toàn mới tính pass SM-2
       } else if (q.part === 3) {
+        // Phần 3 — Trả lời ngắn: Lớp 12 = 0.25đ/câu | Lớp 10-11 = 0.5đ/câu
         const studentVal = normalizeDecimal(studentAns);
         const correctVal = normalizeDecimal(q.correctAnswer);
         isCorrect = !isNaN(studentVal) && Math.abs(studentVal - correctVal) < 0.01;
-        if (isCorrect) totalScore += 0.25;
+        if (isCorrect) totalScore += part3ScorePerQuestion;
       }
       
       if (q.id) {
         sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
+        // Ghi vào scoredQuestions cho profileUpdater
+        scoredQuestions.push({ questionId: q.id, topic: q.topic ?? '', isCorrect });
         if (!isCorrect) { 
           newFailedQuestionIds.add(q.id); 
           const isSkipped = studentAns === undefined || studentAns === '' || (Array.isArray(studentAns) && studentAns.length === 0);
@@ -828,14 +856,22 @@ export default function App() {
             incorrectRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false });
           }
         } else { 
-          newFailedQuestionIds.delete(q.id); 
+          newFailedQuestionIds.delete(q.id);
+          correctQuestionIds.push(q.id); // Gom ID đã đúng để pop
         }
       }
     }
 
-    // ── GỌI AI CHẨN ĐOÁN (Chờ kết quả mới lưu) ──
-    const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
-    const aiResult = await diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, user.learningPath?.weaknessProfile);
+    // ── GỌI AI CHẨN ĐOÁN với timeout 10s ──────────────────────────────
+    // Promise.race đảm bảo: dù Gemini chậm hay lỗi mạng → addDoc vẫn chạy
+    // HS không bao giờ mất bài vì AI timeout.
+    // gradeNumber đã được tính ở trên (phần tính điểm)
+    const aiTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 10000));
+    const aiResult = await Promise.race([
+      diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, user.learningPath?.weaknessProfile)
+        .catch(() => null), // Nếu AI lỗi → trả null, không throw
+      aiTimeout,
+    ]);
 
     const attempt: Attempt = {
       id: Math.random().toString(36).substr(2, 9),
@@ -949,6 +985,13 @@ export default function App() {
 
       // ── Chạy ngầm Thuật toán Siêu trí nhớ SM-2 bằng Batch Write ──
       syncMemoryLogs(user.uid, sm2Evaluations).catch(e => console.error("SM2 Sync failed", e));
+
+      // ── Cập nhật topicProgress (correctCount/totalQuestions) và pop failedQuestionIds ──
+      // Fire-and-forget: chạy ngầm, không block UI, không bao giờ crash luồng chính
+      refreshTopicProgress(user.uid, scoredQuestions, totalScore)
+        .catch(e => console.warn('[App] refreshTopicProgress:', e));
+      popResolvedFailures(user.uid, correctQuestionIds)
+        .catch(e => console.warn('[App] popResolvedFailures:', e));
 
       setSubmissionResult({ score: totalScore, earnedXP, show: true, xpBreakdown });
       setResults(attempt);
@@ -1142,14 +1185,47 @@ export default function App() {
       <ToastProvider />
       {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
+
+      {/* ── Magic Link Route: ?invite=<token> — render ISOLATED, không có Sidebar/Dashboard ── */}
+      {inviteToken && (() => {
+        const handleInviteSuccess = () => {
+          setInviteToken(null);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('invite');
+          window.history.replaceState({}, '', url.toString());
+        };
+        return (
+          <div className="fixed inset-0 z-[9999] bg-slate-950 flex flex-col overflow-y-auto">
+            {/* Mini header */}
+            <div className="shrink-0 px-6 py-4 border-b border-slate-800/60 flex items-center justify-between">
+              <span className="font-black text-white text-xl tracking-tight">
+                PHYS<span className="text-fuchsia-500">9+</span>
+              </span>
+              {!user && (
+                <button
+                  onClick={handleSignIn}
+                  className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold rounded-xl transition-all"
+                >
+                  Đăng nhập để kích hoạt
+                </button>
+              )}
+            </div>
+            {/* InvitePage content */}
+            <div className="flex-1 flex flex-col p-6 md:p-12 max-w-2xl mx-auto w-full">
+              <InvitePage
+                token={inviteToken}
+                user={user}
+                onSuccess={handleInviteSuccess}
+              />
+            </div>
+          </div>
+        );
+      })()}
       {activeSimulationViewer && (
         <LazyWrap>
-              <SimulationModal 
-                isOpen={!!activeSimulation} 
-                onClose={() => setActiveSimulation(null)} 
-                title={activeSimulation?.title || ''} 
-                description={activeSimulation?.description || ''} 
-                simulationUrl={activeSimulation?.url || ''} 
+              <SimulationViewer 
+                simulation={activeSimulationViewer} 
+                onClose={() => setActiveSimulationViewer(null)} 
               />
         </LazyWrap>
       )}
@@ -1608,6 +1684,7 @@ export default function App() {
                       { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
                       { id: 'YCCD', label: 'YCCĐ', icon: Target },
                       { id: 'AIChats', label: 'Log Chat AI', icon: BrainCircuit },
+                       { id: 'RecalibScore', label: 'Hi\u1ec7u Ch\u1ec9nh \u0110i\u1ec3m', icon: ShieldAlert },
                     ].map(tab => (
                       <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
                         <tab.icon className="w-4 h-4" />
@@ -1634,6 +1711,7 @@ export default function App() {
                     {adminTab === 'Campaign' && <AICampaignManager />}
                     {adminTab === 'YCCD' && <YCCDAutoTagger />}
                     {adminTab === 'Migration' && <DatabaseMigrationTool />}
+                    {adminTab === 'RecalibScore' && <ScoreRecalibrationTool />}
                     {adminTab === 'AIChats' && <AIChatLogsDashboard />}
                   </LazyWrap>
                 </motion.div>

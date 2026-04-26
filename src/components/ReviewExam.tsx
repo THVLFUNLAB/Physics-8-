@@ -319,10 +319,10 @@ export const ReviewExam = ({
                       className={cn(
                         "w-full p-6 rounded-2xl border text-left flex items-center gap-6 group relative overflow-hidden",
                         isCorrectAns
-                          ? "bg-emerald-600/10 border-emerald-500 text-emerald-100"
+                          ? "bg-emerald-600/10 border-emerald-500 text-emerald-500 font-bold"
                           : isUserAns
-                            ? "bg-rose-600/10 border-rose-500 text-rose-100"
-                            : "bg-slate-900 border-slate-800 text-slate-400"
+                            ? "bg-rose-600/10 border-rose-500 text-rose-500 font-bold"
+                            : "bg-slate-900 border-slate-800 text-slate-300"
                       )}
                     >
                       <span className={cn(
@@ -366,7 +366,7 @@ export const ReviewExam = ({
                             {hasAns && (
                               <div className="flex flex-col items-center border-l border-slate-700 pl-4">
                                 <span className="text-[10px] md:text-xs text-slate-500 font-bold mb-1 uppercase">BẠN CHỌN</span>
-                                <div className={cn("px-4 py-2 rounded text-xs md:text-sm font-black uppercase text-center min-w-[70px]", userAns === correctAns ? "text-emerald-400 bg-emerald-400/10" : "text-rose-400 bg-rose-400/10")}>
+                                <div className={cn("px-4 py-2 rounded text-xs md:text-sm font-black uppercase text-center min-w-[70px]", userAns === correctAns ? "text-emerald-600 bg-emerald-500/10" : "text-rose-600 bg-rose-500/10")}>
                                   {userAns ? 'ĐÚNG' : 'SAI'} 
                                 </div>
                               </div>
@@ -389,8 +389,8 @@ export const ReviewExam = ({
                     <div className={cn(
                       "w-full border p-6 rounded-2xl text-2xl font-black",
                       checkCorrectness(currentQuestion, answers[currentQuestion.id || ''])
-                        ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
-                        : "bg-rose-500/10 border-rose-500/50 text-rose-400"
+                        ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-500"
+                        : "bg-rose-500/10 border-rose-500/50 text-rose-500"
                     )}>
                       {answers[currentQuestion.id || ''] || 'Bỏ trống'}
                     </div>

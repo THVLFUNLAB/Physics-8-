@@ -439,7 +439,11 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
     try {
       const currentAnswers = answersRef.current;
 
-      // ── Score calculation (KHÔNG THAY ĐỔI logic gốc) ──────────────────
+      // ── Score calculation ────────────────────────────────────────────────
+      // Xác định khối lớp: Lớp 12 = Part3: 0.25đ/câu | Lớp 10-11 = Part3: 0.5đ/câu
+      const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
+      const part3ScorePerQuestion = gradeNumber <= 11 ? 0.5 : 0.25;
+
       let totalScore = 0;
       const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
       const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
@@ -449,24 +453,30 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
         let isCorrect = false;
 
         if (q.part === 1) {
+          // Phần 1 — Trắc nghiệm 4 lựa chọn: 0.25đ/câu đúng
           isCorrect = studentAns === q.correctAnswer;
           if (isCorrect) totalScore += 0.25;
         } else if (q.part === 2) {
+          // Phần 2 — Trắc nghiệm Đúng/Sai (theo quy định THPTQG 2025)
+          // 4/4 ý đúng = 1.0đ | 3/4 = 0.5đ | 2/4 = 0.25đ | 1/4 = 0.1đ | 0/4 = 0đ
+          const totalSubItems = Array.isArray(q.correctAnswer) ? (q.correctAnswer as boolean[]).length : 4;
           let correctCount = 0;
-          for (let i = 0; i < 4; i++) {
+          for (let i = 0; i < totalSubItems; i++) {
             if (Array.isArray(studentAns) && studentAns[i] !== undefined && studentAns[i] === (q.correctAnswer as boolean[])[i]) {
               correctCount++;
             }
           }
-          if (correctCount === 4) { isCorrect = true; totalScore += 1.0; }
-          else if (correctCount === 3) totalScore += 0.5;
-          else if (correctCount === 2) totalScore += 0.25;
-          else if (correctCount === 1) totalScore += 0.1;
+          if (correctCount === totalSubItems)         { isCorrect = true; totalScore += 1.0; }
+          else if (correctCount === totalSubItems - 1) totalScore += 0.5;
+          else if (correctCount === totalSubItems - 2) totalScore += 0.25;
+          else if (correctCount === 1)                 totalScore += 0.1;
+          // 0 ý đúng = 0đ
         } else if (q.part === 3) {
+          // Phần 3 — Trả lời ngắn: Lớp 12 = 0.25đ/câu | Lớp 10-11 = 0.5đ/câu
           const sv = normalizeDecimal(studentAns);
           const cv = normalizeDecimal(q.correctAnswer);
           isCorrect = !isNaN(sv) && Math.abs(sv - cv) < 0.01;
-          if (isCorrect) totalScore += 0.25;
+          if (isCorrect) totalScore += part3ScorePerQuestion;
         }
 
         if (q.id) {

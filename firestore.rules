@@ -58,6 +58,23 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
+    // ⛔ Bảo vệ Quota: học sinh KHÔNG được tự giảm usedAttempts hay thay đổi tier
+    // Admin có Global Bypass (line 13-18) nên không bị chặn bởi hàm này.
+    function isValidUserSelfUpdate() {
+      let incomingUsed  = request.resource.data.get('usedAttempts', 0);
+      let currentUsed   = resource.data.get('usedAttempts', 0);
+      let incomingTotal = request.resource.data.get('totalAttempts', 0);
+      let currentTotal  = resource.data.get('totalAttempts', 0);
+      return
+        // ⛔ Quota chỉ được TĂNG (chặn reset quota về 0)
+        incomingUsed  >= currentUsed   &&
+        incomingTotal >= currentTotal  &&
+        // ⛔ Tier/maxAttempts/isUnlimited: chỉ Admin mới được sửa (qua Global Bypass)
+        request.resource.data.get('tier', 'free')       == resource.data.get('tier', 'free')       &&
+        request.resource.data.get('maxAttempts', 30)    == resource.data.get('maxAttempts', 30)    &&
+        request.resource.data.get('isUnlimited', false) == resource.data.get('isUnlimited', false);
+    }
+
     // Validate energyState write: chỉ cho phép tăng energy trong giới hạn hợp lệ
     function isValidEnergyUpdate(incoming) {
       return incoming.totalEnergy is number &&
@@ -74,13 +91,14 @@ service cloud.firestore {
     // ===============================================================
 
     // ─── Users ─────────────────────────────────────────────────────
+    // ⛔ BẢO VỆ QUOTA: học sinh KHÔNG được tự giảm usedAttempts hay đổi tier
+    // Admin vẫn toàn quyền nhờ Global Bypass ở trên.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
-      // Cho phép học sinh tự cập nhật profile (merge update)
-      allow update: if isAuthenticated() && isOwner(userId);
-      // [FIX] Atomic counter increment (usedAttempts, totalAttempts, stars, streak...)
-      allow write: if isAuthenticated() && isOwner(userId);
+      // Self-update: phải qua isValidUserSelfUpdate() — quota chỉ được tăng, tier bị khóa
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUserSelfUpdate();
+      allow delete: if isAdmin();
 
       // Sub-collection: Siêu Trí Nhớ SM-2 (mỗi học sinh có riêng)
       match /memoryLogs/{logId} {
@@ -110,6 +128,12 @@ service cloud.firestore {
 
     match /exams/{examId} {
       allow read: if isAuthenticated();
+      // [FIX] Học sinh tự tạo đề adaptive (Vá lỗ hổng / Kho Ôn Tập)
+      // Chỉ cho phép create với điều kiện targetStudentId == uid của chính mình
+      // và createdBy phải là system (không phải admin hay nguồn bên ngoài)
+      allow create: if isAuthenticated() &&
+                       request.resource.data.targetStudentId == request.auth.uid &&
+                       request.resource.data.createdBy in ['system_adaptive', 'system_gap_vault'];
     }
 
     match /metadata/{docId=**} {
@@ -254,6 +278,41 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.studentId == request.auth.uid;
       allow update: if isAuthenticated() && resource.data.studentId == request.auth.uid;
       // Không cho xóa chat log (bảo toàn lịch sử)
+      allow delete: if isAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🏫 Module 8: Class Members (Ghi danh lớp học)
+    // ═══════════════════════════════════════════════════════════════
+    match /class_members/{memberId} {
+      // Học sinh đọc membership của chính mình
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // Admin đọc tất cả
+      allow read: if isAdmin();
+      // Học sinh tự ghi danh (document ID phải chứa uid của mình)
+      allow create: if isAuthenticated() &&
+                       request.resource.data.userId == request.auth.uid;
+      // Cập nhật (idempotent re-join): chỉ chủ record hoặc admin
+      allow update: if isAuthenticated() &&
+                       (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🔗 Module 9: VIP Magic Link Invitations (Single-use)
+    // ═══════════════════════════════════════════════════════════════
+    match /invitations/{inviteId} {
+      // Bất kỳ user đã đăng nhập đều đọc được (để verify token)
+      allow read: if isAuthenticated();
+      // Chỉ Admin tạo link mới
+      allow create: if isAdmin();
+      // Học sinh chỉ được update isUsed, usedBy, usedAt (không sửa classId/token)
+      allow update: if isAuthenticated() &&
+                       resource.data.isUsed == false &&
+                       request.resource.data.token   == resource.data.token   &&
+                       request.resource.data.classId == resource.data.classId &&
+                       request.resource.data.isUsed  == true &&
+                       request.resource.data.usedBy  == request.auth.uid;
       allow delete: if isAdmin();
     }
 

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableExamView } from './PrintableExamView';
+import { ExamResultsModal } from './ExamResultsModal';
 
 // ── Exam type labels ──
 const TYPE_LABELS: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -46,6 +47,7 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [syncingId, setSyncingId] = useState<string | null>(null); // null | examId | '__all__'
+  const [selectedExamResults, setSelectedExamResults] = useState<Exam | null>(null);
   
   // ── Print State ──
   const printRef = React.useRef<HTMLDivElement>(null);
@@ -593,6 +595,15 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
                         )}
                       </button>
 
+                      {/* Xem Kết Quả */}
+                      <button
+                        onClick={() => setSelectedExamResults(exam)}
+                        className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-amber-600/10 rounded-lg transition-all"
+                        title="Xem kết quả làm bài của học sinh"
+                      >
+                        <Users className="w-4 h-4" />
+                      </button>
+
                       {/* Print PDF */}
                       <button
                         onClick={() => setPrintingExam(exam)}
@@ -714,6 +725,14 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
            <PrintableExamView ref={printRef} exam={printingExam} />
         )}
       </div>
+
+      {/* Modal Xem Kết Quả */}
+      {selectedExamResults && (
+        <ExamResultsModal 
+           exam={selectedExamResults} 
+           onClose={() => setSelectedExamResults(null)} 
+        />
+      )}
     </div>
   );
 };

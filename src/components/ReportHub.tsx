@@ -139,29 +139,36 @@ export default function ReportHub() {
     }
   };
 
-  const getQuestionScore = (q: Question, studentAns: any) => {
+  // gradeNumber: 10, 11 hoặc 12 (mặc định 12 nếu không xác định được)
+  const getQuestionScore = (q: Question, studentAns: any, gradeNumber = 12) => {
     if (studentAns === undefined || studentAns === null || studentAns === '') return 0;
     if (q.part === 1) {
+      // Phần 1 — Trắc nghiệm 4 lựa chọn: 0.25đ/câu
       return studentAns === q.correctAnswer ? 0.25 : 0;
     }
     if (q.part === 2) {
+      // Phần 2 — Trắc nghiệm Đúng/Sai (theo quy định THPTQG 2025)
+      // 4/4 ý đúng = 1.0đ | 3/4 = 0.5đ | 2/4 = 0.25đ | 1/4 = 0.1đ | 0/4 = 0đ
       if (!Array.isArray(studentAns)) return 0;
+      const totalSubItems = Array.isArray(q.correctAnswer) ? (q.correctAnswer as boolean[]).length : 4;
       let correctCount = 0;
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < totalSubItems; i++) {
         if (studentAns[i] !== undefined && studentAns[i] === (q.correctAnswer as boolean[])[i]) {
           correctCount++;
         }
       }
-      if (correctCount === 4) return 1.0;
-      if (correctCount === 3) return 0.5;
-      if (correctCount === 2) return 0.25;
-      if (correctCount === 1) return 0.1;
+      if (correctCount === totalSubItems)         return 1.0;
+      if (correctCount === totalSubItems - 1)     return 0.5;
+      if (correctCount === totalSubItems - 2)     return 0.25;
+      if (correctCount === 1)                     return 0.1;
       return 0;
     }
     if (q.part === 3) {
+      // Phần 3 — Trả lời ngắn: Lớp 12 = 0.25đ/câu | Lớp 10-11 = 0.5đ/câu
       const sv = parseFloat(String(studentAns).replace(',', '.'));
       const cv = parseFloat(String(q.correctAnswer).replace(',', '.'));
-      return !isNaN(sv) && Math.abs(sv - cv) < 0.01 ? 0.25 : 0;
+      const part3Score = gradeNumber <= 11 ? 0.5 : 0.25;
+      return !isNaN(sv) && Math.abs(sv - cv) < 0.01 ? part3Score : 0;
     }
     return 0;
   };
@@ -173,9 +180,16 @@ export default function ReportHub() {
     for (const attempt of attempts) {
       if (attempt.answers && attempt.answers[newQ.id!]) {
         const studentAns = attempt.answers[newQ.id!];
-        
-        const oldScoreForQ = getQuestionScore(oldQ, studentAns);
-        const newScoreForQ = getQuestionScore(newQ, studentAns);
+
+        // Lấy thông tin khối lớp của học sinh để chấm đúng thang Part 3
+        const userRef = doc(db, 'users', attempt.userId);
+        const userSnap = await getDoc(userRef);
+        const gradeNumber = userSnap.exists()
+          ? parseInt((userSnap.data() as UserProfile).className?.replace(/\D/g, '') || '12')
+          : 12;
+
+        const oldScoreForQ = getQuestionScore(oldQ, studentAns, gradeNumber);
+        const newScoreForQ = getQuestionScore(newQ, studentAns, gradeNumber);
         const ptDiff = newScoreForQ - oldScoreForQ;
         
         if (Math.abs(ptDiff) > 0.001) {
@@ -186,8 +200,6 @@ export default function ReportHub() {
           });
 
           // Push notification to user
-          const userRef = doc(db, 'users', attempt.userId);
-          const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const userData = userSnap.data() as UserProfile;
             const notifs = userData.notifications || [];

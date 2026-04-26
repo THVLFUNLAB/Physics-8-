@@ -95,7 +95,7 @@ export default function KnowledgeGapGallery({ vaultIds }: { vaultIds: string[] }
         }
 
         return (
-          <div key={idx} className="p-6 rounded-2xl bg-slate-950/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-900 transition-colors group cursor-pointer" onClick={() => alert("Chức năng tải câu hỏi Knowledge Gap sẽ sớm ra mắt")}>
+          <div key={idx} className="p-6 rounded-2xl bg-slate-950/50 border border-slate-800 hover:border-slate-700 hover:bg-slate-900 transition-colors group cursor-default">
             <div className="flex justify-between mb-4">
               <span className={cn("text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded", tagColor)}>
                 {tagStr}

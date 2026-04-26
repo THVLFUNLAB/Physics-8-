@@ -89,7 +89,7 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
           Chưa có bài kiểm tra nào được phát hành cho khối này.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-6">
           <AnimatePresence>
             {filteredExams.map((exam, i) => (
               <motion.div
@@ -137,9 +137,9 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
                   
                   <button 
                     onClick={() => onStartExam(exam)}
-                    className="w-full bg-slate-950 border border-slate-800 hover:bg-red-600 hover:border-red-500 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 group-hover:shadow-red-600/20"
+                    className="w-full bg-slate-950 border border-slate-800 hover:bg-red-600 hover:border-red-500 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 group-hover:shadow-red-600/20 whitespace-nowrap"
                   >
-                    Bắt đầu làm bài <Play className="w-4 h-4 fill-current" />
+                    Bắt đầu làm bài <Play className="w-4 h-4 fill-current shrink-0" />
                   </button>
                 </div>
               </motion.div>

@@ -42,6 +42,7 @@ import {
 import { cn } from '../lib/utils';
 import { getYCCDByGrade, YCCD } from '../data/yccdData';
 import { UserProfile, Attempt, Exam } from '../types';
+import CapabilityRadarChart, { buildRadarData, RadarAxisData } from './CapabilityRadarChart';
 
 import { UserRankCard } from './UserRankCard';
 import { BehavioralAnalysisChart } from './charts/BehavioralChart';
@@ -54,6 +55,7 @@ import { BackgroundMusic } from './BackgroundMusic';
 import { CountdownTimer } from './CountdownTimer';
 import InteractiveMascot from './InteractiveMascot';
 import { GradeLeaderboard } from './GradeLeaderboard';
+import { isVipUser } from '../lib/userUtils';
 
 // --- SUB-COMPONENTS ---
 
@@ -179,6 +181,7 @@ const TopicCard = ({ topic, accentVar, isExpanded, onToggle, onStartPrescription
 import { collection, getDocs, query, orderBy, limit, where, getDoc, doc, addDoc, Timestamp } from 'firebase/firestore';
 import { db as _db } from '../firebase';
 import { getCurrentRank } from '../services/RankSystem';
+import { ensureClusterIntegrity } from '../utils/clusterIntegrity';
 
 const MiniLeaderboardPreview = ({ currentUser, onViewAll }: { currentUser: UserProfile; onViewAll: () => void }) => {
   const [top3, setTop3] = React.useState<UserProfile[]>([]);
@@ -293,24 +296,29 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         const chunk = selectedIds.slice(i, i + 10);
         const snap = await getDocs(query(collection(_db, 'questions'), where('__name__', 'in', chunk)));
         snap.forEach(d => {
-          const q = d.data();
-          if ((q.status || 'published') === 'published') {
-            fetchedQuestions.push({ ...q, id: d.id });
+          // [FIX] Không lọc theo status — câu hỏi trong failedQuestionIds/SM-2
+          // của HS luôn hợp lệ để luyện lại, kể cả khi admin đổi về draft tạm thời
+          if (d.exists()) {
+            fetchedQuestions.push({ ...d.data(), id: d.id });
           }
         });
       }
 
       if (fetchedQuestions.length === 0) {
-        toast.error('Không tải được câu hỏi sai (có thể đã bị xóa khỏi hệ thống).');
+        toast.error('Câu hỏi trong hồ sơ sai đã bị xóa khỏi hệ thống. Hãy làm thêm bài mới để bổ sung!');
         setIsGeneratingRemedial(false);
         return;
       }
 
-      // 4. Tạo exam doc trên Firestore
+      // 4. Cluster Integrity Guard — kéo đủ câu anh em + dữ kiện chung
+      //    Đảm bảo HS không bao giờ thấy câu chùm thiếu context
+      const intactQuestions = await ensureClusterIntegrity(fetchedQuestions, _db);
+
+      // 5. Tạo exam doc trên Firestore
       const examTitle = `🩺 Vá Lỗ Hổng — ${new Date().toLocaleDateString('vi-VN')}`;
       const examRef = await addDoc(collection(_db, 'exams'), {
         title: examTitle,
-        questions: fetchedQuestions.map(q => {
+        questions: intactQuestions.map(q => {
           const clean: Record<string, any> = { ...q };
           Object.keys(clean).forEach(k => { if (clean[k] === undefined) delete clean[k]; });
           return clean;
@@ -321,8 +329,8 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         targetStudentId: user.uid,
       });
 
-      // 5. Auto-start đề thi ngay lập tức
-      toast.success(`✅ Đã tạo đề vá lỗ hổng: ${fetchedQuestions.length} câu!`);
+      // 6. Auto-start đề thi ngay lập tức
+      toast.success(`✅ Đã tạo đề vá lỗ hổng: ${intactQuestions.length} câu!`);
       onStartPrescription(examTitle, examRef.id);
     } catch (err) {
       console.error('[AutoRemedial]', err);
@@ -348,23 +356,27 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         const chunk = selectedIds.slice(i, i + 10);
         const snap = await getDocs(query(collection(_db, 'questions'), where('__name__', 'in', chunk)));
         snap.forEach(d => {
-          const q = d.data();
-          if ((q.status || 'published') === 'published') {
-            fetchedQuestions.push({ ...q, id: d.id });
+          // [FIX] Kho Ôn Tập: không lọc status — câu HS đã đánh dấu trong vault
+          // vẫn hợp lệ để luyện dù admin có đổi về draft tạm thời
+          if (d.exists()) {
+            fetchedQuestions.push({ ...d.data(), id: d.id });
           }
         });
       }
 
       if (fetchedQuestions.length === 0) {
-        toast.error('Không tải được câu hỏi từ Kho Ôn Tập.');
+        toast.error('Câu hỏi trong Kho Ôn Tập đã bị xóa khỏi hệ thống. Hãy làm thêm bài mới để bổ sung!');
         setIsGeneratingRemedial(false);
         return;
       }
 
+      // Cluster Integrity Guard — kéo đủ câu anh em + dữ kiện chung
+      const intactQuestions = await ensureClusterIntegrity(fetchedQuestions, _db);
+
       const examTitle = `📦 Kho Ôn Tập Gap Vault — ${new Date().toLocaleDateString('vi-VN')}`;
       const examRef = await addDoc(collection(_db, 'exams'), {
         title: examTitle,
-        questions: fetchedQuestions.map(q => {
+        questions: intactQuestions.map(q => {
           const clean: Record<string, any> = { ...q };
           Object.keys(clean).forEach(k => { if (clean[k] === undefined) delete clean[k]; });
           return clean;
@@ -375,7 +387,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         targetStudentId: user.uid,
       });
 
-      toast.success(`✅ Kho Ôn Tập: ${fetchedQuestions.length} câu đã sẵn sàng!`);
+      toast.success(`✅ Kho Ôn Tập: ${intactQuestions.length} câu đã sẵn sàng!`);
       onStartPrescription(examTitle, examRef.id);
     } catch (err) {
       console.error('[GapVault]', err);
@@ -404,7 +416,9 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
 
   // --- DYNAMIC DATA COMPUTATION ---
   const dynamicData = useMemo(() => {
-    // 1. Calculate Topic Scores from realtime Attempts
+    // 1. Radar Chart (Lớp 12): Dùng topicProgress từ Firestore qua buildRadarData
+    //    → correctCount / totalQuestions (chính xác) thay vì parse testId string
+    // Lớp 10/11: Giữ phương thức cũ (parse từ attempts) vì chưa có 4 mạch cố định
     const topicData: Record<string, { total: number, score: number }> = {};
     attempts.forEach(a => {
       let matchedTopic = "Khác";
@@ -427,20 +441,22 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
       topicData[matchedTopic].score += a.score;
     });
 
-    // 2. Build Radar Chart
-    let radarMap = Object.entries(topicData).map(([name, data]) => ({
+    // 2a. Radar lớp 12: dùng CapabilityRadarChart với 4 trục cố định từ topicProgress
+    const radarData12: RadarAxisData[] = buildRadarData(user?.learningPath?.topicProgress);
+
+    // 2b. Radar lớp 10/11: fallback parse từ testId (không đổi)
+    let radarMapLegacy = Object.entries(topicData).map(([name, data]) => ({
       subject: name.length > 15 ? name.substring(0, 15) + '...' : name,
       score: Math.min(100, Math.round((data.score / (data.total * 3)) * 100)) || 20,
-      fullMark: 100
+      fullMark: 100 as const,
     }));
-
-    if (radarMap.length < 3) {
-      // Pad with 0-score subjects to allow Recharts to draw at least a triangle, avoiding fake "high stats"
-      const needed = 3 - radarMap.length;
+    if (radarMapLegacy.length < 3) {
+      const needed = 3 - radarMapLegacy.length;
       for (let i = 0; i < needed; i++) {
-        radarMap.push({ subject: `Cần dữ liệu ${i + 1}`, score: 0, fullMark: 100 });
+        radarMapLegacy.push({ subject: `Cần dữ liệu ${i + 1}`, score: 0, fullMark: 100 });
       }
     }
+    const radarMap = activeGrade === '12' ? radarData12 : radarMapLegacy;
 
     // 3. Build action path using real YCCD
     const yccdItems = getYCCDByGrade(activeGrade);
@@ -533,7 +549,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
       };
     });
 
-    return { radarMap, topicsList, battleModes, progressData };
+    return { radarMap, radarData12, topicsList, battleModes, progressData };
   }, [activeGrade, attempts, user]);
 
 
@@ -596,13 +612,17 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
           {/* ── TẦNG 1: HOOK — Rank Card ── */}
           {user && <UserRankCard user={user} />}
 
-          {/* ── TẦNG 2: URGENCY — Countdown + Quote gọn ── */}
+          {/* ── TẦNG 2: URGENCY — Countdown (chỉ Khối 12) + Quote gọn ── */}
           <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-3xl p-4 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 blur-3xl rounded-full pointer-events-none" />
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
-              <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT 2026
-            </p>
-            <CountdownTimer />
+            {defaultGrade === '12' && (
+              <>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
+                  <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT 2026
+                </p>
+                <CountdownTimer />
+              </>
+            )}
             <MotivationalQuote />
           </div>
 
@@ -745,7 +765,14 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
                 {attempts.length} Lượt thi
               </span>
             </div>
-            {dynamicData.radarMap && dynamicData.radarMap.length > 0 ? (
+            {activeGrade === '12' ? (
+              // Lớp 12: Dùng CapabilityRadarChart 4 trục THPTQG với % chính xác
+              <CapabilityRadarChart
+                data={dynamicData.radarData12}
+                accentColor={accent.color}
+              />
+            ) : dynamicData.radarMap && dynamicData.radarMap.length > 0 ? (
+              // Lớp 10/11: Giữ radar cũ (multi-topic tự do)
               <RadarChartComponent data={dynamicData.radarMap} accentColor={accent.color} />
             ) : (
               <div className="h-[250px] w-full flex items-center justify-center text-slate-500 text-sm">
@@ -864,34 +891,34 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
 
           {/* 3. Lượt dùng thử */}
           <div className="bg-slate-900/80 border border-slate-800 p-6 rounded-3xl relative overflow-hidden">
-            {user.tier === 'vip' || user.isUnlimited ? (
+            {isVipUser(user) ? (
               <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full pointer-events-none" />
             ) : null}
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2 z-10">
-                <Target className={cn("w-4 h-4", user.tier === 'vip' || user.isUnlimited ? "text-amber-500" : "text-slate-300")} />
+                <Target className={cn("w-4 h-4", isVipUser(user) ? "text-amber-500" : "text-slate-300")} />
                 Lượt dùng thử nền tảng
-                {user.tier === 'vip' || user.isUnlimited ? (
+                {isVipUser(user) ? (
                   <span className="ml-2 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-widest">VIP</span>
                 ) : null}
               </h3>
               <span className={cn(
                 "text-xs font-black z-10",
-                user.tier === 'vip' || user.isUnlimited ? "text-amber-500 text-lg" :
+                isVipUser(user) ? "text-amber-500 text-lg" :
                 (user.usedAttempts || 0) > 25 ? "text-red-500" :
                 (user.usedAttempts || 0) >= 20 ? "text-amber-500" :
                 "text-emerald-500"
               )}>
-                {user.tier === 'vip' || user.isUnlimited ? '∞' : `${user.usedAttempts || 0} / 30`}
+                {isVipUser(user) ? '∞' : `${user.usedAttempts || 0} / 30`}
               </span>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: user.tier === 'vip' || user.isUnlimited ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / 30) * 100)}%` }}
+                animate={{ width: isVipUser(user) ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / 30) * 100)}%` }}
                 className={cn(
                   "h-full rounded-full relative",
-                  user.tier === 'vip' || user.isUnlimited ? "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300" :
+                  isVipUser(user) ? "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300" :
                   (user.usedAttempts || 0) > 25 ? "bg-gradient-to-r from-red-600 via-red-500 to-rose-400" :
                   (user.usedAttempts || 0) >= 20 ? "bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-400" :
                   "bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400"

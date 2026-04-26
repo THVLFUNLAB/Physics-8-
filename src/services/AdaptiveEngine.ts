@@ -13,7 +13,7 @@
  */
 
 import { db } from '../firebase';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { getCurrentRank } from './RankSystem';
 import type { UserProfile, Question, Attempt } from '../types';
 import type {
@@ -162,16 +162,25 @@ async function buildAssessmentRecord(
   userId: string,
   user: UserProfile
 ): Promise<IAssessmentRecord> {
-  // Lấy 14 bài làm gần nhất
-  const attemptsSnap = await getDocs(
-    query(
-      collection(db, 'attempts'),
-      where('userId', '==', userId),
-      orderBy('timestamp', 'desc'),
-      limit(14)
-    )
-  );
-  const attempts = attemptsSnap.docs.map(d => d.data() as Attempt);
+  // [FIX] Bỏ orderBy để tránh lỗi "requires a composite index" trên Firestore.
+  // Query chỉ filter theo userId, rồi sort timestamp trong memory.
+  let attempts: Attempt[] = [];
+  try {
+    const attemptsSnap = await getDocs(
+      query(
+        collection(db, 'attempts'),
+        where('userId', '==', userId),
+        limit(50)  // Lấy nhiều hơn, sort & slice trong memory
+      )
+    );
+    attempts = attemptsSnap.docs
+      .map(d => d.data() as Attempt)
+      .sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0))
+      .slice(0, 14);
+  } catch (fetchErr) {
+    console.warn('[AdaptiveEngine] Không lấy được attempts, dùng dữ liệu trống:', fetchErr);
+    // Graceful: tiếp tục với mảng rỗng thay vì crash toàn bộ
+  }
   const scores = attempts.map(a => a.score);
 
   // Moving averages
@@ -187,15 +196,31 @@ async function buildAssessmentRecord(
 
   // Topic breakdown từ learningPath.topicProgress
   const topicProgress = user.learningPath?.topicProgress ?? {};
-  const topicBreakdown = Object.entries(topicProgress).map(([topic, data]) => ({
-    topic,
-    totalAttempts: data.totalAttempts,
-    correctRate: data.bestScore / 10, // proxy cho tỷ lệ đúng
-    avgScore: (data.bestScore + data.lastScore) / 2,
-    failedQuestionIds: [],            // Để đơn giản, hiện tại bỏ qua mapping failedIds per topic
-    lastAttemptAt: new Date().toISOString(),
-    trend: (data.lastScore >= data.bestScore ? 'improving' : 'stable') as 'improving' | 'stable' | 'declining',
-  }));
+  const topicBreakdown = Object.entries(topicProgress).map(([topic, data]) => {
+    // ── correctRate MỚI (chính xác) ──────────────────────────────────
+    // Nếu refreshTopicProgress đã ghi correctCount/totalQuestions → dùng trực tiếp.
+    // Nếu chưa (data cũ) → fallback bestScore/10 để tương thích ngược.
+    const extData = data as typeof data & {
+      correctCount?: number;
+      totalQuestions?: number;
+    };
+    const correctRate =
+      typeof extData.correctCount  === 'number' &&
+      typeof extData.totalQuestions === 'number' &&
+      extData.totalQuestions > 0
+        ? extData.correctCount / Math.max(extData.totalQuestions, 1)  // Công thức đúng
+        : data.bestScore / 10;                                          // Backward compat
+
+    return {
+      topic,
+      totalAttempts: data.totalAttempts,
+      correctRate,
+      avgScore: (data.bestScore + data.lastScore) / 2,
+      failedQuestionIds: [],
+      lastAttemptAt: new Date().toISOString(),
+      trend: (data.lastScore >= data.bestScore ? 'improving' : 'stable') as 'improving' | 'stable' | 'declining',
+    };
+  });
 
   const criticalTopics = topicBreakdown.filter(t => t.correctRate < 0.4).map(t => t.topic);
   const majorTopics    = topicBreakdown.filter(t => t.correctRate >= 0.4 && t.correctRate < 0.6).map(t => t.topic);

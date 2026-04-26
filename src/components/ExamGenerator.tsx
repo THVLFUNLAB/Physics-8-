@@ -197,7 +197,8 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
         createdBy: user.uid,
         published: false,
         type: genType === 'AI' ? 'AI_Diagnosis' : 'Matrix',
-        targetStudentId: selectedStudent?.uid
+        targetStudentId: selectedStudent?.uid,
+        ...(selectedGrade !== 'all' && { targetGrade: selectedGrade })
       };
 
       const docRef = await addDoc(collection(db, 'exams'), newExam);

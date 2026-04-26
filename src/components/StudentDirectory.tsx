@@ -6,6 +6,7 @@ import { Contact, Search, CheckSquare, Square, Users, Crown, ShieldOff } from 'l
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentMicroProfiler } from './StudentMicroProfiler';
+import { isVipUser } from '../lib/userUtils';
 
 export const StudentDirectory: React.FC = () => {
   const [students, setStudents] = useState<UserProfile[]>([]);
@@ -132,7 +133,7 @@ export const StudentDirectory: React.FC = () => {
 
   // ── Toggle VIP/FREE cho 1 học sinh trực tiếp (click badge) ──
   const handleToggleVIP = async (student: UserProfile) => {
-    const isVip = student.tier === 'vip' || student.isUnlimited;
+    const isVip = isVipUser(student);
     const action = isVip ? 'hạ xuống FREE' : 'nâng lên VIP';
     if (!window.confirm(`Xác nhận ${action} tài khoản: ${student.displayName || student.email}?`)) return;
 
@@ -346,7 +347,7 @@ export const StudentDirectory: React.FC = () => {
                           <span className="text-slate-500 text-[11px]">bài</span>
                         </div>
                         {/* Chỉ FREE mới hiển thị số lượt còn lại */}
-                        {!(student.tier === 'vip' || student.isUnlimited) && (
+                        {!isVipUser(student) && (
                           <span className={cn(
                             "text-[10px] font-bold",
                             (student.usedAttempts || 0) >= 25 ? "text-red-400" :
@@ -361,12 +362,12 @@ export const StudentDirectory: React.FC = () => {
                       {/* Badge VIP/FREE — Click để toggle ngay, real-time qua onSnapshot */}
                       <button
                         onClick={() => handleToggleVIP(student)}
-                        title={student.tier === 'vip' || student.isUnlimited 
+                        title={isVipUser(student)
                           ? 'Click để HẠ XUỐNG FREE' 
                           : 'Click để NÂNG LÊN VIP'}
                         className="group relative transition-transform hover:scale-110 active:scale-95"
                       >
-                        {student.tier === 'vip' || student.isUnlimited ? (
+                        {isVipUser(student) ? (
                           <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-400 to-amber-600 text-slate-900 font-black px-2.5 py-1 rounded-lg text-xs shadow-lg shadow-amber-500/30 group-hover:shadow-red-500/20 group-hover:from-red-400 group-hover:to-red-600 group-hover:text-white transition-all duration-300">
                             <Crown className="w-3 h-3" />
                             VIP

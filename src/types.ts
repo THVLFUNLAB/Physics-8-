@@ -210,7 +210,10 @@ export interface Simulation {
   title: string;
   description: string;
   category: string;
+  /** HTML source code (gzip-compressed or raw). Used for local simulations. */
   html_code: string;
+  /** External URL to embed via iframe (e.g. javalab.org, PhET). Takes priority over html_code if set. */
+  sourceUrl?: string;
   thumbnail?: string;
   createdAt: any;
 }
