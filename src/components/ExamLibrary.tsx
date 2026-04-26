@@ -17,7 +17,7 @@ import MathRenderer from '../lib/MathRenderer';
 import {
   FolderOpen, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
   FileText, Clock, CheckCircle2, AlertTriangle, Search, X,
-  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw
+  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw, Users
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableExamView } from './PrintableExamView';
