@@ -38,6 +38,7 @@ import type {
   DynamicMatrixFormula,
   ExamSource,
 } from '../types';
+import { ensureClusterIntegrity } from '../utils/clusterIntegrity';
 
 // ─── Constants ────────────────────────────────────────────────────
 const QUESTION_COLLECTION = 'questions';
@@ -439,7 +440,13 @@ export async function generateAdvancedQuestions(
   const shuffled = fisherYatesShuffle(allResults);
   
   // Trích xuất đúng số lượng yêu cầu (chỉ 5 - 10 câu tinh hoa)
-  return shuffled.slice(0, count);
+  const initialSelection = shuffled.slice(0, count);
+
+  // Đảm bảo tính toàn vẹn của câu chùm (kéo thêm anh em + sharedContext nếu bốc trúng)
+  // Đề có thể lố lên 7-10 câu nhưng luôn tuân thủ nguyên tắc "Chùm là chùm"
+  const finalQuestions = await ensureClusterIntegrity(initialSelection, db);
+  
+  return finalQuestions;
 }
 
 // ═══════════════════════════════════════════════════════════════════
