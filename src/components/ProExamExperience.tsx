@@ -15,15 +15,21 @@ import { useAuthStore } from '../store/useAuthStore';
 import { signInWithGoogle } from '../firebase';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 
-export const ProExamExperience = () => {
+export const ProExamExperience = ({
+  test: propTest,
+  answers: propAnswers,
+  onAnswer: propOnAnswer,
+  onSubmit: propOnSubmit,
+  onCancel: propOnCancel
+}: any = {}) => {
   const { user } = useAuthStore();
-  const { 
-    activeTest: test, 
-    answers: initialAnswers, 
-    handleAnswer: onAnswer, 
-    submitExam, 
-    clearExamSession: onCancel 
-  } = useExamStore();
+  const examStore = useExamStore();
+  
+  const test = propTest || examStore.activeTest;
+  const initialAnswers = propAnswers || examStore.answers;
+  const onAnswer = propOnAnswer || examStore.handleAnswer;
+  const submitExam = propOnSubmit || examStore.submitExam;
+  const onCancel = propOnCancel || examStore.clearExamSession;
 
   // Đảm bảo test tồn tại trước khi render
   if (!test) return null;

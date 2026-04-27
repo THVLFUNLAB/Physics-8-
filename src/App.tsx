@@ -71,6 +71,7 @@ const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 const LiveClassExam = lazy(() => import('./components/LiveClassExam'));
 const Grade10Dashboard = lazy(() => import('./components/Grade10Dashboard'));
 const Grade11Dashboard = lazy(() => import('./components/Grade11Dashboard'));
+const Grade12Dashboard = lazy(() => import('./components/Grade12Dashboard'));
 const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationTool'));
 const ScoreRecalibrationTool = lazy(() => import('./components/ScoreRecalibrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
@@ -1634,9 +1635,20 @@ export default function App() {
             )}
 
             {(activeView === 'dashboard' || activeView === 'tasks') && (
-              <>
-                <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic, examId)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
-              </>
+              <LazyWrap>
+                {user.role === 'admin' ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800">
+                    <h3 className="text-xl font-bold text-white mb-2">Xin chào Quản trị viên</h3>
+                    <p className="text-slate-400">Vui lòng chọn chức năng quản trị ở Sidebar bên trái.</p>
+                  </div>
+                ) : user.className?.startsWith('10') ? (
+                  <Grade10Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                ) : user.className?.startsWith('11') ? (
+                  <Grade11Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                ) : (
+                  <Grade12Dashboard onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                )}
+              </LazyWrap>
             )}
 
             {activeView === 'simulations' && (
