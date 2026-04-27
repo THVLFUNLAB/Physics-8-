@@ -7,23 +7,62 @@ import MathRenderer from '../lib/MathRenderer';
 import { BackgroundMusic } from './BackgroundMusic';
 import { VoiceTutorButton } from './VoiceTutorButton';
 import {
-  Activity, Clock, ChevronRight, ShieldAlert, Info, Archive
+  Activity, Clock, ChevronRight, ShieldAlert, Info, Archive, Lock
 } from 'lucide-react';
 
-export const ProExamExperience = ({ 
-  test, 
-  answers: initialAnswers, 
-  onAnswer, 
-  onSubmit, 
-  onCancel 
-}: { 
-  test: { topic: string, questions: Question[], adaptiveConfig?: any }, 
-  answers: Record<string, any>, 
-  onAnswer: (questionId: string, ans: any) => void, 
-  onSubmit: () => void,
-  onCancel: () => void
-}) => {
-  const DRAFT_KEY = `exam_draft_${auth.currentUser?.uid}_${test.topic}`;
+import { useExamStore } from '../store/useExamStore';
+import { useAuthStore } from '../store/useAuthStore';
+import { signInWithGoogle } from '../firebase';
+import { useAntiCheat } from '../hooks/useAntiCheat';
+
+export const ProExamExperience = () => {
+  const { user } = useAuthStore();
+  const { 
+    activeTest: test, 
+    answers: initialAnswers, 
+    handleAnswer: onAnswer, 
+    submitExam, 
+    clearExamSession: onCancel 
+  } = useExamStore();
+
+  // Đảm bảo test tồn tại trước khi render
+  if (!test) return null;
+  
+  // [FAILSAFE] Bảo vệ chống crash khi questions rỗng (nguyên nhân gây trắng trang)
+  // Không bao giờ để currentQuestion = undefined
+  if (!Array.isArray(test.questions) || test.questions.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-slate-950 z-[100] flex flex-col items-center justify-center gap-8 p-8">
+        <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center">
+          <svg className="w-10 h-10 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+        <div className="text-center max-w-md">
+          <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-3">Không Tìm Thấy Câu Hỏi</h2>
+          <p className="text-slate-400 text-sm leading-relaxed mb-6">
+            Kho dữ liệu hiện chưa có câu hỏi phù hợp với tiêu chí bộ lọc đã chọn (VDC 9+ / Chương trình 2018).
+            Thầy đang bổ sung dần — bạn vui lòng thử lại sau hoặc chọn chủ đề khác nhé!
+          </p>
+          <button
+            onClick={onCancel}
+            className="bg-blue-600 hover:bg-blue-500 text-white font-black py-3 px-8 rounded-2xl transition-all uppercase tracking-widest text-sm shadow-lg shadow-blue-900/20"
+          >
+            ← Quay về Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  const DRAFT_KEY = `exam_draft_${user?.uid}_${test.topic}`;
+
+  // ── Gated Content Logic: Khóa nếu user chưa đăng nhập HOẶC (user FREE và hết lượt) ──
+  // Xác định sớm để truyền vào hook AntiCheat
+  const isLockedGlobal = (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 30)));
+  
+  // Kích hoạt Anti-Cheat/Anti-Copy/Inspect nếu bị khóa
+  useAntiCheat(isLockedGlobal);
   
   const [timeLeft, setTimeLeft] = useState(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
@@ -45,11 +84,7 @@ export const ProExamExperience = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
-  // --- Fix stale closure in timeout ---
-  const onSubmitRef = useRef(onSubmit);
-  useEffect(() => {
-    onSubmitRef.current = onSubmit;
-  }, [onSubmit]);
+  // --- Bỏ qua useRef cho onSubmit vì Zustand actions luôn fresh ---
 
   // --- Floating Highlight button ---
   const [highlightCoords, setHighlightCoords] = useState<{ x: number, y: number } | null>(null);
@@ -139,15 +174,27 @@ export const ProExamExperience = ({
     };
   }, [showResumeModal]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Guard chống double-submit: nếu đang xử lý thì bỏ qua
     if (isSubmitting) return;
     setIsSubmitting(true);
     setShowSubmitConfirm(false);
-    localStorage.removeItem(DRAFT_KEY);
-    localStorage.removeItem('phys8_active_exam_session');
-    onSubmitRef.current();
+    // [FIX] KHÔNG xóa draft tại đây — chỉ xóa sau khi server xác nhận thành công
+    // Nếu mạng lỗi và HS F5 → draft vẫn còn → modal "Làm tiếp" hiện → bài không mất
+    try {
+      await submitExam();
+      // ✅ Chỉ xóa draft khi submit THÀNH CÔNG
+      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem('phys8_active_exam_session');
+    } catch (e) {
+      console.error('[handleSubmit] submitTest lỗi:', e);
+      // Draft được giữ nguyên → HS có thể F5 và làm tiếp / nộp lại
+    } finally {
+      // LUÔN reset guard dù thành công hay lỗi
+      setIsSubmitting(false);
+    }
   };
+
 
   const handleResumeChoice = (choice: 'resume' | 'reset') => {
     if (choice === 'reset') {
@@ -172,6 +219,22 @@ export const ProExamExperience = ({
   };
 
   const currentQuestion = test.questions[currentIndex];
+
+  // ── Gated Content Logic: Khóa nếu user chưa đăng nhập HOẶC (user FREE và hết lượt) ──
+  const isLocked = currentIndex >= 3 && (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 30)));
+
+  const handleGateAction = async () => {
+    if (!user) {
+      try {
+        await signInWithGoogle();
+      } catch (e) {
+        console.error("Lỗi đăng nhập", e);
+      }
+    } else {
+      // Logic nâng cấp VIP (có thể mở modal Paywall hoặc redirect)
+      alert("Đang phát triển chức năng Thanh toán. Vui lòng liên hệ Admin!");
+    }
+  };
 
   return (
     <div className={cn(
@@ -374,8 +437,10 @@ export const ProExamExperience = ({
               />
             </div>
 
-            <div className="space-y-6">
-              {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung cho câu chùm ═══ */}
+            <div className="relative">
+              {/* Vùng Blur: Nội dung chính */}
+              <div className={cn("space-y-6 transition-all duration-300", isLocked && "filter blur-md select-none pointer-events-none")}>
+                {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung cho câu chùm ═══ */}
               {(() => {
                 if (!currentQuestion.clusterId) return null;
                 const headQuestion = test.questions.find(
@@ -531,6 +596,32 @@ export const ProExamExperience = ({
                   </div>
                 )}
               </div>
+              </div>
+
+              {/* Lớp phủ Khóa Nội Dung (Lock Overlay) */}
+              {isLocked && (
+                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pt-12 pb-8 px-4">
+                  <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 p-8 rounded-3xl text-center max-w-sm w-full space-y-5 shadow-2xl">
+                    <div className="w-16 h-16 bg-blue-600/10 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                      <Lock className="w-8 h-8 text-blue-500" />
+                    </div>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
+                      {!user ? "Yêu cầu đăng nhập" : "Hết lượt làm bài"}
+                    </h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      {!user 
+                        ? "Hệ thống chỉ hiển thị 3 câu hỏi đầu tiên. Đăng nhập ngay để xem toàn bộ nội dung và trải nghiệm kho bài tập chất lượng cao!" 
+                        : "Bạn đã sử dụng hết lượt làm bài miễn phí. Vui lòng nâng cấp tài khoản VIP để tiếp tục không giới hạn."}
+                    </p>
+                    <button 
+                      onClick={handleGateAction}
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl mt-6 transition-all shadow-lg shadow-blue-900/20 uppercase tracking-widest text-sm"
+                    >
+                      {!user ? "Đăng nhập ngay" : "Nâng cấp VIP"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between items-center pt-12 border-t border-slate-900">

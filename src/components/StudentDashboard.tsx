@@ -444,17 +444,31 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
     // 2a. Radar lớp 12: dùng CapabilityRadarChart với 4 trục cố định từ topicProgress
     const radarData12: RadarAxisData[] = buildRadarData(user?.learningPath?.topicProgress);
 
-    // 2b. Radar lớp 10/11: fallback parse từ testId (không đổi)
-    let radarMapLegacy = Object.entries(topicData).map(([name, data]) => ({
-      subject: name.length > 15 ? name.substring(0, 15) + '...' : name,
-      score: Math.min(100, Math.round((data.score / (data.total * 3)) * 100)) || 20,
-      fullMark: 100 as const,
-    }));
-    if (radarMapLegacy.length < 3) {
-      const needed = 3 - radarMapLegacy.length;
-      for (let i = 0; i < needed; i++) {
-        radarMapLegacy.push({ subject: `Cần dữ liệu ${i + 1}`, score: 0, fullMark: 100 });
-      }
+    // 2b. Radar lớp 10/11: Cố định các trục theo chuẩn GDPT 2018
+    const grade10Topics = ['Động học', 'Động lực học', 'Công-Năng lượng', 'Động lượng', 'CĐ Tròn'];
+    const grade11Topics = ['Dao động', 'Sóng', 'Điện trường', 'Dòng điện'];
+    
+    let radarMapLegacy: any[] = [];
+    if (activeGrade === '10') {
+      radarMapLegacy = grade10Topics.map(t => {
+        const key = Object.keys(topicData).find(k => k.toLowerCase().includes(t.toLowerCase()) || (t === 'CĐ Tròn' && k.toLowerCase().includes('tròn')));
+        const data = key ? topicData[key] : { score: 0, total: 0 };
+        return {
+          subject: t,
+          score: data.total > 0 ? Math.min(100, Math.round((data.score / (data.total * 3)) * 100)) : 0,
+          fullMark: 100 as const
+        };
+      });
+    } else if (activeGrade === '11') {
+      radarMapLegacy = grade11Topics.map(t => {
+        const key = Object.keys(topicData).find(k => k.toLowerCase().includes(t.toLowerCase()));
+        const data = key ? topicData[key] : { score: 0, total: 0 };
+        return {
+          subject: t,
+          score: data.total > 0 ? Math.min(100, Math.round((data.score / (data.total * 3)) * 100)) : 0,
+          fullMark: 100 as const
+        };
+      });
     }
     const radarMap = activeGrade === '12' ? radarData12 : radarMapLegacy;
 
@@ -574,9 +588,16 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
             {!user?.photoURL && <div className={cn("absolute inset-0 opacity-20 bg-current", accent.hex)} />}
           </div>
           <div className="flex flex-col justify-center truncate relative z-10 w-[120px] sm:w-[250px] md:w-[350px]">
-             <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase tracking-wider">
-               {user?.tier === 'vip' ? '🔥 VIP' : 'Chiến binh'}
-             </p>
+             <div className="flex items-center gap-2">
+               <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase tracking-wider">
+                 {user?.tier === 'vip' ? '🔥 VIP' : 'Chiến binh'}
+               </p>
+               {user && user.tier !== 'vip' && (
+                 <span className="text-[9px] font-black uppercase bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/30">
+                   Lượt: {Math.max(0, (user.maxAttempts || 30) - (user.usedAttempts || 0))}
+                 </span>
+               )}
+             </div>
              <p className="text-sm sm:text-base font-black font-headline truncate">
                {user?.displayName?.toUpperCase() || 'ẢNH VỆ'}
              </p>

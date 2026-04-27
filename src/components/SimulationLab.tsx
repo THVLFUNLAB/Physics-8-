@@ -113,21 +113,27 @@ export const SimulationViewer = ({
   // Nguồn truyền vào LabPlayer
   const labSource = simulation.sourceUrl ?? htmlSource ?? '';
 
+  // Tính chiều cao header để trừ ra cho iframe container
+  const HEADER_H = isMobile && !isLandscape ? 88 : 60; // header + banner hint
+
   return (
     <AnimatePresence>
+      {/* Outer: fixed inset-0 để chiếm toàn bộ viewport — không dùng flex centering */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/95 backdrop-blur-sm"
+        className="fixed inset-0 z-[200] bg-slate-950/95 backdrop-blur-sm"
       >
+        {/* Inner: full height, rounded chỉ trên desktop */}
         <motion.div
           ref={containerRef}
-          initial={{ scale: 0.95, opacity: 0 }}
+          initial={{ scale: 0.98, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
+          exit={{ scale: 0.98, opacity: 0 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="w-full h-full md:max-w-7xl md:max-h-[95vh] md:rounded-3xl overflow-hidden bg-slate-900 border-0 md:border md:border-slate-800 shadow-2xl flex flex-col"
+          className="w-full h-full md:max-w-7xl md:max-h-[95vh] md:mx-auto md:my-auto md:absolute md:inset-x-0 md:top-1/2 md:-translate-y-1/2 md:rounded-3xl overflow-hidden bg-slate-900 border-0 md:border md:border-slate-800 shadow-2xl flex flex-col"
+          style={{ height: '100%' }}
         >
           {/* ── HEADER ── */}
           <div className="flex items-center justify-between px-3 py-2 md:px-5 md:py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl shrink-0">
@@ -165,24 +171,38 @@ export const SimulationViewer = ({
           {/* ── LANDSCAPE HINT ── */}
           {isMobile && !isLandscape && (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs font-bold shrink-0">
-              <span>📱 Xoay ngang điện thoại để trải nghiệm tốt hơn!</span>
+              className="flex items-center justify-between gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 shrink-0">
+              <span className="text-amber-400 text-xs font-bold">📱 Xoay ngang để xem tốt hơn!</span>
+              {simulation.sourceUrl && (
+                <a href={simulation.sourceUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-[10px] font-black text-blue-400 underline shrink-0">Mở tab mới</a>
+              )}
             </motion.div>
           )}
 
           {/* ── LAB PLAYER (sandbox iframe) ── */}
-          <div className="flex-1 relative min-h-0">
+          {/* CRITICAL: phải dùng height cứng (100dvh - header), KHÔNG dùng flex-1 min-h-0 trên mobile */}
+          <div
+            className="relative flex-1"
+            style={{
+              // iOS 13/14 FIX: dvh không hỗ trợ trước iOS 15.4 → dùng vh thường
+              height: isMobile
+                ? `calc(100vh - ${HEADER_H}px)`
+                : undefined,
+              minHeight: isMobile ? 300 : 0,
+            }}
+          >
             {loadingCode ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 gap-4">
                 <Loader2 className="w-10 h-10 animate-spin text-blue-400" />
                 <p className="text-slate-400 text-sm">Đang giải nén mô phỏng...</p>
               </div>
             ) : (
-              <LabPlayer title={simulation.title} source={labSource} className="w-full h-full" />
+              <LabPlayer title={simulation.title} source={labSource} className="absolute inset-0 w-full h-full" />
             )}
           </div>
 
-          {/* ── FOOTER ── */}
+          {/* ── FOOTER (ẩn trên mobile để không chiếm thêm chỗ) ── */}
           <div className="hidden md:flex items-center justify-between px-5 py-3 bg-slate-950 border-t border-slate-800 text-sm text-slate-400 shrink-0">
             <span><strong className="text-slate-300">Mô tả:</strong> {simulation.description}</span>
             <button onClick={toggleFullscreen}

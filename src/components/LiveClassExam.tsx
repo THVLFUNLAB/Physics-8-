@@ -55,6 +55,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // [COST FIX] Guard chống double auto-submit (onSnapshot + countdown fire cùng lúc)
+  const hasAutoSubmittedRef = useRef(false);
   const [now, setNow] = useState(Date.now());
 
   // ── Results state ──
@@ -152,13 +154,14 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
     if (phase !== 'exam' || !attemptId) return;
 
     const ping = () => {
+      if (!connectionState.isOnline) return; // [COST FIX] Không ping khi offline
       updateDoc(doc(db, 'classAttempts', attemptId), {
         lastPing: Timestamp.now(),
       }).catch(e => console.warn('Heartbeat failed:', e));
     };
 
-    ping(); // Initial ping
-    heartbeatRef.current = setInterval(ping, 15000);
+    ping();
+    heartbeatRef.current = setInterval(ping, 60000); // [COST FIX] 15s → 60s (-75% writes)
 
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
@@ -185,7 +188,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       if (snap.exists()) {
         const data = snap.data() as ClassExam;
         setClassExam({ id: snap.id, ...data });
-        if (data.status === 'ended' && phase === 'exam') {
+        if (data.status === 'ended' && phase === 'exam' && !hasAutoSubmittedRef.current) {
+          hasAutoSubmittedRef.current = true;
           handleSubmit(true);
         }
       }
@@ -217,7 +221,8 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
 
   // ── Auto-submit when time runs out ──
   useEffect(() => {
-    if (countdown?.isEnded && phase === 'exam' && classExam?.autoSubmit) {
+    if (countdown?.isEnded && phase === 'exam' && classExam?.autoSubmit && !hasAutoSubmittedRef.current) {
+      hasAutoSubmittedRef.current = true;
       handleSubmit(true);
     }
   }, [countdown?.isEnded]);
@@ -445,7 +450,10 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       const part3ScorePerQuestion = gradeNumber <= 11 ? 0.5 : 0.25;
 
       let totalScore = 0;
-      const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
+      const normalizeDecimal = (v: any) => {
+        if (v === undefined || v === null || v === '') return NaN;
+        return parseFloat(String(v).replace(',', '.'));
+      };
       const sm2Evaluations: { questionId: string; isCorrect: boolean; topic?: string }[] = [];
 
       for (const q of questions) {

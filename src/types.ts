@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════════
+//  PHYSICS9+ — TYPE DEFINITIONS (v3.0)
+//  Nâng cấp Sprint: Module 1 (Auto-Email) + Module 2 (Dynamic Exam)
+// ═══════════════════════════════════════════════════════════════════
+
 // Topic mở rộng: AI tự nhận diện và gán chủ đề phù hợp
 // Các topic gợi ý (không giới hạn): 'Vật lí nhiệt', 'Khí lí tưởng', 'Từ trường', 'Vật lí hạt nhân',
 // 'Dao động cơ', 'Sóng cơ', 'Điện xoay chiều', 'Sóng điện từ', 'Quang học', 'Lượng tử ánh sáng', ...
@@ -6,6 +11,12 @@ export type QuestionLevel = 'Nhận biết' | 'Thông hiểu' | 'Vận dụng' |
 export type Part = 1 | 2 | 3;
 export type Role = 'student' | 'admin' | 'assistant';
 export type TargetGroup = 'Chống Sai Ngu' | 'Master Physics';
+
+// ── [MODULE 2] Nguồn gốc câu hỏi — dùng để tách Kho đề cố định & Đề sinh tự động ──
+export type ExamSource = 'BGD' | 'So' | 'Chuyen' | 'Other';
+
+// ── [MODULE 2] Mức năng lực đích cho đề sinh tự động ──
+export type CompetencyTarget = '6+' | '7+' | '8+' | '9+';
 
 export interface Prescription {
   id: string;
@@ -39,6 +50,10 @@ export interface UserProfile {
   email: string;
   displayName: string;
   className?: string;              // Lớp thực tế (VD: 12A1)
+  // ── [MODULE 1 - NÂNG CẤP] Khối lớp chuẩn hóa để query email theo phân khúc ──
+  // Được tự động extract từ className (VD: "12A1" → grade = 12)
+  // Dùng cho Firebase Cloud Function trigger gửi email hàng loạt
+  grade?: number;                  // Khối lớp: 10 | 11 | 12
   schoolYear?: string;             // Năm học (VD: 2025-2026)
   photoURL?: string;               // Avatar từ Google
   role: Role;
@@ -106,6 +121,10 @@ export interface Question {
   status?: 'draft' | 'published'; // Trạng thái nháp/đã duyệt
   isTrap?: boolean;               // Cờ đánh dấu "Câu Lừa/Bẫy"
   tags?: string[];
+  // ── [MODULE 2 - NÂNG CẤP] Phân loại nguồn gốc câu hỏi ──
+  // Dùng để tách Kho đề: 'BGD'/'So'/'Chuyen' → Đề cố định | undefined → Đề sinh tự động
+  examSource?: ExamSource;        // Nguồn: BGD | Sở | Chuyên | Khác
+  year?: number;                  // Năm ra đề (VD: 2025)
   // groupId: Đánh dấu câu kép Phần II dùng chung đề bài — cùng groupId = cùng cặp
   groupId?: string;
   // ═══ Cluster support: Câu hỏi chùm dùng chung ngữ cảnh ═══
@@ -138,6 +157,64 @@ export interface ExamMatrix {
   part3: { count: number; levels: Record<QuestionLevel, number> };
 }
 
+// ── [MODULE 2 - MỚI HOÀN TOÀN] Công thức Ma trận Đề Động ──────────
+/**
+ * DynamicMatrixFormula — Lưu cấu trúc "Công thức" cho đề sinh tự động.
+ * Ví dụ: Đề 8+ Vật lý 12 = 18 câu Nhận biết/Thông hiểu + 10 Vận dụng/VDC
+ *
+ * Lưu trữ trong Firestore collection: 'dynamicMatrixFormulas'
+ * Được dùng bởi examGeneratorService.ts → generateDynamicExam()
+ */
+export interface DynamicMatrixFormula {
+  id?: string;                    // Firestore document ID
+  title: string;                  // VD: "Đề 8+ Vật lý 12 - Ma trận 2025"
+  description?: string;           // Mô tả ngắn cho Admin
+
+  // ── Phân loại đích ──
+  targetGrade: number;            // Khối lớp: 10 | 11 | 12
+  targetCompetency: CompetencyTarget; // '6+' | '7+' | '8+' | '9+'
+
+  // ── Cấu trúc 3 phần theo chuẩn THPT 2025 (Bộ GD&ĐT) ──
+  structure2025: {
+    /** Phần I: Trắc nghiệm nhiều lựa chọn (4 đáp án A/B/C/D) */
+    part1: {
+      totalCount: number;         // Tổng số câu Part I (VD: 18)
+      levels: Record<QuestionLevel, number>; // {Nhận biết: 8, Thông hiểu: 5, Vận dụng: 3, Vận dụng cao: 2}
+    };
+    /** Phần II: Đúng/Sai 4 ý (mỗi ý đúng/sai độc lập) */
+    part2: {
+      totalCount: number;         // Tổng số câu Part II (VD: 4)
+      levels: Record<QuestionLevel, number>; // {Nhận biết: 0, Thông hiểu: 1, Vận dụng: 2, Vận dụng cao: 1}
+    };
+    /** Phần III: Trả lời ngắn (điền số, 0.25đ/câu) */
+    part3: {
+      totalCount: number;         // Tổng số câu Part III (VD: 6)
+      levels: Record<QuestionLevel, number>; // {Nhận biết: 0, Thông hiểu: 2, Vận dụng: 2, Vận dụng cao: 2}
+    };
+  };
+
+  // ── Bộ lọc nguồn câu hỏi (tùy chọn) ──
+  // Nếu để trống → lấy tất cả (bao gồm cả câu không có examSource)
+  allowedSources?: ExamSource[];  // VD: ['BGD', 'So'] — chỉ bốc từ đề Sở/BGD
+
+  // ── Giới hạn năm ra đề ──
+  // Nếu để trống → lấy tất cả các năm
+  yearRange?: {
+    from: number;                 // VD: 2022
+    to: number;                   // VD: 2025
+  };
+
+  // ── Danh sách topic ưu tiên (tùy chọn) ──
+  // Nếu để trống → bốc từ tất cả topic trong kho
+  priorityTopics?: Topic[];
+
+  // ── Metadata ──
+  isActive: boolean;              // false = ẩn, không cho chọn trên UI
+  createdBy: string;              // UID admin tạo
+  createdAt: any;                 // Firestore Timestamp
+  updatedAt?: any;                // Firestore Timestamp
+}
+
 export interface Exam {
   id?: string;
   title: string;
@@ -146,10 +223,13 @@ export interface Exam {
   questionIds?: string[];
   createdAt: any;
   createdBy: string;
-  type: 'Matrix' | 'AI_Diagnosis' | 'Custom' | 'Digitized';
+  type: 'Matrix' | 'AI_Diagnosis' | 'Custom' | 'Digitized' | 'Dynamic'; // Thêm 'Dynamic' cho đề sinh tự động
   targetStudentId?: string;
   published?: boolean;       // false = nháp (ẩn với HS), true = phát hành
   sourceFile?: string;       // Tên file gốc (nếu có)
+  // ── [MODULE 2] Liên kết với công thức ma trận ──
+  matrixFormulaId?: string;  // Ref → dynamicMatrixFormulas collection (nếu là đề Dynamic)
+  competencyTarget?: CompetencyTarget; // Mức năng lực đích (6+/7+/8+/9+)
 }
 
 export interface WeaknessItem {

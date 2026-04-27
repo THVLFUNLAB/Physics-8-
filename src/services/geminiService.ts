@@ -109,19 +109,48 @@ Kết quả: ${isCorrect ? "✓ ĐÚNG" : "✗ SAI"}
 // DIAGNOSE FULL EXAM — Phân tích tổng thể một lần
 // ============================================================
 
-// ── COST FIX: Cache diagnosis results to avoid re-calling AI ──
-function getDiagnosisCache(key: string) {
+// ── [COST FIX] Cache diagnosis — localStorage 24h (survives F5 + tab close) ──
+const DIAG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getDiagnosisCache(key: string): any {
   try {
-    const cached = sessionStorage.getItem(`phy8_diag_${key}`);
-    if (cached) return JSON.parse(cached);
+    const lsRaw = localStorage.getItem(`phy8_diag_${key}`);
+    if (lsRaw) {
+      const wrapper = JSON.parse(lsRaw);
+      if (wrapper._v === 2 && Date.now() - (wrapper._at || 0) < DIAG_CACHE_TTL_MS) {
+        return wrapper._d;
+      }
+      localStorage.removeItem(`phy8_diag_${key}`); // Hết hạn
+    }
+    // Fallback: sessionStorage (cache cũ trước khi upgrade)
+    const ssRaw = sessionStorage.getItem(`phy8_diag_${key}`);
+    if (ssRaw) return JSON.parse(ssRaw);
   } catch { /* empty */ }
   return null;
 }
 
+function _cleanDiagnosisCache() {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k?.startsWith('phy8_diag_')) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const w = JSON.parse(raw);
+      if (w._v !== 2 || Date.now() - (w._at || 0) > DIAG_CACHE_TTL_MS) toRemove.push(k);
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
+  } catch { /* housekeeping không được crash */ }
+}
+
 function setDiagnosisCache(key: string, data: any) {
   try {
-    sessionStorage.setItem(`phy8_diag_${key}`, JSON.stringify(data));
-  } catch { /* full storage */ }
+    localStorage.setItem(`phy8_diag_${key}`, JSON.stringify({ _v: 2, _at: Date.now(), _d: data }));
+    _cleanDiagnosisCache(); // Dọn các entry cũ > 24h
+  } catch {
+    try { sessionStorage.setItem(`phy8_diag_${key}`, JSON.stringify(data)); } catch { /* full */ }
+  }
 }
 
 // ── COST FIX: Strip HTML & truncate to reduce token count ──

@@ -125,7 +125,9 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
                     studentAns.every((ans: any, i: number) => ans === (question.correctAnswer as boolean[])[i]);
                 }
               } else if (question.part === 3) {
-                const sVal = parseFloat(String(studentAns ?? '0').replace(',', '.'));
+                const sVal = (studentAns === undefined || studentAns === null || studentAns === '') 
+                  ? NaN 
+                  : parseFloat(String(studentAns).replace(',', '.'));
                 const cVal = parseFloat(String(question.correctAnswer ?? '0').replace(',', '.'));
                 isCorrect = !isNaN(sVal) && Math.abs(sVal - cVal) < 0.01;
               }

@@ -26,7 +26,10 @@ import {
   Timestamp,
   limit,
   auth,
+  setDoc,
+  doc,
 } from '../firebase';
+import { PRESET_MATRIX_FORMULAS } from '../services/examGeneratorService';
 import { UserProfile, Exam, Attempt, Question } from '../types';
 import { ReviewExam } from './ReviewExam';
 import AdminStudentProfile from './AdminStudentProfile';
@@ -399,6 +402,53 @@ const TeacherDashboard: React.FC = () => {
           <p className="text-slate-400 text-sm mt-1">
             Ma trận tiến độ: Học sinh × Đề thi — Cập nhật realtime
           </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* NÚT SEED DATA MA TRẬN */}
+          <button
+            onClick={async () => {
+              if (!confirm('Bạn có chắc muốn nạp lại dữ liệu Công thức Ma trận 2025 vào Firestore?')) return;
+              try {
+                let success = 0;
+                for (const formula of PRESET_MATRIX_FORMULAS) {
+                  // Dùng id dạng: matrix_8plus_grade12
+                  const customId = `matrix_${formula.targetCompetency.replace('+', 'plus')}_grade${formula.targetGrade}`;
+                  await setDoc(doc(db, 'dynamicMatrixFormulas', customId), {
+                    ...formula,
+                    createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now(),
+                  }, { merge: true });
+                  success++;
+                }
+                alert(`✅ Đã nạp thành công ${success} ma trận vào Firestore!`);
+              } catch (e) {
+                alert('Lỗi nạp ma trận: ' + String(e));
+              }
+            }}
+            className="px-4 py-2 bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold rounded-xl hover:bg-emerald-600/30 transition-all flex items-center gap-2 shrink-0"
+            title="Nạp dữ liệu Ma trận đề 2025 (6+, 7+, 8+, 9+) vào Firestore"
+          >
+            🌱 Seed Ma Trận (2025)
+          </button>
+
+          {/* 🔧 NÚT TẠM THỜI — XÓA SAU KHI MIGRATION XONG */}
+          <button
+            onClick={async () => {
+              try {
+                const token = await auth.currentUser?.getIdToken(true);
+                if (!token) { alert('Chưa đăng nhập!'); return; }
+                await navigator.clipboard.writeText(token);
+                alert('✅ Token đã copy vào clipboard!\n\nDán vào terminal:\nnode migrateUserGrades.mjs "' + token.slice(0, 20) + '..."');
+              } catch (e) {
+                alert('Lỗi: ' + String(e));
+              }
+            }}
+            className="px-4 py-2 bg-amber-600/20 border border-amber-500/40 text-amber-400 text-xs font-bold rounded-xl hover:bg-amber-600/30 transition-all flex items-center gap-2 shrink-0"
+            title="Lấy Admin Token để chạy Migration Script"
+          >
+            🔑 Copy Admin Token
+          </button>
         </div>
       </div>
 

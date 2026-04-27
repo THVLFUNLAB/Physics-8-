@@ -28,6 +28,7 @@ interface Grade10DashboardProps {
 function HeroBanner() {
   return (
     <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 shadow-[0_0_20px_rgba(34,211,238,0.15)] group p-6 sm:p-10">
+      {/* [FIX] pointer-events-none trên tất cả decorative divs */}
       <div className="absolute top-0 right-0 -m-8 w-32 h-32 bg-cyan-500/20 blur-3xl rounded-full pointer-events-none group-hover:bg-cyan-500/30 transition duration-700"></div>
       <div className="absolute bottom-0 left-0 -m-8 w-32 h-32 bg-violet-500/20 blur-3xl rounded-full pointer-events-none group-hover:bg-violet-500/30 transition duration-700"></div>
       
@@ -64,7 +65,8 @@ function HeroBanner() {
         </div>
         <div className="h-2.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-800">
           <div className="h-full bg-gradient-to-r from-violet-600 to-cyan-400 rounded-full relative w-[50%] shadow-[0_0_10px_rgba(139,92,246,0.6)]">
-             <div className="absolute right-0 top-0 bottom-0 w-4 bg-white/30 animate-pulse"></div>
+             {/* [FIX] pointer-events-none on pulse effect */}
+             <div className="absolute right-0 top-0 bottom-0 w-4 bg-white/30 animate-pulse pointer-events-none"></div>
           </div>
         </div>
       </div>
@@ -86,7 +88,7 @@ function YCCDTopicSection({ topic, color }: { topic: string; color: string }) {
         className="w-full flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }}></div>
+          <div className="w-2 h-2 rounded-full pointer-events-none" style={{ backgroundColor: color }}></div>
           <span className="text-sm font-bold text-white">{topic}</span>
           <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-bold">{yccdItems.length} YCCĐ</span>
         </div>
@@ -168,14 +170,14 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam }: G
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         <div className="space-y-3">
           <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping pointer-events-none"></span>
             Bản đồ Năng lực Lớp 10
           </h2>
           <MasteryRadarChart />
         </div>
         <div className="space-y-3">
           <h2 className="text-sm font-black text-slate-500 uppercase flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse"></span>
+            <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse pointer-events-none"></span>
             Bản đồ YCCĐ Lớp 10
           </h2>
           <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
@@ -188,13 +190,14 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam }: G
 
       {/* ── Bài Tập & Luyện Tập Chuyên Đề (Chỉ Lớp 10) ── */}
       <div className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 rounded-3xl p-8 relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50" />
+        {/* [FIX] pointer-events-none trên decorative elements */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50 pointer-events-none" />
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
-        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-ocean">
+        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-ocean relative z-10">
           <BrainCircuit className="text-cyan-400 w-8 h-8" />
           Luyện Tập Chuyên Đề — Lớp 10
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
           {GRADE_10_TOPICS.map(t => (
             <TopicCard
               key={t.topic}
@@ -210,7 +213,8 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam }: G
 
       {/* ── Đề Thi & Nhiệm Vụ GV Giao ── */}
       <div className="bg-slate-900/50 backdrop-blur-md border border-emerald-500/20 rounded-3xl p-8 relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50" />
+        {/* [FIX] pointer-events-none trên decorative elements */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50 pointer-events-none" />
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
         <div className="flex justify-between items-center mb-8 relative z-10">
           <h3 className="text-2xl sm:text-3xl font-black flex items-center gap-3 font-headline tracking-tight text-emerald-400">

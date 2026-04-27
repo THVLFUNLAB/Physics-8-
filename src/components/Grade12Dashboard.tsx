@@ -50,6 +50,7 @@ function HeroCountdown() {
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 shadow-[0_0_20px_rgba(225,29,72,0.15)] group p-6 sm:p-10">
+      {/* [FIX] pointer-events-none trên tất cả decorative divs */}
       <div className="absolute top-0 right-0 -m-8 w-32 h-32 bg-rose-500/20 blur-3xl rounded-full pointer-events-none group-hover:bg-rose-500/30 transition duration-700"></div>
       <div className="absolute bottom-0 left-0 -m-8 w-32 h-32 bg-red-600/20 blur-3xl rounded-full pointer-events-none group-hover:bg-red-600/30 transition duration-700"></div>
       
@@ -213,13 +214,14 @@ export default function Grade12Dashboard({ onStartPrescription, onStartExam }: G
 
       {/* ── Bài Tập & Kiểm Tra (Chỉ Lớp 12 — chuyển từ StudentDashboard vào đây) ── */}
       <div className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 rounded-3xl p-8 relative overflow-hidden shadow-xl">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent opacity-50" />
+        {/* [FIX] pointer-events-none trên decorative elements, z-10 cho content */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1 bg-gradient-to-r from-transparent via-rose-500 to-transparent opacity-50 pointer-events-none" />
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
-        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-cyber">
+        <h3 className="text-3xl font-black flex items-center gap-3 mb-8 font-headline tracking-tight text-gradient-cyber relative z-10">
           <BrainCircuit className="text-rose-400 w-8 h-8" />
           Bài Tập & Kiểm Tra — Lớp 12
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
           {GRADE_12_TOPICS.map(t => (
             <TopicCard
               key={t.topic}

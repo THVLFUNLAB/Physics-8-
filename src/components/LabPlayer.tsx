@@ -136,7 +136,8 @@ export const LabPlayer: React.FC<LabPlayerProps> = ({
   const external = isExternalUrl(source);
 
   return (
-    <div className={`relative w-full h-full bg-slate-950 overflow-hidden ${className}`}>
+    <div className={`relative w-full h-full bg-slate-950 overflow-hidden ${className}`}
+      style={{ minHeight: 200 }}>
       {/* ── Loading overlay ── */}
       <AnimatePresence>
         {status === 'loading' && (

@@ -32,6 +32,7 @@ import {
   FlaskConical,
   Bot,
   Settings2,
+  History,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
@@ -190,6 +191,7 @@ const accentMap: Record<string, { header: string; headerHover: string; border: s
 const studentMenu: MenuItem[] = [
   { id: 'dashboard', label: 'Bảng Điều Khiển', icon: Home },
   { id: 'tasks', label: 'Nhiệm Vụ', icon: Target },
+  { id: 'history', label: 'Lịch Sử Làm Bài', icon: History },
   { id: 'liveExam', label: 'Phòng Thi', icon: Radio },
   { id: 'adaptive', label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
   { id: 'simulations', label: 'Phòng Thí Nghiệm', icon: Beaker },

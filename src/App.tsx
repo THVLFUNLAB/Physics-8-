@@ -92,17 +92,58 @@ import {
   Info, Save, History, Beaker, ShieldAlert, ArrowLeftRight, Flag, BarChart3, Send
 } from 'lucide-react';
 
+// ── Stale Chunk Error Boundary ──────────────────────────────────────────────
+// Khi Vercel deploy mới, file JS cũ bị xóa → browser gặp lỗi "Failed to fetch
+// dynamically imported module". ErrorBoundary này tự reload trang để lấy chunk mới.
+class StaleChunkBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: any) {
+    // Chỉ bắt lỗi dynamic import (stale chunk sau deploy)
+    const msg = String(error?.message || '');
+    if (msg.includes('Failed to fetch') || msg.includes('dynamically imported') || msg.includes('Loading chunk')) {
+      return { hasError: true };
+    }
+    return null;
+  }
+  componentDidCatch(error: any) {
+    const msg = String(error?.message || '');
+    if (msg.includes('Failed to fetch') || msg.includes('dynamically imported') || msg.includes('Loading chunk')) {
+      // Reload trang để browser tải chunk mới từ Vercel
+      window.location.reload();
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400 text-sm">Đang tải bản cập nhật mới nhất...</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  LAZY WRAPPER
 // ═══════════════════════════════════════════════════════════════════════
 const LazyWrap = ({ children }: { children: React.ReactNode }) => (
-  <Suspense fallback={
-    <div className="flex items-center justify-center py-20">
-      <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-    </div>
-  }>
-    {children}
-  </Suspense>
+  <StaleChunkBoundary>
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      {children}
+    </Suspense>
+  </StaleChunkBoundary>
 );
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -879,8 +920,8 @@ export default function App() {
       testId: activeTest.topic,
       answers,
       score: totalScore,
-      analysis: aiResult,
-      weaknessProfile: aiResult.weaknessProfile,
+      analysis: aiResult ?? null,
+      weaknessProfile: aiResult?.weaknessProfile ?? null, // [HOTFIX] aiResult có thể null khi AI timeout
       timestamp: Timestamp.now()
     };
 
@@ -905,7 +946,7 @@ export default function App() {
       updatedUser.notifications = newNotifications;
       updatedUser.failedQuestionIds = Array.from(newFailedQuestionIds);
       
-      if (aiResult.redZones && aiResult.redZones.length > 0) {
+      if (aiResult?.redZones && aiResult.redZones.length > 0) { // [HOTFIX] guard null
         updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...aiResult.redZones]));
       }
 
@@ -997,8 +1038,18 @@ export default function App() {
       setResults(attempt);
       clearExamSession();
       setShowVirtualLab(false);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('[submitTest] Lỗi nộp bài:', e);
+      const msg = String(e?.message || e || '');
+      // [HOTFIX] Thông báo lỗi rõ ràng thay vì nuốt im lặng
+      if (msg.includes('Timeout') || msg.includes('timeout')) {
+        toast.error('⏱ Mạng chậm — Đã lưu bài cục bộ. Em có thể F5 và bấm Nộp bài lại mà không mất đáp án.');
+      } else if (msg.includes('fetch') || msg.includes('network') || msg.includes('offline')) {
+        toast.error('📶 Mất kết nối — Bài làm vẫn được lưu nháp. Kiểm tra WiFi rồi bấm Nộp bài lại.');
+      } else {
+        toast.error('❌ Nộp bài thất bại. Em thử bấm Nộp bài lại sau vài giây.');
+      }
+      // Không clearExamSession — giữ draft để HS có thể nộp lại
     } finally {
       setIsAnalyzing(false);
     }

@@ -12,10 +12,12 @@ export const SimulationModal = ({
   simulationUrl: string;
 }) => {
   const [iframeError, setIframeError] = useState(false);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   return (
     <AnimatePresence>
       {isOpen && (
+        // MOBILE FIX: dùng fixed inset-0 thay vì items-end — tránh viewport collapse
         <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center">
           {/* ── Backdrop ── */}
           <motion.div
@@ -34,9 +36,10 @@ export const SimulationModal = ({
             transition={{ type: 'spring', damping: 28, stiffness: 260 }}
             className="relative w-full sm:max-w-5xl bg-slate-900 border border-slate-800 sm:rounded-[2rem] rounded-t-[2rem] overflow-hidden shadow-2xl flex flex-col"
             style={{
-              // Mobile: full screen minus status bar; Desktop: max 90vh
-              maxHeight: 'min(100dvh, 92vh)',
-              height: 'min(100dvh, 92vh)',
+              // iOS 13/14 FIX: dvh không hỗ trợ trước iOS 15.4 → dùng vh thường
+              // Chênh lệch do address bar chỉ ~50-60px, chấp nhận được
+              maxHeight: isMobile ? '100vh' : '92vh',
+              height: isMobile ? '95vh' : 'min(100dvh, 92vh)',
             }}
           >
             {/* ── Header ── */}
@@ -69,8 +72,32 @@ export const SimulationModal = ({
               </div>
             </div>
 
+            {/* MOBILE: Nút mở tab nổi bật ngay dưới header */}
+            {isMobile && (
+              <div className="flex-shrink-0 px-4 py-2.5 bg-blue-600/10 border-b border-blue-500/20 flex items-center justify-between gap-3">
+                <p className="text-[11px] text-blue-300 font-medium">
+                  💡 Nếu không thấy mô phỏng, nhấn nút bên phải:
+                </p>
+                <a
+                  href={simulationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-shrink-0 flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-black px-3 py-1.5 rounded-xl transition-all"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Mở tab mới
+                </a>
+              </div>
+            )}
+
             {/* ── iFrame Area ── */}
-            <div className="flex-1 bg-slate-950 relative overflow-hidden">
+            {/* MOBILE FIX: dùng height cứng thay vì chỉ flex-1 */}
+            <div
+              className="flex-1 bg-slate-950 relative overflow-hidden"
+              style={{
+                minHeight: isMobile ? 260 : 400,
+              }}
+            >
               {!iframeError ? (
                 <iframe
                   src={simulationUrl}
@@ -102,9 +129,9 @@ export const SimulationModal = ({
               )}
             </div>
 
-            {/* ── Footer ── */}
-            <div className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center gap-4">
-              <p className="text-[9px] sm:text-[10px] font-bold text-slate-600 uppercase tracking-widest hidden sm:block">
+            {/* ── Footer (chỉ desktop) ── */}
+            <div className="flex-shrink-0 hidden sm:flex px-4 sm:px-6 py-3 sm:py-4 bg-slate-900 border-t border-slate-800 justify-between items-center gap-4">
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-600 uppercase tracking-widest">
                 Nguồn: PhET Interactive Simulations | University of Colorado Boulder
               </p>
               <div className="flex gap-3 ml-auto">
@@ -124,6 +151,16 @@ export const SimulationModal = ({
                   Đóng
                 </button>
               </div>
+            </div>
+
+            {/* Footer mobile — chỉ nút Đóng */}
+            <div className="flex-shrink-0 sm:hidden px-4 py-3 bg-slate-900 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={onClose}
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all"
+              >
+                Đóng
+              </button>
             </div>
           </motion.div>
         </div>

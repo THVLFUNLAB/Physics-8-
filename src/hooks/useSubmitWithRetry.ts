@@ -55,6 +55,18 @@ export function useSubmitWithRetry(): UseSubmitWithRetryReturn {
     const { attemptId, answers, score, totalAnswered } = payload;
     const finalKey = `${FINAL_SAVE_KEY_PREFIX}${attemptId}`;
 
+    // ── [COST FIX] Idempotency Guard: đã commit thành công → không retry ──
+    try {
+      const existing = localStorage.getItem(finalKey);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (parsed.synced === true) {
+          console.info('[SubmitRetry] Idempotency hit: bài đã commit, skip retry loop.');
+          return 'success';
+        }
+      }
+    } catch { /* localStorage không khả dụng — tiếp tục bình thường */ }
+
     // ── Layer A: Lưu điểm vào localStorage NGAY LẬP TỨC (đồng bộ) ──
     try {
       localStorage.setItem(finalKey, JSON.stringify({
@@ -84,13 +96,21 @@ export function useSubmitWithRetry(): UseSubmitWithRetryReturn {
       }
 
       try {
-        await updateDoc(doc(db, 'classAttempts', attemptId), {
-          answers,
-          score,
-          totalAnswered,
-          status: 'submitted',
-          submittedAt: Timestamp.now(),
-        });
+        const timeoutMs = 8000;
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Firebase offline/timeout')), timeoutMs)
+        );
+
+        await Promise.race([
+          updateDoc(doc(db, 'classAttempts', attemptId), {
+            answers,
+            score,
+            totalAnswered,
+            status: 'submitted',
+            submittedAt: Timestamp.now(),
+          }),
+          timeoutPromise
+        ]);
 
         // ── Thành công: dọn sạch local backup ──
         try {

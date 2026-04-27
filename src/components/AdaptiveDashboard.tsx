@@ -56,6 +56,12 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts, o
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedPrescription, setGeneratedPrescription] = useState<string | null>(null);
 
+  // ── Helper: Lấy số khối lớp từ className vì Firestore không lưu riêng trường grade ──
+  // Dùng match(/^\d+/) để chỉ lấy phần số ở đầu: "12A1" → "12" → 12
+  // KHÔNG dùng replace(/\D/g,'') vì "12A1" → "121" (sai!)
+  const gradeNumber: number = user.grade
+    ?? parseInt(user.className?.match(/^\d+/)?.[0] || '12', 10);
+
   // ══════════════════════════════════════════
   //  KHU VỰC 1: RADAR MASTERY
   //  Tính toán tỷ lệ đúng theo từng topic
@@ -119,34 +125,110 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts, o
       .slice(0, 3);
   }, [topicMastery]);
 
-  const handleStartAdaptive = useCallback(async () => {
+  const handleStartTargetExam = useCallback(async (competency: '6+' | '7+' | '8+' | '9+') => {
+    // [YÊU CẦU NGHIÊM NGẶT]: Chỉ áp dụng cho lớp 12 nếu là 8+ hoặc 9+
+    if ((competency === '8+' || competency === '9+') && gradeNumber !== 12) {
+      toast.error('Tính năng Sinh đề Đánh giá năng lực 8+/9+ hiện CHỈ hỗ trợ môn Vật lý lớp 12 (Chương trình GDPT 2018).');
+      return;
+    }
+
     setIsGenerating(true);
     setGeneratedPrescription(null);
 
     try {
-      // Import động để tránh circular dependency hoặc block UI
-      const { generateAdaptiveTest } = await import('../services/AdaptiveEngine');
+      const { generateDynamicExam, generateAdvancedQuestions } = await import('../services/examGeneratorService');
       
-      const result = await generateAdaptiveTest(user.uid, user);
-      
-      if (result.questions.length === 0) {
-        toast.error('Không tìm thấy câu hỏi phù hợp trong ngân hàng đề.');
-        setIsGenerating(false);
+      let questions: Question[] = [];
+      let config: any;
+
+      if (competency === '8+' || competency === '9+') {
+        // [MODULE 2.1]: Sinh đề chuyên sâu Vận dụng / VDC cho lớp 12
+        const count = competency === '9+' ? 5 : 10;
+        
+        // ── [FAILSAFE] Bọc toàn bộ trong try/catch riêng biệt ──
+        try {
+          questions = await generateAdvancedQuestions(competency, count);
+        } catch (genErr: any) {
+          console.error(`[generateAdvancedQuestions] Lỗi fetch ${competency}:`, genErr);
+          toast.error(`Lỗi truy xuất câu hỏi ${competency}: ${genErr.message || 'Không xác định'}`);
+          return;
+        }
+
+        // ── [FAILSAFE] Kiểm tra mảng kết quả trước khi dùng ──
+        if (!Array.isArray(questions) || questions.length === 0) {
+          toast.error(
+            competency === '9+'
+              ? 'Kho VDC 9+ (Nhiệt/Khí/Từ/Hạt nhân) chưa có câu đủ tiêu chuẩn. Thầy sẽ bổ sung sớm!'
+              : `Kho dữ liệu lớp 12 hiện chưa có câu hỏi ${competency} phù hợp.`
+          );
+          return;
+        }
+
+        toast.success(`Đã trích xuất ${questions.length} câu "Ổ khóa" ${competency} (Vật lý 12 - CT 2018)!`);
+        
+        config = {
+          examType: `advanced_${competency}`,
+          timeLimit: count * 5, // 5 phút cho mỗi câu VDC
+        };
+      } else {
+        // [MODULE 2]: Sinh đề theo Ma trận chuẩn cho 6+ và 7+
+        const matrixFormulaId = `matrix_${competency.replace('+', 'plus')}_grade${gradeNumber}`;
+        
+        let result: any;
+        try {
+          result = await generateDynamicExam({
+            matrixFormulaId,
+            targetGrade: gradeNumber,
+            sourceMode: 'flexible'
+          });
+        } catch (genErr: any) {
+          console.error(`[generateDynamicExam] Lỗi tạo đề ${competency}:`, genErr);
+          toast.error(`Lỗi sinh đề ${competency}: ${genErr.message || 'Không xác định'}`);
+          return;
+        }
+
+        // ── [FAILSAFE] Kiểm tra kết quả ──
+        if (!result || !Array.isArray(result.questions) || result.questions.length === 0) {
+          toast.error(`Không thể tạo đề ${competency}. Kho câu hỏi khối ${gradeNumber} hiện tại chưa đủ. Hãy thử lại sau!`);
+          return;
+        }
+
+        if (result.warnings && result.warnings.length > 0) {
+          console.warn('[ExamGenerator Warnings]:', result.warnings);
+        }
+
+        questions = result.questions;
+        toast.success(`Hệ thống đã tạo đề mục tiêu ${competency} (Khối ${gradeNumber}) với ${questions.length} câu!`);
+        
+        config = {
+          examType: `dynamic_${competency}`, // e.g., 'dynamic_6+'
+          timeLimit: 50, // 50 phút chuẩn 2025
+        };
+      }
+
+      // ══════════════════════════════════════════════════════
+      //  [FAILSAFE TUYỆT ĐỐI] — Triple-check trước khi start
+      //  KHÔNG BAO GIỜ gọi onStartAdaptiveTest với mảng rỗng
+      //  → nguyên nhân chính gây crash trắng trang
+      // ══════════════════════════════════════════════════════
+      if (!Array.isArray(questions) || questions.length === 0) {
+        console.error('[AdaptiveDashboard] Phát hiện mảng câu hỏi rỗng trước khi start — hủy để tránh crash!');
+        toast.error('Không thể khởi động bài thi: Danh sách câu hỏi trống. Vui lòng thử lại.');
         return;
       }
 
-      toast.success(`Hệ thống đã tạo đề: ${result.config.examType} với ${result.questions.length} câu!`);
-      
+      // Render bài thi ra giao diện
       if (onStartAdaptiveTest) {
-        onStartAdaptiveTest(result.questions, result.config, result.assessment);
+        onStartAdaptiveTest(questions, config, null);
       }
-    } catch (err) {
-      console.error('[AdaptiveEngine]', err);
-      toast.error('Lỗi khởi tạo đề thích ứng. Vui lòng thử lại.');
+    } catch (err: any) {
+      console.error('[ExamGenerator]', err);
+      toast.error('Lỗi khởi tạo đề: ' + (err.message || 'Không xác định'));
     } finally {
+      // LUÔN reset isGenerating dù thành công hay thất bại
       setIsGenerating(false);
     }
-  }, [user, onStartAdaptiveTest]);
+  }, [user, gradeNumber, onStartAdaptiveTest]);
 
   // ══════════════════════════════════════════
   //  RENDER
@@ -360,38 +442,62 @@ const AdaptiveDashboard: React.FC<AdaptiveDashboardProps> = ({ user, attempts, o
               )}
             </div>
 
-            {/* ── ADAPTIVE EXAM LAUNCHER ── */}
+            {/* ── DYNAMIC EXAM GENERATOR 2025 ── */}
             <div className="bg-gradient-to-br from-slate-900 to-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <h4 className="text-lg font-black text-white flex items-center gap-2">
-                <Pill className="w-5 h-5 text-fuchsia-400" />
-                Vào Thi Thích Ứng (Physics9+)
+                <Target className="w-5 h-5 text-fuchsia-400" />
+                Sinh Đề Ma Trận 2025
               </h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                AI sẽ phân tích {attempts.length} bài thi gần nhất để đưa ra cấu hình đề phù hợp nhất: Lấp lỗ hổng, nâng cao, hoặc thử thách.
+                Hệ thống tự động bốc và xáo trộn câu hỏi từ ngân hàng theo đúng cấu trúc Ma trận 2025 của Bộ GD&ĐT (Khối {user.grade || '...'}). 
+                Chọn mục tiêu điểm số để bắt đầu:
               </p>
 
-              <button
-                onClick={handleStartAdaptive}
-                disabled={isGenerating}
-                className={cn(
-                  "w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-xl",
-                  isGenerating
-                    ? "bg-slate-800 text-slate-500 cursor-not-allowed"
-                    : "bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-500 hover:to-violet-500 text-white shadow-fuchsia-600/20"
-                )}
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    ĐANG KHỞI TẠO ĐỀ...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-5 h-5" />
-                    BẮT ĐẦU NGAY
-                  </>
-                )}
-              </button>
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <button
+                  onClick={() => handleStartTargetExam('6+')}
+                  disabled={isGenerating}
+                  className="p-4 bg-emerald-600/10 border border-emerald-600/20 hover:bg-emerald-600/20 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                >
+                  <span className="text-2xl font-black text-emerald-400">6+</span>
+                  <span className="text-[10px] text-emerald-500/70 uppercase font-bold tracking-wider">Tốt Nghiệp</span>
+                </button>
+                <button
+                  onClick={() => handleStartTargetExam('7+')}
+                  disabled={isGenerating}
+                  className="p-4 bg-blue-600/10 border border-blue-600/20 hover:bg-blue-600/20 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                >
+                  <span className="text-2xl font-black text-blue-400">7+</span>
+                  <span className="text-[10px] text-blue-500/70 uppercase font-bold tracking-wider">Khá</span>
+                </button>
+                <button
+                  onClick={() => handleStartTargetExam('8+')}
+                  disabled={isGenerating}
+                  className="p-4 bg-amber-600/10 border border-amber-600/20 hover:bg-amber-600/20 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                >
+                  <span className="text-2xl font-black text-amber-400">8+</span>
+                  <span className="text-[10px] text-amber-500/70 uppercase font-bold tracking-wider">Đại Học</span>
+                </button>
+                <button
+                  onClick={() => handleStartTargetExam('9+')}
+                  disabled={isGenerating}
+                  className="p-4 bg-rose-600/10 border border-rose-600/20 hover:bg-rose-600/20 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-[0.98] relative overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-rose-600/0 via-white/10 to-rose-600/0 translate-x-[-100%] group-hover:animate-[shimmer_1.5s_infinite]"></div>
+                  <span className="text-2xl font-black text-rose-400 flex items-center gap-1">
+                    9+
+                    <Zap className="w-4 h-4 text-rose-500" />
+                  </span>
+                  <span className="text-[10px] text-rose-500/70 uppercase font-bold tracking-wider">Thủ Khoa</span>
+                </button>
+              </div>
+
+              {isGenerating && (
+                <div className="mt-4 p-3 bg-fuchsia-600/10 border border-fuchsia-600/20 rounded-xl flex items-center justify-center gap-2 text-fuchsia-400 text-sm font-bold animate-pulse">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Đang khởi tạo cấu trúc đề 2025...
+                </div>
+              )}
             </div>
 
             {/* ── MASTERY OVERVIEW ── */}
