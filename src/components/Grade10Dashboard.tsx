@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Rocket, Target, Star, AlertTriangle, BrainCircuit, Play, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import { Rocket, Target, Star, BrainCircuit, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { getYCCDByGrade } from '../data/yccdData';
 import { TopicCard } from './TopicCard';

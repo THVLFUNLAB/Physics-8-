@@ -368,16 +368,39 @@ export async function generateAdvancedQuestions(
     ? ['Vận dụng cao'] 
     : ['Vận dụng', 'Vận dụng cao'];
     
-  // Whitelist chủ đề chuẩn 2018 Vật lý 12
+  // ══════════════════════════════════════════════════════════════════
+  //  WHITELIST chủ đề chuẩn CT 2018 Vật lý 12 (4 mạch chính)
+  //  Quy ước thầy Hậu:
+  //  • "Hạt nhân" → bao gồm cả variant "phóng xạ" (gọi chung)
+  //  • "Từ trường" → bao gồm Cảm ứng điện từ + Dòng điện xoay chiều
+  //    (CT 2018 đặt chung 1 chương, KHÔNG tách riêng như CT cũ)
+  // ══════════════════════════════════════════════════════════════════
   const allowedTopics = [
-    'Vật lí nhiệt', 'Vật lý nhiệt',
-    'Khí lí tưởng', 'Khí lý tưởng',
+    // Mạch 1: Vật lí nhiệt
+    'Vật lí nhiệt',
+    'Vật lý nhiệt',
+    // Mạch 2: Khí lí tưởng
+    'Khí lí tưởng',
+    'Khí lý tưởng',
+    // Mạch 3: Từ trường (bao gồm Cảm ứng điện từ + DĐXC theo CT 2018)
     'Từ trường',
-    'Vật lí hạt nhân', 'Vật lý hạt nhân'
+    'Cảm ứng điện từ',
+    'Dòng điện xoay chiều',
+    'Từ trường - Cảm ứng điện từ',
+    // Mạch 4: Vật lí hạt nhân (bao gồm cả phóng xạ — gọi chung)
+    'Vật lí hạt nhân',
+    'Vật lý hạt nhân',
+    'Vật lí hạt nhân và phóng xạ',
+    'Vật lý hạt nhân và phóng xạ',
+    'Hạt nhân nguyên tử',
+    'Phóng xạ',
   ];
 
-  // Blacklist từ khóa (để quét nội dung / tags)
-  const blacklistKeywords = ['RLC', 'mạch LC', 'xoay chiều', 'dao động cơ', 'lò xo', 'con lắc'];
+  // Blacklist: loại trừ các chủ đề KHÔNG thuộc CT 2018 chuẩn
+  // (RLC/LC là chương trình cũ 2006 — đã bị loại bỏ khỏi CT GDPT 2018)
+  const blacklistKeywords = ['RLC', 'mạch LC', 'dao động cơ', 'lò xo', 'con lắc'];
+  // LƯU Ý: 'xoay chiều' đã BỎ khỏi blacklist vì CT 2018 vẫn có DĐXC
+  // nhưng đặt trong chương Từ trường (whitelist đã bao gồm)
 
   const allResults: Question[] = [];
   
