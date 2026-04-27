@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, User, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { initializeFirestore, memoryLocalCache, collection, doc, getDoc, getDocs, getDocsFromServer, setDoc as originalSetDoc, addDoc as originalAddDoc, updateDoc as originalUpdateDoc, deleteDoc, query, where, onSnapshot, Timestamp, getDocFromServer, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache, runTransaction, increment } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { toast } from './components/Toast';
@@ -13,6 +13,9 @@ export const app = initializeApp(firebaseConfig);
 const dbId = (firebaseConfig as any).firestoreDatabaseId;
 export const db = dbId ? initializeFirestore(app, {}, dbId) : initializeFirestore(app, {});
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error("Auth persistence setup failed", error);
+});
 export const googleProvider = new GoogleAuthProvider();
 export const storage = getStorage(app);
 

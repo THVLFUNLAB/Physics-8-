@@ -107,9 +107,16 @@ export async function ensureClusterIntegrity(
   deduped.sort((a, b) => {
     // Ưu tiên sort theo part (1 → 2 → 3) trước
     if (a.part !== b.part) return (a.part ?? 0) - (b.part ?? 0);
-    // Cùng part: câu chùm sort theo clusterOrder
-    if (a.clusterId && b.clusterId && a.clusterId === b.clusterId) {
-      return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
+    // Cùng part: nhóm theo clusterId
+    if (a.clusterId || b.clusterId) {
+      if (a.clusterId === b.clusterId) {
+        // Cùng một chùm -> sort theo thứ tự trong chùm
+        return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
+      }
+      // Khác chùm -> gom các câu cùng chùm lại với nhau
+      const idA = a.clusterId || '';
+      const idB = b.clusterId || '';
+      return idA.localeCompare(idB);
     }
     return 0;
   });

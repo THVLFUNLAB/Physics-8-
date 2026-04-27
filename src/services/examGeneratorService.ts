@@ -317,6 +317,10 @@ export async function generateDynamicExam(
     ...part3Questions,
   ];
 
+  // ── Bước 4.5: Đảm bảo toàn vẹn câu chùm (Cluster Integrity) ────────
+  // Bất kỳ đề nào (kể cả đề ma trận) nếu bốc trúng câu chùm thì PHẢI kéo đủ anh em
+  const finalQuestionsWithClusters = await ensureClusterIntegrity(finalQuestions, db);
+
   // ── Bước 5: Tính thống kê ───────────────────────────────────────
   const stats: GeneratorResult['stats'] = {
     part1: { requested: part1.totalCount, fetched: part1Questions.length },
@@ -324,7 +328,7 @@ export async function generateDynamicExam(
     part3: { requested: part3.totalCount, fetched: part3Questions.length },
     total: {
       requested: part1.totalCount + part2.totalCount + part3.totalCount,
-      fetched: finalQuestions.length,
+      fetched: finalQuestionsWithClusters.length,
     },
   };
 
@@ -340,7 +344,7 @@ export async function generateDynamicExam(
   );
 
   return {
-    questions: finalQuestions,
+    questions: finalQuestionsWithClusters,
     stats,
     warnings,
   };

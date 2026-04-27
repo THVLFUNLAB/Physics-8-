@@ -10,10 +10,11 @@ import ReactMarkdown from 'react-markdown';
 import { cn } from './lib/utils';
 import MathRenderer from './lib/MathRenderer';
 import {
-  auth, db, collection, doc, addDoc, getDocs, getDoc, getDocFromCache,
-  setDoc, updateDoc, onSnapshot, query, where, Timestamp, onAuthStateChanged,
+  auth, db, collection, doc, addDoc, getDocs, getDoc,
+  setDoc, updateDoc, onSnapshot, query, where, Timestamp,
   signInWithGoogle, signOut, startExamAttempt
 } from './firebase';
+import { useAuthStore } from './store/useAuthStore';
 import {
   UserProfile, Question, Attempt, Topic, Exam, Simulation,
   Badge, AppNotification, LoginLog
@@ -147,12 +148,33 @@ const LazyWrap = ({ children }: { children: React.ReactNode }) => (
   </StaleChunkBoundary>
 );
 
+const GUEST_USER: UserProfile = {
+  uid: 'guest',
+  email: '',
+  displayName: 'Khách Tham Quan',
+  role: 'student',
+  targetGroup: 'Chống Sai Ngu',
+  createdAt: Timestamp.now(),
+  lastActive: Timestamp.now(),
+  streak: 0,
+  lastStreakDate: '',
+  usedAttempts: 0,
+  maxAttempts: 0,
+  tier: 'free',
+  className: '12A1',
+  learningPath: { completedTopics: [], topicProgress: {}, overallProgress: 0, weaknesses: [] },
+  badges: [],
+  notifications: []
+};
+
 // ═══════════════════════════════════════════════════════════════════════
 //  MAIN APP — ORCHESTRATION ONLY
 // ═══════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const authStore = useAuthStore();
+  const authUser = authStore.user;
+  const user = authUser || GUEST_USER;
+  const isAuthInitializing = authStore.loading;
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -185,7 +207,7 @@ export default function App() {
   const [isReviewing, setIsReviewing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean; xpBreakdown?: import('./services/AdaptiveEngine.types').IXPBreakdown } | null>(null);
-  const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const attempts = authStore.attempts;
 
   // ═══ [SESSION PERSISTENCE] Lưu & khôi phục phiên thi khi bị văng ra ═══
   const SESSION_KEY = 'phys8_active_exam_session';
@@ -248,6 +270,7 @@ export default function App() {
   const [activeSimulation, setActiveSimulation] = useState<{ title: string, description: string, url: string } | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isStartingExam, setIsStartingExam] = useState(false); // [FIX] Guard chống click nhiều lần
+  const [loading, setLoading] = useState(false); // Spinner khi tạo đề / load review
 
   // Auto collapse sidebar when reviewing exam or running a test
   useEffect(() => {
@@ -320,185 +343,17 @@ export default function App() {
     migrate();
   }, [user]);
 
-  // ═══ AUTH LISTENER ═══
+  // ═══ AUTH LISTENER — Chạy từ useAuthStore.initializeAuth() (single source of truth) ═══
   useEffect(() => {
-    let uSub: (() => void) | null = null;
-    let aSub: (() => void) | null = null;
-
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      try {
-        if (firebaseUser) {
-          const ADMIN_EMAILS = ['haunn.vietanhschool@gmail.com', 'thayhauvatly@gmail.com'];
-          const isAdmin = ADMIN_EMAILS.includes(firebaseUser.email ?? '');
-          let userDoc: any;
-          try {
-            userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          } catch (fetchErr: any) {
-            console.warn("Lỗi lấy dữ liệu user từ server, thử đọc từ cache...", fetchErr);
-            try {
-              userDoc = await getDocFromCache(doc(db, 'users', firebaseUser.uid));
-            } catch (cacheErr) {
-              console.warn("Lỗi đọc cache rỗng, tạo dữ liệu ảo tạm:", cacheErr);
-              userDoc = { exists: () => false, data: () => undefined };
-            }
-          }
-          
-          let currentUserData: UserProfile;
-          const today = new Date().toISOString().slice(0, 10);
-
-          const calcStreak = (prevStreak?: number, lastDate?: string): { streak: number; lastStreakDate: string } => {
-            if (!lastDate) return { streak: 1, lastStreakDate: today };
-            if (lastDate === today) return { streak: prevStreak || 1, lastStreakDate: today };
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().slice(0, 10);
-            if (lastDate === yesterdayStr) return { streak: (prevStreak || 0) + 1, lastStreakDate: today };
-            return { streak: 1, lastStreakDate: today };
-          };
-
-          if (userDoc.exists()) {
-            currentUserData = userDoc.data() as UserProfile;
-            if (firebaseUser.photoURL && currentUserData.photoURL !== firebaseUser.photoURL) {
-              currentUserData.photoURL = firebaseUser.photoURL;
-            }
-            if (isAdmin && currentUserData.role !== 'admin') {
-              currentUserData.role = 'admin';
-            }
-            const { streak, lastStreakDate } = calcStreak(currentUserData.streak, currentUserData.lastStreakDate);
-            currentUserData.streak = streak;
-            currentUserData.lastStreakDate = lastStreakDate;
-            currentUserData.lastActive = Timestamp.now();
-            try {
-              await setDoc(doc(db, 'users', firebaseUser.uid), {
-                role: currentUserData.role,
-                photoURL: currentUserData.photoURL || null,
-                streak,
-                lastStreakDate,
-                lastActive: Timestamp.now(),
-              }, { merge: true });
-            } catch (writeErr) {
-              console.warn('[Sync] Không thể cập nhật streak (có thể do lỗi quota):', writeErr);
-            }
-          } else {
-            currentUserData = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              displayName: firebaseUser.displayName || 'Học sinh',
-              photoURL: firebaseUser.photoURL || undefined,
-              role: isAdmin ? 'admin' : 'student',
-              targetGroup: 'Chống Sai Ngu',
-              redZones: [],
-              createdAt: Timestamp.now(),
-              lastActive: Timestamp.now(),
-              streak: 1,
-              lastStreakDate: today,
-              usedAttempts: 0,   // [FIX] Khởi tạo để batch.set(merge:true) hoạt động đúng
-              maxAttempts: 30,   // [FIX] Mặc định 30 lượt free
-              learningPath: {
-                completedTopics: [],
-                topicProgress: {},
-                overallProgress: 0,
-                weaknesses: [],
-              },
-            };
-            try {
-              await setDoc(doc(db, 'users', firebaseUser.uid), currentUserData);
-            } catch (writeErr) {
-              console.warn('[Sync] Không thể tạo user mới trên server:', writeErr);
-            }
-          }
-
-          // ── Ghi LoginLog ──
-          try {
-            const loginLog: Omit<LoginLog, 'id'> = {
-              userId: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              displayName: firebaseUser.displayName || '',
-              timestamp: Timestamp.now(),
-              userAgent: navigator.userAgent,
-              action: 'login',
-            };
-            await addDoc(collection(db, 'loginLogs'), loginLog);
-          } catch (e) {
-            console.warn('[LoginLog] Không ghi được log:', e);
-          }
-
-          setUser(currentUserData);
-
-          // ═══ [SESSION RESTORE] ═══
-          if (!activeTest) {
-            restoreExamSession();
-          }
-
-          // Real-time user profile
-          uSub = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
-            if (snap.exists()) {
-              setUser(snap.data() as UserProfile);
-            }
-          });
-
-          // Real-time attempts
-          const aQuery = query(collection(db, 'attempts'), where('userId', '==', firebaseUser.uid));
-          aSub = onSnapshot(aQuery, async (snap) => {
-            const sortedAttempts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Attempt)).sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
-            setAttempts(sortedAttempts);
-
-            const today = new Date().toDateString();
-            const lastAttempt = sortedAttempts[0];
-            const lastAttemptDate = lastAttempt?.timestamp?.toDate().toDateString();
-            
-            try {
-              const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-              const latestUser = userSnap.data() as UserProfile;
-
-              if (lastAttemptDate !== today && !latestUser.notifications?.find(n => n.title === 'Nhắc nhở hàng ngày' && n.timestamp.toDate().toDateString() === today)) {
-                const reminder: AppNotification = {
-                  id: 'daily_' + Date.now(),
-                  title: 'Nhắc nhở hàng ngày',
-                  message: 'Hôm nay em chưa uống thuốc Vật lý đâu nhé! Hãy làm một đề để duy trì phong độ.',
-                  type: 'warning',
-                  read: false,
-                  timestamp: Timestamp.now()
-                };
-                const updatedNotifications = [reminder, ...(latestUser.notifications || [])].slice(0, 20);
-                await setDoc(doc(db, 'users', firebaseUser.uid), { notifications: updatedNotifications }, { merge: true });
-              }
-            } catch (err) {
-              console.warn("Không thể check daily reminder (có thể do quota)", err);
-            }
-          });
-        } else {
-          setUser(null);
-          setAttempts([]);
-          if (uSub) uSub();
-          if (aSub) aSub();
-        }
-      } catch (err: any) {
-        console.error("Auth State Error:", err);
-        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota')) {
-           setAuthError(`Server đang quá tải tạm thời. Bạn đang xem chế độ Offline từ bộ nhớ đệm.`);
-           setUser((prev) => prev);
-        } else {
-           setAuthError(`Lỗi đồng bộ dữ liệu: ${err?.message || 'Không xác định'}`);
-           setUser(null);
-        }
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      if (uSub) uSub();
-      if (aSub) aSub();
-    };
+    const cleanup = useAuthStore.getState().initializeAuth();
+    return cleanup;
   }, []);
 
   const markNotificationAsRead = async (id: string) => {
     if (!user) return;
     const updatedNotifications = user.notifications?.map(n => n.id === id ? { ...n, read: true } : n);
     await setDoc(doc(db, 'users', user.uid), { notifications: updatedNotifications }, { merge: true });
-    setUser(prev => prev ? { ...prev, notifications: updatedNotifications } : null);
+    authStore.setUser({ ...user, notifications: updatedNotifications });
   };
 
   // ═══ PDF EXPORT ═══
@@ -629,7 +484,7 @@ export default function App() {
 
   // ═══ START TEST ═══
   const startTest = async (topic: Topic, examId?: string) => {
-    if (!user) { toast.error("Vui lòng đăng nhập để bắt đầu bài thi."); return; }
+    if (!authUser) { handleSignIn(); return; }
     // [FIX] Guard chống click nhiều lần: nếu đang trong quá trình khởi tạo bài thì bỏ qua
     if (isStartingExam) return;
     setIsStartingExam(true);
@@ -1023,7 +878,7 @@ export default function App() {
       }
 
       await setDoc(doc(db, 'users', user.uid), updatedUser, { merge: true });
-      setUser(updatedUser);
+      authStore.setUser(updatedUser);
 
       // ── Chạy ngầm Thuật toán Siêu trí nhớ SM-2 bằng Batch Write ──
       syncMemoryLogs(user.uid, sm2Evaluations).catch(e => console.error("SM2 Sync failed", e));
@@ -1062,6 +917,7 @@ export default function App() {
 
   // ═══ ADAPTIVE TEST FIX ═══
   const handleAdaptiveTestFix = async () => {
+    if (!authUser) { handleSignIn(); return; }
     if (!results || !results.weaknessProfile || !user) return;
     const matrix = results.weaknessProfile.remedialMatrix;
     if (!matrix || matrix.length === 0) { toast.error("Hệ thống chưa tạo được ma trận khắc phục. Hãy thử phân tích lại."); return; }
@@ -1127,8 +983,12 @@ export default function App() {
           resultQuestions.push(...siblings);
         }
         resultQuestions.sort((a, b) => {
-          if (a.clusterId && b.clusterId && a.clusterId === b.clusterId) return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
-          return a.part - b.part;
+          if (a.part !== b.part) return a.part - b.part;
+          if (a.clusterId || b.clusterId) {
+            if (a.clusterId === b.clusterId) return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
+            return (a.clusterId || '').localeCompare(b.clusterId || '');
+          }
+          return 0;
         });
       }
 
@@ -1146,6 +1006,10 @@ export default function App() {
 
   // ═══ REVIEW ATTEMPT FROM HISTORY ═══
   const handleReviewAttempt = async (attempt: Attempt) => {
+    if (!authUser) {
+      handleSignIn();
+      return;
+    }
     setLoading(true);
     try {
       const qIds = Object.keys(attempt.answers);
@@ -1199,7 +1063,7 @@ export default function App() {
 
       const updatedVault = Array.from(new Set([...(user.knowledgeGapVault || []), ...incorrectIds]));
       await updateDoc(doc(db, 'users', user.uid), { knowledgeGapVault: updatedVault });
-      setUser({ ...user, knowledgeGapVault: updatedVault });
+      authStore.setUser({ ...user, knowledgeGapVault: updatedVault });
       toast.success("Đã lưu " + incorrectIds.length + " câu sai vào Kho Ôn Tập thành công!");
     } catch (error) {
       console.error(error);
@@ -1219,7 +1083,7 @@ export default function App() {
     return <LazyWrap><ProjectorLeaderboard classExamId={projectorExamId} /></LazyWrap>;
   }
 
-  if (loading) return (
+  if (isAuthInitializing) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center">
       <motion.div 
         animate={{ rotate: 360 }}
@@ -1253,7 +1117,7 @@ export default function App() {
               <span className="font-black text-white text-xl tracking-tight">
                 PHYS<span className="text-fuchsia-500">9+</span>
               </span>
-              {!user && (
+              {!authUser && (
                 <button
                   onClick={handleSignIn}
                   className="px-4 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold rounded-xl transition-all"
@@ -1337,7 +1201,7 @@ export default function App() {
         user ? "pt-[56px] md:pt-0" : ""
       )}>
         <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
-        {!user ? (
+        {!authUser && activeView === 'dashboard' ? (
           /* ══════ LANDING PAGE — Cinematic Video Hero ══════ */
           <div className="relative w-full min-h-screen overflow-hidden flex flex-col items-center justify-center py-20 -mx-4 -mt-6 md:-mx-6 md:-mt-12 px-0">
             {/* ── Video Background ── */}
@@ -1656,12 +1520,18 @@ export default function App() {
                 <section className="space-y-6">
                   <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-red-500" /> VIRTUAL LAB & THỰC TẾ</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div onClick={() => setActiveSimulation({ title: 'Máy chụp MRI', description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html' })} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
+                    <div onClick={() => {
+                      if (!authUser) { handleSignIn(); return; }
+                      setActiveSimulation({ title: 'Máy chụp MRI', description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html' });
+                    }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
                       <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4"><BrainCircuit className="w-6 h-6" /></div>
                       <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
                       <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
                     </div>
-                    <div onClick={() => setActiveSimulation({ title: 'Định luật Boyle', description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html' })} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
+                    <div onClick={() => {
+                      if (!authUser) { handleSignIn(); return; }
+                      setActiveSimulation({ title: 'Định luật Boyle', description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html' });
+                    }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
                       <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4"><FlaskConical className="w-6 h-6" /></div>
                       <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
                       <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
@@ -1679,7 +1549,23 @@ export default function App() {
                         <h4 className="text-lg font-black text-white mb-2 line-clamp-2">{sim.title}</h4>
                         <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3">{sim.category}</p>
                         <p className="text-sm text-slate-400 mb-6 flex-1 line-clamp-3">{sim.description}</p>
-                        <button onClick={() => setActiveSimulationViewer(sim)} className="w-full bg-slate-950 border border-slate-800 hover:bg-blue-600 hover:border-blue-500 hover:text-white text-slate-300 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex justify-center items-center gap-2">
+                        <button onClick={async () => {
+                          if (!authUser) { handleSignIn(); return; }
+                          
+                          // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
+                          try {
+                            const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+                            await startExamAttempt(user.uid, 'Simulation_' + sim.id, isAdmin);
+                          } catch (err: any) {
+                            if (err.message === "EXCEEDED_LIMIT") {
+                              setShowUpgradeModal(true);
+                              return;
+                            }
+                            console.warn('[Simulation] Lỗi không xác định từ startExamAttempt:', err.message);
+                          }
+                          
+                          setActiveSimulationViewer(sim);
+                        }} className="w-full bg-slate-950 border border-slate-800 hover:bg-blue-600 hover:border-blue-500 hover:text-white text-slate-300 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex justify-center items-center gap-2">
                           <Play className="w-4 h-4" /> Bắt đầu thí nghiệm
                         </button>
                       </div>
