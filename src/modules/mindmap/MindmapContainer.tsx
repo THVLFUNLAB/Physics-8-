@@ -544,8 +544,23 @@ const MindmapContainer: React.FC<MindmapContainerProps> = ({ user }) => {
 
             {/* Chapters */}
             {store.isLoading ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="w-7 h-7 border-2 border-fuchsia-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex flex-col items-center justify-center py-24 gap-3">
+                <div className="w-8 h-8 border-2 border-fuchsia-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-slate-500 text-sm font-medium">Đang tải sơ đồ tư duy...</p>
+              </div>
+            ) : store.error ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-3xl">⚠️</div>
+                <div className="text-center">
+                  <p className="text-red-400 font-bold text-sm mb-1">{store.error}</p>
+                  <p className="text-slate-500 text-xs">Mở F12 → Console để xem chi tiết lỗi</p>
+                </div>
+                <button
+                  onClick={() => store.loadChaptersByGrade(selectedGrade)}
+                  className="px-5 py-2.5 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold transition-all flex items-center gap-2"
+                >
+                  🔄 Thử tải lại
+                </button>
               </div>
             ) : (
               <ChapterGrid

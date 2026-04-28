@@ -50,17 +50,26 @@ export const useMindmapStore = create<MindmapState>((set, get) => ({
   setAdminMode: (val) => set({ isAdminMode: val }),
 
   loadChaptersByGrade: async (grade: string) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, chapters: [] });
     try {
+      console.info(`[Mindmap] Đang tải sơ đồ khối ${grade}...`);
       const q = query(collection(db, 'mindmaps'), where('grade', '==', grade));
       const snap = await getDocs(q);
+      console.info(`[Mindmap] Kết quả: ${snap.docs.length} chương`);
       const chapters = snap.docs.map(d => ({
         ...d.data(),
       } as MindmapChapter));
       set({ chapters, isLoading: false });
     } catch (err: any) {
-      console.error('[Mindmap] Lỗi load chapters:', err);
-      set({ error: 'Lỗi tải dữ liệu sơ đồ tư duy', isLoading: false });
+      console.error('[Mindmap] Lỗi load chapters:', err?.code, err?.message, err);
+      const isPermission = err?.code === 'permission-denied';
+      const isIndex = err?.message?.includes('index') || err?.message?.includes('requires an index');
+      const errorMsg = isPermission
+        ? 'Không có quyền truy cập. Vui lòng đăng nhập lại.'
+        : isIndex
+        ? 'Firestore cần tạo index. Vui lòng báo admin.'
+        : `Lỗi tải dữ liệu: ${err?.message || 'Không xác định'}`;
+      set({ error: errorMsg, isLoading: false });
     }
   },
 
