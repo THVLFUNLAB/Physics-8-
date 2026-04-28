@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getClusterContext, isClusterHead } from '../utils/clusterUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { auth } from '../firebase';
@@ -86,6 +87,8 @@ export const ProExamExperience = ({
   const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
+  // Ref để track clusterId trước đó — reset collapsed khi chuyển sang chùm mới
+  const prevClusterIdRef = useRef<string | null | undefined>(undefined);
   // ── Guard chống double-submit và thay thế confirm() native ──
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -94,6 +97,16 @@ export const ProExamExperience = ({
 
   // --- Floating Highlight button ---
   const [highlightCoords, setHighlightCoords] = useState<{ x: number, y: number } | null>(null);
+
+  // ── [FIX Bug #2] Reset collapsed khi chuyển sang cluster khác ──
+  useEffect(() => {
+    const currentClusterId = test.questions[currentIndex]?.clusterId ?? null;
+    if (currentClusterId !== prevClusterIdRef.current) {
+      setClusterContextCollapsed(false);
+      prevClusterIdRef.current = currentClusterId;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex]);
 
   useEffect(() => {
     const handleSelection = () => {
@@ -449,16 +462,14 @@ export const ProExamExperience = ({
                 {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung cho câu chùm ═══ */}
               {(() => {
                 if (!currentQuestion.clusterId) return null;
-                const headQuestion = test.questions.find(
-                  q => q.clusterId === currentQuestion.clusterId && (q.clusterOrder ?? 0) === 0
-                );
-                const clusterTag = headQuestion?.tags?.find(t => t.startsWith('__cluster_context:'));
-                const sharedCtx = clusterTag
-                  ? clusterTag.replace('__cluster_context:', '')
-                  : (currentQuestion.clusterOrder === 0 ? null : headQuestion?.content);
+                // [FIX Bug #1 + #7] Dùng getClusterContext() — không bao giờ fallback vào headQuestion.content
+                const sharedCtx = getClusterContext(currentQuestion, test.questions);
+                if (!sharedCtx) return null;
 
-                if (currentQuestion.clusterOrder === 0 && clusterTag) {
-                  const ctx = clusterTag.replace('__cluster_context:', '');
+                const isHead = isClusterHead(currentQuestion);
+
+                if (isHead) {
+                  // Câu đầu chùm: hiển thị context cố định (không collapsible)
                   return (
                     <div className="bg-amber-950/30 border border-amber-700/40 rounded-2xl p-6 mb-4">
                       <div className="flex items-center gap-2 text-amber-500 mb-3">
@@ -466,37 +477,35 @@ export const ProExamExperience = ({
                         <span className="text-xs font-black uppercase tracking-wider">Dữ kiện chung — Câu hỏi chùm</span>
                       </div>
                       <div className="text-amber-100/90 text-fluid-base">
-                        <MathRenderer content={ctx} />
+                        <MathRenderer content={sharedCtx} />
                       </div>
                     </div>
                   );
                 }
 
-                if ((currentQuestion.clusterOrder ?? 0) > 0 && sharedCtx) {
-                  return (
-                    <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
-                      <button
-                        onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
-                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 text-amber-500">
-                          <Info className="w-4 h-4" />
-                          <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
-                        </div>
-                        <ChevronRight className={cn(
-                          "w-4 h-4 text-amber-500 transition-transform",
-                          clusterContextCollapsed ? "" : "rotate-90"
-                        )} />
-                      </button>
-                      {!clusterContextCollapsed && (
-                        <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
-                          <MathRenderer content={sharedCtx} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                return null;
+                // Câu con: collapsible để không chiếm quá nhiều màn hình
+                return (
+                  <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
+                    <button
+                      onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
+                      className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 text-amber-500">
+                        <Info className="w-4 h-4" />
+                        <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
+                      </div>
+                      <ChevronRight className={cn(
+                        "w-4 h-4 text-amber-500 transition-transform",
+                        clusterContextCollapsed ? "" : "rotate-90"
+                      )} />
+                    </button>
+                    {!clusterContextCollapsed && (
+                      <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
+                        <MathRenderer content={sharedCtx} />
+                      </div>
+                    )}
+                  </div>
+                );
               })()}
 
               <h3 className="text-fluid-lg font-bold text-white leading-loose break-words whitespace-normal min-w-0">

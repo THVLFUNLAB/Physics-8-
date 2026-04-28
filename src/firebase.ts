@@ -329,6 +329,68 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
 
   return true;
 };
+
+/**
+ * Xử lý trừ lượt khi học sinh bấm tải đề dạng PDF (trừ 5 lượt/lần).
+ * Bắt lỗi `"EXCEEDED_LIMIT"` nếu không đủ lượt.
+ */
+export async function consumePdfDownloadAttempts(userId: string, examId: string = 'unknown_pdf'): Promise<boolean> {
+  if (!userId || userId === 'guest') return true;
+
+  if (!navigator.onLine) {
+    throw new Error('Bạn cần kết nối mạng để tải file PDF!');
+  }
+
+  const userRef = doc(db, 'users', userId);
+  const userDoc = await originalGetDoc(userRef);
+
+  if (!userDoc || !userDoc.exists()) {
+    return true; // Bỏ qua nếu user lỗi
+  }
+
+  const data = userDoc.data();
+
+  // VIP vô cực → Tải thoải mái, không trừ lượt
+  if (data.tier === 'vip' || data.isUnlimited) {
+    try {
+      // Có thể log lại số lần tải pdf nếu muốn
+      await originalSetDoc(userRef, { totalPdfDownloads: increment(1) }, { merge: true });
+    } catch { }
+    return true;
+  }
+
+  const used = data.usedAttempts || 0;
+  const max = data.maxAttempts || 30;
+
+  // Cần 5 lượt để tải, nếu số lượt hiện tại + 5 vượt quá max thì chặn lại
+  if (used + 5 > max) {
+    throw new Error("EXCEEDED_LIMIT");
+  }
+
+  // Thực hiện trừ 5 lượt + ghi log (batch)
+  try {
+    const batch = writeBatch(db);
+    batch.set(userRef, { usedAttempts: increment(5), totalPdfDownloads: increment(1) }, { merge: true });
+
+    const logRef = doc(collection(db, 'usage_logs'));
+    batch.set(logRef, {
+      userId,
+      action: 'pdf_download',
+      examId,
+      timestamp: serverTimestamp()
+    });
+
+    await batch.commit();
+    return true;
+  } catch (writeErr: any) {
+    const errCode = writeErr?.code || '';
+    if (errCode === 'permission-denied') {
+      throw new Error("EXCEEDED_LIMIT");
+    }
+    throw writeErr;
+  }
+}
+
 export { 
   collection, doc, getDoc, getDocs, getDocsFromServer, getDocFromServer, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache, runTransaction
 };

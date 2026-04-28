@@ -20,6 +20,7 @@ const GRADE_11_TOPICS: { topic: Topic; displayName: string; color: string }[] = 
 interface Grade11DashboardProps {
   onStartPrescription?: (topic: Topic, examId: string) => void;
   onStartExam?: (exam: Exam) => void;
+  onDownloadPDF?: (exam: Exam) => void;
 }
 
 // ═══ Hero Banner ═══
@@ -158,7 +159,7 @@ function MasteryRadarChart() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function Grade11Dashboard({ onStartPrescription, onStartExam }: Grade11DashboardProps) {
+export default function Grade11Dashboard({ onStartPrescription, onStartExam, onDownloadPDF }: Grade11DashboardProps) {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in duration-500">
       {/* ── Hero Banner ── */}
@@ -231,7 +232,7 @@ export default function Grade11Dashboard({ onStartPrescription, onStartExam }: G
       </div>
 
       {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 11) ── */}
-      {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={11} />}
+      {onStartExam && <ExamsList onStartExam={onStartExam} onDownloadPDF={onDownloadPDF} gradeFilter={11} />}
     </div>
   );
 }

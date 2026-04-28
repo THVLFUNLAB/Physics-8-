@@ -737,6 +737,12 @@ function flattenClusterOutput(rawItems: any[]): Question[] {
 
       for (let i = 0; i < item.sub_questions.length; i++) {
         const sq = item.sub_questions[i];
+        // Chỉ gắn __cluster_context tag vào câu ĐẦU TIÊN (i === 0) của chùm.
+        // getClusterContext() trong clusterUtils sẽ tìm được context từ headQuestion.
+        // Không gắn vào tất cả câu để giảm payload và tránh nhầm lẫn.
+        const clusterTags = i === 0 && sharedContext
+          ? [`__cluster_context:${sharedContext}`]
+          : [];
         result.push({
           part: sq.part ?? 1,
           topic: sq.topic || clusterTopic,
@@ -748,7 +754,7 @@ function flattenClusterOutput(rawItems: any[]): Question[] {
           explanation: sq.explanation || 'Chưa có lời giải chi tiết.',
           tags: [
             ...(sq.tags || []),
-            `__cluster_context:${sharedContext}`,  // Tag đặc biệt chứa shared context
+            ...clusterTags,
           ],
           groupId: sq.groupId,
           clusterId: tempClusterId,

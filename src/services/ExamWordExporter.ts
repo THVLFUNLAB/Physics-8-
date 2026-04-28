@@ -412,5 +412,6 @@ export async function exportExamToWord(
 
   const blob = await Packer.toBlob(doc);
   const suffix = mode === 'teacher' ? 'GV' : 'HS';
-  saveAs(blob, `${exam.title}_${suffix}.docx`);
+  const safeTitle = (exam.title || 'De_Thi').replace(/[\/\\:*?"<>|]/g, '-');
+  saveAs(blob, `${safeTitle}_${suffix}.docx`);
 }

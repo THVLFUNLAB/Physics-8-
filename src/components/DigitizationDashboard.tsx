@@ -810,27 +810,64 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
     try {
       const batch = writeBatch(db);
       const questionIds: string[] = [];
-
       const finalQuestionsList = [];
 
-      // 1. Tạo từng câu hỏi (nếu checkbox "cũng lưu vào kho" checked)
+      // ── Bước 0: Phát hiện cluster groups để tạo documents ──
+      const clusterGroups = new Map<string, { questions: typeof pendingQuestions; sharedContext: string }>();
       for (const q of pendingQuestions) {
+        if (!q.clusterId) continue;
+        const contextTag = q.tags?.find(t => t.startsWith('__cluster_context:'));
+        if (!clusterGroups.has(q.clusterId)) {
+          clusterGroups.set(q.clusterId, {
+            questions: [],
+            sharedContext: contextTag ? contextTag.replace('__cluster_context:', '') : '',
+          });
+        }
+        clusterGroups.get(q.clusterId)!.questions.push(q);
+        // Lấy sharedContext từ câu nào có tag (AI gắn vào tất cả câu)
+        if (contextTag && !clusterGroups.get(q.clusterId)!.sharedContext) {
+          clusterGroups.get(q.clusterId)!.sharedContext = contextTag.replace('__cluster_context:', '');
+        }
+      }
+
+      // 1. Tạo từng câu hỏi (nếu checkbox "cũng lưu vào kho" checked)
+      // Map tempClusterId → realClusterId (Firestore doc ID)
+      const clusterIdMap = new Map<string, string>();
+
+      // [FIX] Tạo cluster documents TRƯỚC để có real ID cho questionIds
+      for (const [tempCid, { questions: clusterQs, sharedContext }] of clusterGroups) {
+        if (!sharedContext) continue; // Không có context → không cần cluster doc
+        const clusterRef = doc(collection(db, 'clusters'));
+        batch.set(clusterRef, {
+          sharedContext,
+          questionIds: [], // sẽ cập nhật sau khi có question IDs
+          createdAt: Timestamp.now(),
+          sourceFile: pendingSourceFile,
+        });
+        clusterIdMap.set(tempCid, clusterRef.id);
+      }
+
+      for (const q of pendingQuestions) {
+        // Map clusterId về real ID nếu có, giữ nguyên nếu là temp (sẽ skip bởi clusterIntegrity)
+        const realClusterId = q.clusterId ? (clusterIdMap.get(q.clusterId) || q.clusterId) : undefined;
         const clean = sanitizeQuestion({
           ...q,
+          clusterId: realClusterId,
           targetGrade: Number(selectedGrade),
           status: "draft",
+          // Strip __cluster_context tag — thông tin này nằm trong cluster document
+          tags: (q.tags || []).filter(t => !t.startsWith('__cluster_context:')),
         });
         clean.createdAt = Timestamp.now();
         if (alsoSaveToBank) {
           const qRef = doc(collection(db, 'questions'));
           batch.set(qRef, clean);
           questionIds.push(qRef.id);
-          // Ghi lại id thật để đề thi có thể sync được
           finalQuestionsList.push({ ...clean, id: qRef.id });
         } else {
-          // Tạo một ID ảo để view/print không bị lỗi key
           const tempId = q.id || `q_temp_${Date.now()}_${Math.random().toString(36).substring(2,7)}`;
-          finalQuestionsList.push({ ...clean, id: tempId });
+          // Giữ nguyên tag trong exam inline questions để clusterUtils đọc được offline
+          finalQuestionsList.push({ ...q, clusterId: realClusterId, id: tempId });
         }
       }
 
@@ -852,6 +889,9 @@ const DigitizationDashboard = ({ onQuestionsAdded }: { onQuestionsAdded: (qs?: Q
       await batch.commit();
 
       toast.success(`✅ Đã tạo đề "${newExamTitle}" với ${pendingQuestions.length} câu!`);
+      if (clusterIdMap.size > 0) {
+        toast.info(`🔗 Đã tạo ${clusterIdMap.size} cluster document cho câu chùm.`);
+      }
       if (alsoSaveToBank) {
         toast.info(`📚 ${questionIds.length} câu cũng đã lưu vào Kho Câu Hỏi.`);
         onQuestionsAdded();

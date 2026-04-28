@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Question, Topic } from '../types';
 import MathRenderer from '../lib/MathRenderer';
 import { cn } from '../lib/utils';
@@ -6,6 +6,7 @@ import { Check, X, ArrowLeft, Lightbulb, Info, Flag, ChevronRight, ShieldAlert, 
 import ReactMarkdown from 'react-markdown';
 import { auth, db, collection, addDoc, Timestamp } from '../firebase';
 import { toast } from './Toast';
+import { getClusterContext, isClusterHead } from '../utils/clusterUtils';
 
 export const ReviewExam = ({
   test,
@@ -25,6 +26,17 @@ export const ReviewExam = ({
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
   const [clusterContextCollapsed, setClusterContextCollapsed] = useState(false);
+  // [FIX Bug #2] Ref để track clusterId trước đó — reset collapsed khi chuyển chùm
+  const prevClusterIdRef = useRef<string | null | undefined>(undefined);
+
+  // [FIX Bug #2] Reset collapsed khi chuyển sang cluster khác
+  useEffect(() => {
+    const currentClusterId = currentQuestion?.clusterId ?? null;
+    if (currentClusterId !== prevClusterIdRef.current) {
+      setClusterContextCollapsed(false);
+      prevClusterIdRef.current = currentClusterId;
+    }
+  }, [currentQuestion?.clusterId]);
 
   const handleReportSubmit = async () => {
     if (!currentQuestion?.id || !auth.currentUser) return;
@@ -179,21 +191,26 @@ export const ReviewExam = ({
             <div className="flex overflow-x-auto whitespace-nowrap gap-2 py-3 px-4 w-full custom-scrollbar">
               {test.questions.map((q, i) => {
                 const isCorrect = checkCorrectness(q, answers[q.id || '']);
+                const isInCluster = Boolean(q.clusterId);
                 return (
                   <button
                     key={i}
                     onClick={() => setCurrentIndex(i)}
                     className={cn(
-                      "flex-none w-12 h-12 rounded-xl flex items-center justify-center text-xs font-black transition-all border shrink-0",
+                      "relative flex-none w-12 h-12 rounded-xl flex items-center justify-center text-xs font-black transition-all border shrink-0",
                       currentIndex === i ? "ring-2 ring-white scale-110 shadow-lg z-10" : "",
                       isCorrect 
                         ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400" 
                         : answers[q.id || ''] !== undefined 
                           ? "bg-rose-500/10 border-rose-500/50 text-rose-400"
-                          : "bg-slate-800 border-slate-700 text-slate-500" // Not answered
+                          : "bg-slate-800 border-slate-700 text-slate-500"
                     )}
                   >
                     {i + 1}
+                    {/* [FIX Bug #6] Dấu hiệu câu chùm trên mobile nav */}
+                    {isInCluster && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 border border-slate-900" title="Câu chùm" />
+                    )}
                   </button>
                 );
               })}
@@ -240,16 +257,13 @@ export const ReviewExam = ({
               {/* ═══ [CLUSTER] Hiển thị ngữ cảnh chung ═══ */}
               {(() => {
                 if (!currentQuestion.clusterId) return null;
-                const headQuestion = test.questions.find(
-                  q => q.clusterId === currentQuestion.clusterId && (q.clusterOrder ?? 0) === 0
-                );
-                const clusterTag = headQuestion?.tags?.find(t => t.startsWith('__cluster_context:'));
-                const sharedCtx = clusterTag
-                  ? clusterTag.replace('__cluster_context:', '')
-                  : (currentQuestion.clusterOrder === 0 ? null : headQuestion?.content);
+                // [FIX Bug #7] Dùng getClusterContext() — loại bỏ fallback headQuestion.content sai
+                const sharedCtx = getClusterContext(currentQuestion, test.questions);
+                if (!sharedCtx) return null;
 
-                if (currentQuestion.clusterOrder === 0 && clusterTag) {
-                  const ctx = clusterTag.replace('__cluster_context:', '');
+                const isHead = isClusterHead(currentQuestion);
+
+                if (isHead) {
                   return (
                     <div className="bg-amber-950/30 border border-amber-700/40 rounded-2xl p-6 mb-4">
                       <div className="flex items-center gap-2 text-amber-500 mb-3">
@@ -257,37 +271,34 @@ export const ReviewExam = ({
                         <span className="text-xs font-black uppercase tracking-wider">Dữ kiện chung — Câu hỏi chùm</span>
                       </div>
                       <div className="text-amber-100/90 text-fluid-base">
-                        <MathRenderer content={ctx} />
+                        <MathRenderer content={sharedCtx} />
                       </div>
                     </div>
                   );
                 }
 
-                if ((currentQuestion.clusterOrder ?? 0) > 0 && sharedCtx) {
-                  return (
-                    <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
-                      <button
-                        onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
-                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 text-amber-500">
-                          <Info className="w-4 h-4" />
-                          <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
-                        </div>
-                        <ChevronRight className={cn(
-                          "w-4 h-4 text-amber-500 transition-transform",
-                          clusterContextCollapsed ? "" : "rotate-90"
-                        )} />
-                      </button>
-                      {!clusterContextCollapsed && (
-                        <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
-                          <MathRenderer content={sharedCtx} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                return null;
+                return (
+                  <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl overflow-hidden mb-4">
+                    <button
+                      onClick={() => setClusterContextCollapsed(!clusterContextCollapsed)}
+                      className="w-full flex items-center justify-between px-5 py-3 hover:bg-amber-900/20 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 text-amber-500">
+                        <Info className="w-4 h-4" />
+                        <span className="text-xs font-black uppercase tracking-wider">📎 Dữ kiện chung — Câu hỏi chùm</span>
+                      </div>
+                      <ChevronRight className={cn(
+                        "w-4 h-4 text-amber-500 transition-transform",
+                        clusterContextCollapsed ? "" : "rotate-90"
+                      )} />
+                    </button>
+                    {!clusterContextCollapsed && (
+                      <div className="px-6 pb-5 text-amber-100/90 text-fluid-base border-t border-amber-700/20 pt-4">
+                        <MathRenderer content={sharedCtx} />
+                      </div>
+                    )}
+                  </div>
+                );
               })()}
 
               {/* 🚨 Cảnh báo Sập Bẫy "Sai Ngu" */}

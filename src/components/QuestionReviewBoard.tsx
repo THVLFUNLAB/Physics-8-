@@ -1023,7 +1023,8 @@ const QuestionReviewBoard: React.FC<QuestionReviewBoardProps> = ({
         <div className="space-y-4">
           {questions.map((q, i) => {
             const contextTag = q.tags?.find(t => t.startsWith('__cluster_context:'))?.replace('__cluster_context:', '');
-            const isFirstInCluster = q.clusterOrder === 1 || (contextTag && (i === 0 || questions[i-1]?.clusterId !== q.clusterId));
+            // [FIX Bug #3] clusterOrder bắt đầu từ 0 (0-indexed), câu đầu chùm = clusterOrder 0
+            const isFirstInCluster = (q.clusterOrder === 0) && Boolean(q.clusterId);
             
             return (
               <React.Fragment key={`${q.part}-${i}`}>

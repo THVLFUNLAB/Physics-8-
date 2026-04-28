@@ -16,12 +16,18 @@
  *    hiện clusterId, kéo thêm anh em từ Firestore, gắn sharedContext
  *    vào câu đầu tiên, deduplicate và sort đúng thứ tự.
  *
+ *  Fix v2:
+ *    - Offline-first: đọc tag __cluster_context: trong memory trước
+ *    - Skip Firestore query cho __temp_cluster_ IDs (câu từ AI/AzotaParser)
+ *    - Dùng getClusterOrder() từ clusterUtils (0-indexed chuẩn)
+ *
  *  Thiết kế: Pure async function — không side-effect ngoài Firestore reads.
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import { collection, getDocs, getDoc, doc, query, where, Firestore } from 'firebase/firestore';
 import { Question } from '../types';
+import { getClusterOrder, isTempClusterId, CLUSTER_CONTEXT_TAG_PREFIX } from './clusterUtils';
 
 /**
  * Đảm bảo tính toàn vẹn của câu chùm trong đề thi.
@@ -46,34 +52,66 @@ export async function ensureClusterIntegrity(
   if (clusterIds.size === 0) return questions;
 
   // ── Bước 2: Kéo thêm câu anh em còn thiếu từ Firestore ──
+  // (Chỉ cho câu chùm có clusterId thật, không phải __temp_cluster_)
   const existingIds = new Set(questions.map(q => q.id).filter(Boolean));
   const siblingsToAdd: Question[] = [];
 
   for (const cid of clusterIds) {
+    // Câu tạm (từ AI/AzotaParser) — không có doc Firestore, bỏ qua bước này
+    if (isTempClusterId(cid)) continue;
+
     try {
-      // Query tất cả câu cùng clusterId
       const sibSnap = await getDocs(
         query(collection(db, 'questions'), where('clusterId', '==', cid)),
       );
 
       sibSnap.forEach(d => {
         if (!existingIds.has(d.id)) {
-          // Câu anh em chưa có trong danh sách → thêm vào
           siblingsToAdd.push({ ...d.data(), id: d.id } as Question);
-          existingIds.add(d.id); // Tránh duplicate nếu cùng clusterId nhiều lần
+          existingIds.add(d.id);
         }
       });
     } catch (err) {
-      // Graceful — không crash đề nếu Firestore lỗi 1 cluster
       console.warn(`[ClusterIntegrity] Không lấy được siblings của cluster ${cid}:`, err);
     }
   }
 
-  // Gộp câu gốc + anh em mới kéo về
   const merged = [...questions, ...siblingsToAdd];
 
   // ── Bước 3: Gắn dữ kiện chung (sharedContext) vào câu đầu tiên mỗi chùm ──
+  //
+  // Thứ tự ưu tiên (offline-first):
+  //   A) Câu đầu chùm đã có tag __cluster_context: → skip (idempotent)
+  //   B) __temp_cluster_ ID → tìm tag trên bất kỳ câu nào trong cluster
+  //   C) Câu chùm thật → query clusters/{cid} để lấy sharedContext
+  //
   for (const cid of clusterIds) {
+    const firstQ = merged.find(
+      q => q.clusterId === cid && getClusterOrder(q) === 0,
+    );
+    if (!firstQ) {
+      console.warn(`[ClusterIntegrity] Không tìm được câu đầu (clusterOrder=0) cho cluster ${cid}`);
+      continue;
+    }
+
+    // A) Đã có tag → skip
+    const alreadyTagged = firstQ.tags?.some((t: string) => t.startsWith(CLUSTER_CONTEXT_TAG_PREFIX));
+    if (alreadyTagged) continue;
+
+    // B) Temp cluster → tìm tag trong tất cả câu cùng chùm
+    if (isTempClusterId(cid)) {
+      const anyTaggedQ = merged.find(
+        q => q.clusterId === cid &&
+          q.tags?.some((t: string) => t.startsWith(CLUSTER_CONTEXT_TAG_PREFIX)),
+      );
+      if (anyTaggedQ) {
+        const tag = anyTaggedQ.tags!.find((t: string) => t.startsWith(CLUSTER_CONTEXT_TAG_PREFIX))!;
+        firstQ.tags = [...(firstQ.tags ?? []), tag];
+      }
+      continue;
+    }
+
+    // C) Query Firestore clusters collection
     try {
       const clusterDoc = await getDoc(doc(db, 'clusters', cid));
       if (!clusterDoc.exists()) continue;
@@ -81,39 +119,23 @@ export async function ensureClusterIntegrity(
       const { sharedContext } = clusterDoc.data() as { sharedContext?: string };
       if (!sharedContext) continue;
 
-      // Tìm câu đầu tiên (clusterOrder = 0) của chùm này
-      const firstQ = merged.find(
-        q => q.clusterId === cid && (q.clusterOrder ?? 0) === 0,
-      );
-      if (!firstQ) continue;
-
-      // Chỉ gắn nếu chưa có tag (idempotent — tránh gắn 2 lần)
-      const TAG_PREFIX = '__cluster_context:';
-      const alreadyTagged = firstQ.tags?.some((t: string) => t.startsWith(TAG_PREFIX));
-      if (!alreadyTagged) {
-        firstQ.tags = [...(firstQ.tags ?? []), `${TAG_PREFIX}${sharedContext}`];
-      }
+      firstQ.tags = [...(firstQ.tags ?? []), `${CLUSTER_CONTEXT_TAG_PREFIX}${sharedContext}`];
     } catch (err) {
       console.warn(`[ClusterIntegrity] Không lấy được sharedContext của cluster ${cid}:`, err);
     }
   }
 
   // ── Bước 4: Deduplicate + Sort theo part → clusterOrder ──
-  // Deduplicate bằng Map (giữ instance đã được mutate gắn tag)
   const deduped = Array.from(
     new Map(merged.map(q => [q.id, q])).values(),
   );
 
   deduped.sort((a, b) => {
-    // Ưu tiên sort theo part (1 → 2 → 3) trước
     if (a.part !== b.part) return (a.part ?? 0) - (b.part ?? 0);
-    // Cùng part: nhóm theo clusterId
     if (a.clusterId || b.clusterId) {
       if (a.clusterId === b.clusterId) {
-        // Cùng một chùm -> sort theo thứ tự trong chùm
-        return (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0);
+        return getClusterOrder(a) - getClusterOrder(b);
       }
-      // Khác chùm -> gom các câu cùng chùm lại với nhau
       const idA = a.clusterId || '';
       const idB = b.clusterId || '';
       return idA.localeCompare(idB);

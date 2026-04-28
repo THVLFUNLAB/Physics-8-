@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, collection, onSnapshot, query, orderBy, limit } from '../firebase';
 import { Exam } from '../types';
-import { Play, ChevronDown, BookOpen, Zap, Brain, FlaskConical, FileText } from 'lucide-react';
+import { Play, ChevronDown, Download, BookOpen, Zap, Brain, FlaskConical, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 interface ExamsListProps {
+  onDownloadPDF?: (exam: Exam) => void;
   onStartExam: (exam: Exam) => void;
   /** Khi truyền vào, ExamsList sẽ tự lock cứng vào khối đó và ẩn bộ tab filter */
   gradeFilter?: number;
@@ -259,17 +260,33 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
                               </div>
                             </div>
                             {/* CTA */}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onStartExam(exam); }}
-                              className={cn(
-                                "shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                                "bg-slate-800 border border-slate-700 text-slate-300",
-                                "hover:bg-red-600 hover:border-red-500 hover:text-white hover:shadow-lg hover:shadow-red-600/20"
+                            <div className="flex gap-2">
+                              {onDownloadPDF && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); onDownloadPDF(exam); }}
+                                  className={cn(
+                                    "shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                    "bg-slate-800 border border-slate-700 text-slate-300",
+                                    "hover:bg-blue-600 hover:border-blue-500 hover:text-white hover:shadow-lg hover:shadow-blue-600/20"
+                                  )}
+                                  title="Tải đề PDF (-5 lượt)"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Tải PDF (-5 Lượt)</span>
+                                </button>
                               )}
-                            >
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span className="hidden sm:inline">Làm bài</span>
-                            </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onStartExam(exam); }}
+                                className={cn(
+                                  "shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                  "bg-slate-800 border border-slate-700 text-slate-300",
+                                  "hover:bg-red-600 hover:border-red-500 hover:text-white hover:shadow-lg hover:shadow-red-600/20"
+                                )}
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span className="hidden sm:inline">Làm bài</span>
+                              </button>
+                            </div>
                           </motion.div>
                         ))}
                       </div>

@@ -22,6 +22,7 @@ const GRADE_10_TOPICS: { topic: Topic; displayName: string; color: string }[] = 
 interface Grade10DashboardProps {
   onStartPrescription?: (topic: Topic, examId: string) => void;
   onStartExam?: (exam: Exam) => void;
+  onDownloadPDF?: (exam: Exam) => void;
 }
 
 // ═══ Hero Banner ═══
@@ -160,7 +161,7 @@ function MasteryRadarChart() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function Grade10Dashboard({ onStartPrescription, onStartExam }: Grade10DashboardProps) {
+export default function Grade10Dashboard({ onStartPrescription, onStartExam, onDownloadPDF }: Grade10DashboardProps) {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in duration-500">
       {/* ── Hero Banner ── */}
@@ -233,7 +234,7 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam }: G
       </div>
 
       {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 10) ── */}
-      {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={10} />}
+      {onStartExam && <ExamsList onStartExam={onStartExam} onDownloadPDF={onDownloadPDF} gradeFilter={10} />}
     </div>
   );
 }

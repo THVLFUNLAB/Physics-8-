@@ -118,6 +118,10 @@ service cloud.firestore {
       // Write chỉ qua Admin Bypass
     }
 
+    match /dynamicMatrixFormulas/{formulaId} {
+      allow read: if isAuthenticated();
+    }
+
     match /clusters/{clusterId} {
       allow read: if isAuthenticated();
     }

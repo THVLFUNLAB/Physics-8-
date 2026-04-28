@@ -19,6 +19,7 @@ const GRADE_12_TOPICS: { topic: Topic; displayName: string; color: string }[] = 
 interface Grade12DashboardProps {
   onStartPrescription?: (topic: Topic, examId: string) => void;
   onStartExam?: (exam: Exam) => void;
+  onDownloadPDF?: (exam: Exam) => void;
 }
 
 // ═══ Hero Countdown (giữ nguyên 100% logic cũ) ═══
@@ -188,7 +189,7 @@ function DailyQuestBoard() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function Grade12Dashboard({ onStartPrescription, onStartExam }: Grade12DashboardProps) {
+export default function Grade12Dashboard({ onStartPrescription, onStartExam, onDownloadPDF }: Grade12DashboardProps) {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in duration-500">
       {/* ── Hero Countdown (giữ nguyên) ── */}
@@ -239,7 +240,7 @@ export default function Grade12Dashboard({ onStartPrescription, onStartExam }: G
       </div>
 
       {/* ── Danh sách Đề kiểm tra (Lock cứng Khối 12) ── */}
-      {onStartExam && <ExamsList onStartExam={onStartExam} gradeFilter={12} />}
+      {onStartExam && <ExamsList onStartExam={onStartExam} onDownloadPDF={onDownloadPDF} gradeFilter={12} />}
     </div>
   );
 }

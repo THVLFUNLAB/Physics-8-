@@ -4,7 +4,7 @@
 //  File này CHỉ chứa: State, Auth, Effects, Routing Logic
 // ═══════════════════════════════════════════════════════════════════════
 
-import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from './lib/utils';
@@ -12,7 +12,7 @@ import MathRenderer from './lib/MathRenderer';
 import {
   auth, db, collection, doc, addDoc, getDocs, getDoc,
   setDoc, updateDoc, onSnapshot, query, where, Timestamp,
-  signInWithGoogle, signOut, startExamAttempt
+  signInWithGoogle, signOut, startExamAttempt, consumePdfDownloadAttempts
 } from './firebase';
 import { useAuthStore } from './store/useAuthStore';
 import {
@@ -182,6 +182,8 @@ export default function App() {
   const user = authUser || GUEST_USER;
   const isAuthInitializing = authStore.loading;
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [confirmPdfExam, setConfirmPdfExam] = useState<Exam | null>(null);
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -193,6 +195,12 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('invite') || null;
+  });
+
+  // ── Direct Exam Link: đọc ?examId=<id> từ URL ──
+  const [directExamId, setDirectExamId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('examId') || null;
   });
 
   // ── Unified navigation handler: student tabs vs admin tabs ──
@@ -214,6 +222,9 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<{ score: number; earnedXP: number; show: boolean; xpBreakdown?: import('./services/AdaptiveEngine.types').IXPBreakdown } | null>(null);
   const attempts = authStore.attempts;
+
+  // Khi đang thi (activeTest có nhưng chưa nộp, hoặc đang xem lại bài làm), giao diện phải là Fullscreen Zen Mode.
+  const isFullScreenMode = Boolean(activeTest && (!results || isReviewing));
 
   // ═══ [SESSION PERSISTENCE] Lưu & khôi phục phiên thi khi bị văng ra ═══
   const SESSION_KEY = 'phys8_active_exam_session';
@@ -309,17 +320,18 @@ export default function App() {
 
   // Fetch Simulations
   useEffect(() => {
+    if (!authUser || activeView !== 'simulations') return;
     const fetchSims = async () => {
       try {
         const snap = await getDocs(collection(db, 'simulations'));
         const simsData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Simulation));
-        setSimulations(simsData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds));
+        setSimulations(simsData.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0)));
       } catch (error) {
         console.error("Lỗi khi load simulations:", error);
       }
     };
     fetchSims();
-  }, []);
+  }, [authUser, activeView]);
 
   // ═══ ONE-TIME MIGRATION: Gán status='published' cho câu hỏi cũ chưa có status ═══
   useEffect(() => {
@@ -485,7 +497,41 @@ export default function App() {
     idx = renderPart("PHẦN II. Câu trắc nghiệm Đúng/Sai.", exam.questions.filter(q => q.part === 2), idx);
     renderPart("PHẦN III. Câu trắc nghiệm trả lời ngắn.", exam.questions.filter(q => q.part === 3), idx);
 
-    pdfDoc.save(`${exam.title}.pdf`);
+    const safeTitle = (exam.title || 'De_Thi').replace(/[\/\\:*?"<>|]/g, '-');
+    pdfDoc.save(`${safeTitle}.pdf`);
+  };
+
+  // ═══ STUDENT PDF EXPORT (Trừ 5 lượt) ═══
+  const handleStudentDownloadPDF = async (exam: Exam) => {
+    if (!user || user === GUEST_USER) {
+      toast.error('Bạn cần đăng nhập để tải đề.');
+      return;
+    }
+    setConfirmPdfExam(exam); // Mở modal xác nhận
+  };
+
+  const executePdfDownload = async () => {
+    if (!confirmPdfExam || !user) return;
+    const examToDownload = confirmPdfExam;
+    setConfirmPdfExam(null); // Đóng modal ngay
+    setIsPdfDownloading(true);
+
+    try {
+      toast.info('Đang xử lý tải PDF...');
+      const success = await consumePdfDownloadAttempts(user.uid, examToDownload.id);
+      if (success) {
+        exportExamToPDF(examToDownload);
+        toast.success('Đã tải PDF và trừ 5 lượt thành công!');
+      }
+    } catch (err: any) {
+      if (err.message === "EXCEEDED_LIMIT") {
+        setShowUpgradeModal(true);
+      } else {
+        toast.error(`Lỗi tải đề: ${err.message}`);
+      }
+    } finally {
+      setIsPdfDownloading(false);
+    }
   };
 
   // ═══ WORD EXPORT (GV/Admin only) ═══
@@ -698,6 +744,31 @@ export default function App() {
       setIsStartingExam(false); // [FIX] Luôn reset guard để HS có thể thử lại
     }
   };
+
+  // ── Auto-start test for Direct Exam Link ──
+  const hasTriggeredLogin = useRef(false);
+  useEffect(() => {
+    if (directExamId && !isAuthInitializing) {
+      if (authUser) {
+        startTest('Đề Thi Trực Tiếp', directExamId);
+        setDirectExamId(null);
+        // Clean URL
+        const url = new URL(window.location.href);
+        url.searchParams.delete('examId');
+        window.history.replaceState({}, '', url.toString());
+      } else {
+        if (!hasTriggeredLogin.current) {
+          hasTriggeredLogin.current = true;
+          handleSignIn().finally(() => {
+            // Cho phép thử lại nếu popup bị đóng mà chưa đăng nhập thành công
+            setTimeout(() => {
+              if (!auth.currentUser) hasTriggeredLogin.current = false;
+            }, 1000);
+          });
+        }
+      }
+    }
+  }, [directExamId, authUser, isAuthInitializing]);
 
   const handleAnswer = (questionId: string, answer: any) => {
     setAnswers(prev => ({ ...prev, [questionId]: answer }));
@@ -1163,6 +1234,34 @@ export default function App() {
       <ToastProvider />
       <AuthErrorBoundary />
       {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
+      
+      {/* ── Confirm PDF Modal ── */}
+      {confirmPdfExam && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-2">Tải Đề PDF</h3>
+            <p className="text-sm text-slate-300 mb-6">
+              Tải đề <b>{confirmPdfExam.title}</b> dưới dạng PDF sẽ tiêu tốn <span className="text-amber-500 font-bold">5 lượt</span> sử dụng của bạn. Bạn có chắc chắn muốn tải không?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button 
+                onClick={() => setConfirmPdfExam(null)}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={executePdfDownload}
+                disabled={isPdfDownloading}
+                className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 transition-colors flex items-center gap-2"
+              >
+                {isPdfDownloading ? 'Đang xử lý...' : 'Xác nhận tải'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
 
       {/* ── Magic Link Route: ?invite=<token> — render ISOLATED, không có Sidebar/Dashboard ── */}
@@ -1209,21 +1308,23 @@ export default function App() {
         </LazyWrap>
       )}
       
-      <Sidebar 
-        user={user}
-        isAdmin={user?.role === 'admin' || user?.email === 'haunn.vietanhschool@gmail.com'}
-        isCollapsed={isSidebarCollapsed}
-        setIsCollapsed={setIsSidebarCollapsed}
-        activeTab={activeView}
-        setActiveTab={handleSidebarNavigate}
-        soundEnabled={soundEnabled}
-        setSoundEnabled={setSoundEnabled}
-        isMobileOpen={isMobileMenuOpen}
-        setIsMobileOpen={setIsMobileMenuOpen}
-      />
+      {!isFullScreenMode && (
+        <Sidebar 
+          user={user}
+          isAdmin={user?.role === 'admin' || user?.email === 'haunn.vietanhschool@gmail.com'}
+          isCollapsed={isSidebarCollapsed}
+          setIsCollapsed={setIsSidebarCollapsed}
+          activeTab={activeView}
+          setActiveTab={handleSidebarNavigate}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+          isMobileOpen={isMobileMenuOpen}
+          setIsMobileOpen={setIsMobileMenuOpen}
+        />
+      )}
 
       {/* ══════ MOBILE TOP BAR ══════ */}
-      {user && (
+      {user && !isFullScreenMode && (
         <div className="md:hidden fixed top-0 left-0 right-0 z-[80] bg-slate-950/95 backdrop-blur-xl border-b border-slate-800/50 safe-area-inset">
           <div className="flex items-center justify-between px-4 h-[56px]">
             <div className="flex items-center gap-3">
@@ -1260,8 +1361,8 @@ export default function App() {
 
       <div className={cn(
         "flex-1 transition-all duration-300 min-h-screen w-full",
-        user ? (isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]") : "",
-        user ? "pt-[56px] md:pt-0" : ""
+        user && !isFullScreenMode ? (isSidebarCollapsed ? "md:ml-[80px]" : "md:ml-[260px]") : "",
+        user && !isFullScreenMode ? "pt-[56px] md:pt-0" : ""
       )}>
         <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
         {!authUser && activeView === 'dashboard' ? (
@@ -1577,11 +1678,11 @@ export default function App() {
                     <p className="text-slate-400">Vui lòng chọn chức năng quản trị ở Sidebar bên trái.</p>
                   </div>
                 ) : user.className?.startsWith('10') ? (
-                  <Grade10Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                  <Grade10Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
                 ) : user.className?.startsWith('11') ? (
-                  <Grade11Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                  <Grade11Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
                 ) : (
-                  <Grade12Dashboard onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} />
+                  <Grade12Dashboard onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
                 )}
               </LazyWrap>
             )}

@@ -17,7 +17,7 @@ import MathRenderer from '../lib/MathRenderer';
 import {
   FolderOpen, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
   FileText, Clock, CheckCircle2, AlertTriangle, Search, X,
-  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw, Users
+  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw, Users, Link as LinkIcon
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableExamView } from './PrintableExamView';
@@ -602,6 +602,19 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
                         title="Xem kết quả làm bài của học sinh"
                       >
                         <Users className="w-4 h-4" />
+                      </button>
+
+                      {/* Copy Link */}
+                      <button
+                        onClick={() => {
+                          const url = `${window.location.origin}?examId=${exam.id}`;
+                          navigator.clipboard.writeText(url);
+                          toast.success('Đã copy link đề thi! Học sinh có thể dùng link này để vào thi trực tiếp.');
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-fuchsia-400 hover:bg-fuchsia-600/10 rounded-lg transition-all"
+                        title="Copy Link chia sẻ trực tiếp"
+                      >
+                        <LinkIcon className="w-4 h-4" />
                       </button>
 
                       {/* Print PDF */}
