@@ -31,6 +31,7 @@ import { useDashboardStats } from './hooks/useDashboardStats';
 import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
 import { jsPDF } from 'jspdf';
+import { exportExamToWord } from './services/ExamWordExporter';
 
 // ── Layout ──
 import Sidebar from './components/Sidebar';
@@ -485,6 +486,16 @@ export default function App() {
     renderPart("PHẦN III. Câu trắc nghiệm trả lời ngắn.", exam.questions.filter(q => q.part === 3), idx);
 
     pdfDoc.save(`${exam.title}.pdf`);
+  };
+
+  // ═══ WORD EXPORT (GV/Admin only) ═══
+  const handleExportWord = async (exam: Exam, mode: 'student' | 'teacher') => {
+    try {
+      await exportExamToWord(exam, mode);
+    } catch (err) {
+      console.error('[WordExport] Lỗi xuất Word:', err);
+      toast.error('Xuất Word thất bại. Vui lòng thử lại.');
+    }
   };
 
   // ═══ START TEST ═══
@@ -1708,7 +1719,7 @@ export default function App() {
                     {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
                     {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
                     {adminTab === 'Matrix' && <ExamMatrixGenerator />}
-                    {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} />}
+                    {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} onExportWord={handleExportWord} />}
                     {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
                     {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
                     {adminTab === 'Sanitizer' && <DataSanitizer />}

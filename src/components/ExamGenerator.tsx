@@ -16,11 +16,15 @@ import {
   BookOpen, Play, Target, Settings, BrainCircuit,
   ChevronRight, Check, X, Download, Filter,
   AlertTriangle, CheckCircle2, FileText, Save,
-  Trophy, FlaskConical
+  Trophy, FlaskConical, FileType2
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: (exam: Exam) => void }) => {
+const ExamGenerator = ({ user, onExportPDF, onExportWord }: {
+  user: UserProfile;
+  onExportPDF: (exam: Exam) => void;
+  onExportWord: (exam: Exam, mode: 'student' | 'teacher') => void;
+}) => {
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
@@ -398,9 +402,25 @@ const ExamGenerator = ({ user, onExportPDF }: { user: UserProfile, onExportPDF: 
               </button>
               <button 
                 onClick={() => onExportPDF(generatedExam!)}
-                className="bg-white/20 hover:bg-white/30 px-6 py-3 rounded-xl transition-all flex items-center gap-2 text-white text-xs font-bold"
+                className="bg-white/20 hover:bg-white/30 px-4 py-3 rounded-xl transition-all flex items-center gap-2 text-white text-xs font-bold"
+                title="Xuất PDF (Học sinh)"
               >
-                <Download className="w-4 h-4" /> Xuất PDF
+                <Download className="w-4 h-4" /> PDF
+              </button>
+              {/* ══ Xuất Word — CHỈ GV/ADMIN ══ */}
+              <button
+                onClick={() => onExportWord(generatedExam!, 'student')}
+                className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 px-4 py-3 rounded-xl transition-all flex items-center gap-2 text-emerald-300 text-xs font-bold"
+                title="Xuất Word bản Học sinh (không đáp án)"
+              >
+                <FileType2 className="w-4 h-4" /> Word HS
+              </button>
+              <button
+                onClick={() => onExportWord(generatedExam!, 'teacher')}
+                className="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 px-4 py-3 rounded-xl transition-all flex items-center gap-2 text-amber-300 text-xs font-bold"
+                title="Xuất Word bản Giáo viên (kèm đáp án + giải thích)"
+              >
+                <FileType2 className="w-4 h-4" /> Word GV
               </button>
             </div>
           </div>
