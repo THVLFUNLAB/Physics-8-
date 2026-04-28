@@ -1,29 +1,37 @@
-import { GoogleGenAI, Type } from "@google/genai";
+// ⚠️ API key đã được chuyển về server-side (Vercel Function) — không còn lộ ra browser!
+import { Type } from "@google/genai";  // Chỉ dùng Type enum cho responseSchema definition
 import { PDFDocument } from "pdf-lib";
 import { Question, ErrorAnalysis } from "../types";
 import { safeJSONParse } from "../utils/jsonSanitizer";
+import { proxyGenerateContent } from "./aiProxyClient";
 
 // ============================================================
 // MODEL CONFIGURATION
-// - gemini-2.5-pro  : Số hóa đề từ PDF (cần Vision + reasoning sâu)
-// - gemini-2.5-flash: Số hóa DOCX (text input) / Phân tích câu trả lời
 // ============================================================
 const MODELS = {
-  DIGITIZE: "gemini-2.5-flash",  // ── COST FIX: Flash only (Pro đắt 17x, chất lượng Flash đã đủ)
+  DIGITIZE: "gemini-2.5-flash",
   ANALYZE:  "gemini-2.5-flash",
 } as const;
 
-// ~20K chars ≈ 10-15 câu/chunk — tránh overload API với đề lớn (100+ câu)
+// ~20K chars ≈ 10-15 câu/chunk
 const MAX_CHUNK_SIZE = 20_000;
-const MAX_CONCURRENCY = 1; // Tối đa 1 chunk song song — giảm áp lực API / chống Rate Limit 429
+const MAX_CONCURRENCY = 1;
 
-const getAI = () => {
-  const apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("VITE_GEMINI_API_KEY is not defined. Please check your environment settings.");
-  }
-  return new GoogleGenAI({ apiKey });
-};
+/**
+ * callAI: wrapper thống nhất gọi Gemini qua proxy server-side.
+ * Giữ interface giống `ai.models.generateContent` cũ để dễ thầy migrate.
+ */
+async function callAI(params: {
+  model: string;
+  contents: any;
+  config?: any;
+}): Promise<{ text: string }> {
+  return proxyGenerateContent({
+    model: params.model,
+    contents: params.contents,
+    config: params.config,
+  });
+}
 
 // ============================================================
 // ANALYZE ANSWER — dùng Flash cho tốc độ
@@ -33,8 +41,7 @@ export async function analyzeAnswer(
   studentAnswer: any,
   isCorrect: boolean
 ): Promise<{ analysis: ErrorAnalysis; feedback: string }> {
-  const ai = getAI();
-
+  
   const prompt = `
 Bạn là Chuyên gia Sư phạm Vật lý cấp cao của dự án PHYS-9+.
 Nhiệm vụ: Phân tích CỰC KỲ CHÍNH XÁC câu trả lời của học sinh và phân loại sai lầm.
@@ -63,7 +70,7 @@ Kết quả: ${isCorrect ? "✓ ĐÚNG" : "✗ SAI"}
   `.trim();
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callAI({
       model: MODELS.ANALYZE,
       contents: prompt,
       config: {
@@ -202,8 +209,7 @@ export async function diagnoseUserExam(
     return cached;
   }
 
-  const ai = getAI();
-
+  
   // ── Tổng hợp câu sai theo topic để AI thấy pattern ──
   const topicErrorMap: Record<string, { count: number; levels: Set<string>; subTopics: Set<string> }> = {};
   incorrectRecords.forEach(r => {
@@ -265,7 +271,7 @@ Trả về ĐÚNG JSON Schema yêu cầu.
   `.trim();
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await callAI({
       model: MODELS.ANALYZE,
       contents: prompt,
       config: {
@@ -952,7 +958,6 @@ function extractAnswerKeyFromHTML(html: string): string {
  * Trả về string dạng: "Câu 1: B, Câu 2: D, ..."
  */
 async function extractAnswerKeyFromPDF(
-  ai: any,
   pdfBuffer: ArrayBuffer,
   onProgress?: (status: string) => void
 ): Promise<string> {
@@ -974,7 +979,7 @@ async function extractAnswerKeyFromPDF(
 
     onProgress?.('🔍 Đang trinh sát bảng đáp án ở trang cuối...');
 
-    const response = await retryWithBackoff(() => ai.models.generateContent({
+    const response = await retryWithBackoff(() => callAI({
       model: MODELS.ANALYZE, // Flash — nhanh & rẻ
       contents: [{
         role: 'user',
@@ -1020,13 +1025,12 @@ export async function digitizeFromPDF(
   topicHint?: string,
   onProgress?: (status: string) => void
 ): Promise<Question[]> {
-  const ai = getAI();
-
+  
   onProgress?.("Đang đọc và cắt trang PDF...");
   const pdfBuffer = await pdfFile.arrayBuffer();
 
   // ── Trinh sát đáp án từ trang cuối PDF ──
-  const answerKey = await extractAnswerKeyFromPDF(ai, pdfBuffer, onProgress);
+  const answerKey = await extractAnswerKeyFromPDF(pdfBuffer, onProgress);
   const answerKeyInjection = buildAnswerKeyInjection(answerKey);
   if (answerKey) {
     onProgress?.(`✅ Tìm thấy bảng đáp án! Đang tiếp tục số hóa...`);
@@ -1061,7 +1065,7 @@ export async function digitizeFromPDF(
           onProgress?.(`⚡ Flash đang phân tích phần ${groupIdx + 1}/${pageGroups.length}...`);
 
           try {
-            const response = await retryWithBackoff(() => ai.models.generateContent({
+            const response = await retryWithBackoff(() => callAI({
               model: MODELS.ANALYZE,
               contents: [{ role: "user", parts: [pdfPart, { text: prompt }] }],
               config: {
@@ -1095,8 +1099,7 @@ export async function digitizeDocument(
   targetGrade?: string,
   onProgress?: (status: string) => void
 ): Promise<Question[]> {
-  const ai = getAI();
-
+  
   // ── Trinh sát đáp án từ HTML gốc (trước khi chunk) ──
   const answerKey = extractAnswerKeyFromHTML(htmlContent);
   const answerKeyInjection = buildAnswerKeyInjection(answerKey);
@@ -1136,7 +1139,7 @@ export async function digitizeDocument(
     onProgress?.(`⚡ Flash đang xử lý phần ${idx + 1}/${totalChunks}...`);
     try {
       const response = await retryWithBackoff(
-        () => ai.models.generateContent({
+        () => callAI({
           model: MODELS.ANALYZE,
           contents: prompt,
           config: {
@@ -1187,8 +1190,7 @@ export async function parseMatrixImage(
   file: File,
   onProgress?: (status: string) => void
 ): Promise<ParsedMatrixResult> {
-  const ai = getAI();
-  onProgress?.('📸 Đang đọc file ma trận...');
+    onProgress?.('📸 Đang đọc file ma trận...');
 
   const isPDF = file.name.toLowerCase().endsWith('.pdf');
   const buffer = await file.arrayBuffer();
@@ -1216,7 +1218,7 @@ Nếu topic viết tắt/khác biệt, hãy tự map cho đúng.`;
   const partSchema = { type: Type.OBJECT, properties: levelProps, required: levelRequired };
 
   try {
-    const response = await retryWithBackoff(() => ai.models.generateContent({
+    const response = await retryWithBackoff(() => callAI({
       model: MODELS.ANALYZE,
       contents: [{ role: 'user', parts: [
         { inlineData: { mimeType, data: base64Data } },
@@ -1386,8 +1388,7 @@ export async function voiceAITutor(
   studentVoiceInput: string,
   conversationHistory: TutorMessage[] = []
 ): Promise<string> {
-  const ai = getAI();
-
+  
   const hasSolution =
     typeof detailedSolution === 'string' &&
     detailedSolution.trim().length > 0 &&
@@ -1434,7 +1435,7 @@ ${groundTruthSection}`;
 
   try {
     const response = await retryWithBackoff(async () => {
-      return ai.models.generateContent({
+      return callAI({
         model: MODELS.ANALYZE,
         contents: contents as any,
         config: {
@@ -1453,5 +1454,6 @@ ${groundTruthSection}`;
     return 'Thầy đang gặp trục trặc kết nối. Em thử lại sau giây lát nhé!';
   }
 }
+
 
 
