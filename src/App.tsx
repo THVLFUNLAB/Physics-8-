@@ -83,8 +83,7 @@ const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
 const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
 const AIChatLogsDashboard = lazy(() => import('./components/AIChatLogsDashboard'));
 
-// ── Mindmap Module (LOCAL ONLY — gated by env flag) ──
-const MINDMAP_ENABLED = import.meta.env.VITE_ENABLE_MINDMAP === 'true';
+// ── Mindmap Module ──
 const MindmapViewer = lazy(() => import('./modules/mindmap/MindmapContainer'));
 const MindmapAdminPanel = lazy(() => import('./modules/mindmap/MindmapAdminPanel'));
 
@@ -1549,11 +1548,11 @@ export default function App() {
               <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
             )}
 
-            {/* ══════ MINDMAP VIEWER (LOCAL ONLY) ══════ */}
-            {MINDMAP_ENABLED && activeView === 'mindmap' && (
+            {/* ══════ MINDMAP VIEWER ══════ */}
+            {activeView === 'mindmap' && (
               <LazyWrap><MindmapViewer user={user} /></LazyWrap>
             )}
-            {MINDMAP_ENABLED && activeView === 'MindmapAdmin' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
+            {activeView === 'MindmapAdmin' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
               <LazyWrap><MindmapAdminPanel user={user} /></LazyWrap>
             )}
 

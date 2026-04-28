@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-// ── Feature flag: Mindmap module chỉ hiện khi chạy local ──
-const MINDMAP_ENABLED = import.meta.env.VITE_ENABLE_MINDMAP === 'true';
+// ── Feature flag removed, mindmap is now available in production ──
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Home,
@@ -95,7 +94,7 @@ const adminMenuGroups: MenuGroup[] = [
     items: [
       { id: 'SimLab', label: 'Phòng Thí Nghiệm', icon: Beaker },
       { id: 'adaptive', label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
-      ...(MINDMAP_ENABLED ? [{ id: 'MindmapAdmin' as SidebarTab, label: 'Quản Lý Mindmap', icon: BrainCircuit }] : []),
+      { id: 'MindmapAdmin' as SidebarTab, label: 'Quản Lý Mindmap', icon: BrainCircuit },
     ],
   },
   {
@@ -198,7 +197,7 @@ const studentMenu: MenuItem[] = [
   { id: 'history', label: 'Lịch Sử Làm Bài', icon: History },
   { id: 'liveExam', label: 'Phòng Thi', icon: Radio },
   { id: 'adaptive', label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
-  ...(MINDMAP_ENABLED ? [{ id: 'mindmap' as SidebarTab, label: 'Sơ Đồ Tư Duy', icon: BrainCircuit }] : []),
+  { id: 'mindmap' as SidebarTab, label: 'Sơ Đồ Tư Duy', icon: BrainCircuit },
   { id: 'simulations', label: 'Phòng Thí Nghiệm', icon: Beaker },
 ];
 
