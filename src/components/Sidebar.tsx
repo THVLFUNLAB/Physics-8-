@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+
+// ── Feature flag: Mindmap module chỉ hiện khi chạy local ──
+const MINDMAP_ENABLED = import.meta.env.VITE_ENABLE_MINDMAP === 'true';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Home,
@@ -38,11 +41,11 @@ import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
 
 export type SidebarTab =
-  | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'simulations' // Student tabs
-  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD' | 'AIChats'; // Admin tabs
+  | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'mindmap' | 'simulations' // Student tabs
+  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD' | 'AIChats'; // Admin tabs
 
-export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'simulations'] as const;
-export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD', 'AIChats'] as const;
+export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'mindmap', 'simulations'] as const;
+export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD', 'AIChats'] as const;
 
 // ── Admin Menu Groups Data Structure ──────────────────────────────────────────
 interface MenuItem {
@@ -92,6 +95,7 @@ const adminMenuGroups: MenuGroup[] = [
     items: [
       { id: 'SimLab', label: 'Phòng Thí Nghiệm', icon: Beaker },
       { id: 'adaptive', label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
+      ...(MINDMAP_ENABLED ? [{ id: 'MindmapAdmin' as SidebarTab, label: 'Quản Lý Mindmap', icon: BrainCircuit }] : []),
     ],
   },
   {
@@ -194,6 +198,7 @@ const studentMenu: MenuItem[] = [
   { id: 'history', label: 'Lịch Sử Làm Bài', icon: History },
   { id: 'liveExam', label: 'Phòng Thi', icon: Radio },
   { id: 'adaptive', label: 'Lộ Trình Cá Nhân', icon: BrainCircuit },
+  ...(MINDMAP_ENABLED ? [{ id: 'mindmap' as SidebarTab, label: 'Sơ Đồ Tư Duy', icon: BrainCircuit }] : []),
   { id: 'simulations', label: 'Phòng Thí Nghiệm', icon: Beaker },
 ];
 

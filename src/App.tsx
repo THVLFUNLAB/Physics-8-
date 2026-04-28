@@ -83,6 +83,11 @@ const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
 const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
 const AIChatLogsDashboard = lazy(() => import('./components/AIChatLogsDashboard'));
 
+// ── Mindmap Module (LOCAL ONLY — gated by env flag) ──
+const MINDMAP_ENABLED = import.meta.env.VITE_ENABLE_MINDMAP === 'true';
+const MindmapViewer = lazy(() => import('./modules/mindmap/MindmapContainer'));
+const MindmapAdminPanel = lazy(() => import('./modules/mindmap/MindmapAdminPanel'));
+
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
 import { ResetNoticeModal } from './components/ResetNoticeModal';
@@ -179,8 +184,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats', 'RecalibScore'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats', 'RecalibScore'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Magic Link: đọc ?invite=<token> từ URL khi app khởi động ──
@@ -774,6 +779,7 @@ export default function App() {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.uid,
       testId: activeTest.topic,
+      examId: (activeTest as any).examId || (activeTest as any).id || undefined, // [FIX] Lưu examId để review lịch sử
       answers,
       score: totalScore,
       analysis: aiResult ?? null,
@@ -1020,21 +1026,66 @@ export default function App() {
       }
 
       let questions: Question[] = [];
-      // Fetch in chunks of 10
-      for (let i = 0; i < qIds.length; i += 10) {
-        const chunk = qIds.slice(i, i + 10);
-        const qQuery = query(collection(db, 'questions'), where('__name__', 'in', chunk));
-        const snap = await getDocs(qQuery);
-        questions.push(...snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+
+      // ── Chiến lược 1: Query từ collection 'questions' theo doc ID ──
+      try {
+        for (let i = 0; i < qIds.length; i += 10) {
+          const chunk = qIds.slice(i, i + 10);
+          const qQuery = query(collection(db, 'questions'), where('__name__', 'in', chunk));
+          const snap = await getDocs(qQuery);
+          questions.push(...snap.docs.map(d => ({ id: d.id, ...d.data() } as Question)));
+        }
+      } catch (queryErr) {
+        console.warn('[ReviewAttempt] Lỗi query questions collection:', queryErr);
+      }
+
+      // ── Chiến lược 2: Nếu thiếu quá nhiều câu → load từ exam document ──
+      if (questions.length < qIds.length * 0.5 && attempt.examId) {
+        try {
+          const examDoc = await getDoc(doc(db, 'exams', attempt.examId));
+          if (examDoc.exists()) {
+            const examData = examDoc.data() as Exam;
+            if (examData.questions && examData.questions.length > 0) {
+              // Dùng questions từ exam doc, ưu tiên hơn kết quả rỗng
+              questions = examData.questions.map((q, idx) => ({
+                ...q,
+                id: q.id || `exam_q_${idx}`,
+              }));
+              console.info(`[ReviewAttempt] ✅ Fallback: Load ${questions.length} câu từ exam/${attempt.examId}`);
+            }
+          }
+        } catch (examErr) {
+          console.warn('[ReviewAttempt] Lỗi load exam doc:', examErr);
+        }
+      }
+
+      // ── Chiến lược 3: Nếu vẫn rỗng → load exam theo testId (tìm theo title) ──
+      if (questions.length === 0) {
+        try {
+          const examQuery = query(collection(db, 'exams'), where('title', '==', attempt.testId));
+          const examSnap = await getDocs(examQuery);
+          if (!examSnap.empty) {
+            const examData = examSnap.docs[0].data() as Exam;
+            if (examData.questions && examData.questions.length > 0) {
+              questions = examData.questions.map((q, idx) => ({
+                ...q,
+                id: q.id || `exam_q_${idx}`,
+              }));
+              console.info(`[ReviewAttempt] ✅ Fallback 2: Load ${questions.length} câu từ exam title match`);
+            }
+          }
+        } catch (titleErr) {
+          console.warn('[ReviewAttempt] Lỗi query exam by title:', titleErr);
+        }
       }
 
       if (questions.length === 0) {
-        toast.error("Không thể tải chi tiết câu hỏi (có thể đã bị xóa khỏi hệ thống).");
+        toast.error("Không thể tải chi tiết câu hỏi. Đề thi có thể đã bị xóa khỏi hệ thống.");
         setLoading(false);
         return;
       }
 
-      questions.sort((a, b) => a.part - b.part);
+      questions.sort((a, b) => (a.part || 1) - (b.part || 1));
 
       setActiveTest({ topic: attempt.testId, questions });
       setResults(attempt);
@@ -1496,6 +1547,14 @@ export default function App() {
 
             {activeView === 'history' && (
               <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
+            )}
+
+            {/* ══════ MINDMAP VIEWER (LOCAL ONLY) ══════ */}
+            {MINDMAP_ENABLED && activeView === 'mindmap' && (
+              <LazyWrap><MindmapViewer user={user} /></LazyWrap>
+            )}
+            {MINDMAP_ENABLED && activeView === 'MindmapAdmin' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
+              <LazyWrap><MindmapAdminPanel user={user} /></LazyWrap>
             )}
 
             {(activeView === 'dashboard' || activeView === 'tasks') && (

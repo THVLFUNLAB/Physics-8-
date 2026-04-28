@@ -1,9 +1,38 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { History, Target, Calendar, Clock, ChevronRight } from 'lucide-react';
+import { History, Target, Calendar, Clock, ChevronRight, Hash } from 'lucide-react';
 import { Attempt } from '../types';
 
 export const HistoryDashboard = ({ attempts, onReviewAttempt }: { attempts: Attempt[]; onReviewAttempt: (attempt: Attempt) => void }) => {
+  // Safe score formatter
+  const formatScore = (score: any): string => {
+    const num = Number(score);
+    if (isNaN(num)) return '0.00';
+    return num.toFixed(2);
+  };
+
+  // Safe date formatter
+  const formatDate = (timestamp: any): string => {
+    try {
+      if (!timestamp?.seconds) return 'N/A';
+      return new Date(timestamp.seconds * 1000).toLocaleDateString('vi-VN');
+    } catch { return 'N/A'; }
+  };
+
+  const formatTime = (timestamp: any): string => {
+    try {
+      if (!timestamp?.seconds) return 'N/A';
+      return new Date(timestamp.seconds * 1000).toLocaleTimeString('vi-VN');
+    } catch { return 'N/A'; }
+  };
+
+  // Count answers from attempt
+  const getAnswerCount = (attempt: Attempt): number => {
+    try {
+      return Object.keys(attempt.answers || {}).length;
+    } catch { return 0; }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-500">
       <div className="relative overflow-hidden bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-6 sm:p-8 rounded-3xl shadow-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -15,57 +44,76 @@ export const HistoryDashboard = ({ attempts, onReviewAttempt }: { attempts: Atte
           </h2>
           <p className="text-slate-400 font-medium">Theo dõi tiến độ, xem lại kết quả và đúc rút bài học kinh nghiệm.</p>
         </div>
-        <div className="relative z-10 bg-slate-800/50 border border-slate-700 px-6 py-4 rounded-2xl flex flex-col items-center">
-          <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Tổng số lượt làm</span>
-          <span className="text-3xl font-black text-cyan-400">{attempts.length}</span>
+        <div className="relative z-10 flex gap-4">
+          <div className="bg-slate-800/50 border border-slate-700 px-6 py-4 rounded-2xl flex flex-col items-center">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Tổng lượt làm</span>
+            <span className="text-3xl font-black text-cyan-400">{attempts.length}</span>
+          </div>
+          {attempts.length > 0 && (
+            <div className="bg-slate-800/50 border border-slate-700 px-6 py-4 rounded-2xl flex flex-col items-center">
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Điểm TB</span>
+              <span className="text-3xl font-black text-emerald-400">
+                {(attempts.reduce((acc, a) => acc + (Number(a.score) || 0), 0) / attempts.length).toFixed(1)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {attempts.map((attempt, index) => (
-          <motion.div
-            key={attempt.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-            className="bg-slate-900 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col shadow-lg shadow-black/20 group"
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div className={`p-3 rounded-2xl ${attempt.score >= 8.0 ? 'bg-amber-500/10 text-amber-500' : attempt.score >= 6.0 ? 'bg-blue-500/10 text-blue-500' : 'bg-red-500/10 text-red-500'}`}>
-                <Target className="w-6 h-6" />
-              </div>
-              <div className="text-right">
-                <span className={`text-2xl font-black ${attempt.score >= 8.0 ? 'text-amber-500' : attempt.score >= 6.0 ? 'text-blue-500' : 'text-red-500'}`}>
-                  {attempt.score.toFixed(2)}
-                </span>
-                <span className="text-xs text-slate-500 font-bold ml-1">/ 10</span>
-              </div>
-            </div>
-            
-            <h3 className="text-lg font-bold text-white mb-4 line-clamp-2 min-h-[56px] leading-relaxed">
-              {attempt.testId || 'Đề kiểm tra'}
-            </h3>
-            
-            <div className="space-y-3 mb-6 bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50 flex-1">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 flex items-center gap-1.5 font-medium"><Calendar className="w-3.5 h-3.5" /> Ngày làm:</span>
-                <span className="text-slate-300 font-bold">{new Date(attempt.timestamp?.seconds * 1000).toLocaleDateString('vi-VN')}</span>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 flex items-center gap-1.5 font-medium"><Clock className="w-3.5 h-3.5" /> Thời gian:</span>
-                <span className="text-slate-300 font-bold">{new Date(attempt.timestamp?.seconds * 1000).toLocaleTimeString('vi-VN')}</span>
-              </div>
-            </div>
+        {attempts.map((attempt, index) => {
+          const score = Number(attempt.score) || 0;
+          const answerCount = getAnswerCount(attempt);
 
-            <button
-              onClick={() => onReviewAttempt(attempt)}
-              className="w-full bg-slate-800 hover:bg-cyan-600 text-white rounded-xl py-3.5 font-bold text-sm tracking-wide transition-all shadow-md group-hover:shadow-cyan-500/20 flex items-center justify-center gap-2"
+          return (
+            <motion.div
+              key={attempt.id || index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col shadow-lg shadow-black/20 group"
             >
-              Xem lại chi tiết
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </motion.div>
-        ))}
+              <div className="flex justify-between items-start mb-4">
+                <div className={`p-3 rounded-2xl ${score >= 8.0 ? 'bg-amber-500/10 text-amber-500' : score >= 6.0 ? 'bg-blue-500/10 text-blue-500' : 'bg-red-500/10 text-red-500'}`}>
+                  <Target className="w-6 h-6" />
+                </div>
+                <div className="text-right">
+                  <span className={`text-2xl font-black ${score >= 8.0 ? 'text-amber-500' : score >= 6.0 ? 'text-blue-500' : 'text-red-500'}`}>
+                    {formatScore(score)}
+                  </span>
+                  <span className="text-xs text-slate-500 font-bold ml-1">/ 10</span>
+                </div>
+              </div>
+              
+              <h3 className="text-lg font-bold text-white mb-4 line-clamp-2 min-h-[56px] leading-relaxed">
+                {attempt.testId || 'Đề kiểm tra'}
+              </h3>
+              
+              <div className="space-y-3 mb-6 bg-slate-950/50 p-4 rounded-2xl border border-slate-800/50 flex-1">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium"><Calendar className="w-3.5 h-3.5" /> Ngày làm:</span>
+                  <span className="text-slate-300 font-bold">{formatDate(attempt.timestamp)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium"><Clock className="w-3.5 h-3.5" /> Thời gian:</span>
+                  <span className="text-slate-300 font-bold">{formatTime(attempt.timestamp)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium"><Hash className="w-3.5 h-3.5" /> Số câu:</span>
+                  <span className="text-slate-300 font-bold">{answerCount} câu</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => onReviewAttempt(attempt)}
+                className="w-full bg-slate-800 hover:bg-cyan-600 text-white rounded-xl py-3.5 font-bold text-sm tracking-wide transition-all shadow-md group-hover:shadow-cyan-500/20 flex items-center justify-center gap-2"
+              >
+                Xem lại chi tiết
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </motion.div>
+          );
+        })}
 
         {attempts.length === 0 && (
           <div className="col-span-full py-20 text-center bg-slate-900 border border-slate-800 rounded-3xl">

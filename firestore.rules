@@ -316,5 +316,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 🧠 Module 10: Sơ Đồ Tư Duy Vật Lý (Mindmap)
+    // ═══════════════════════════════════════════════════════════════
+    match /mindmaps/{mindmapId} {
+      // Học sinh đã đăng nhập đọc được (lọc theo khối lớp ở client)
+      allow read: if isAuthenticated();
+      // Chỉ Admin được tạo/sửa/xóa mindmap
+      allow create, update, delete: if isAdmin();
+    }
+
   }
 }

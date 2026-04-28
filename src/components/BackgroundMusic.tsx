@@ -4,20 +4,9 @@ import { Volume2, VolumeX, Music, SkipForward, SkipBack, Play, Pause, ChevronRig
 import { cn } from '../lib/utils';
 
 // Danh sách Podcast mặc định. Đã được chuẩn hoá tên file không dấu để chống lỗi 404.
-export const DEFAULT_PLAYLIST = [
-  { title: "Cách áp dụng để ghi nhớ lâu", url: "/music/cach-ap-dung-e-ghi-nho-lau.m4a" },
-  { title: "10 phút để bạn học tập hiệu quả", url: "/music/10-phut-e-ban-hoc-tap-hieu-qua.m4a" },
-  { title: "Học đi rồi mai sau tự hào", url: "/music/hoc-i-roi-mai-sau-cau-se-tu-hao-ve-chinh-minh.m4a" },
-  { title: "Học và ôn thi đúng cách", url: "/music/hoc-va-on-thi-ung-cach-theo-phuong-phap-khoa-hoc.m4a" },
-  { title: "Nhạc thiền thư giãn mỗi ngày", url: "/music/nhac-thien-thu-gian-moi-ngay.m4a" },
-  { title: "Ôn thi hiệu quả", url: "/music/on-thi-hieu-qua-phuong-phap-khoa-hoc.m4a" },
-  { title: "Playlist nhạc chill lofi", url: "/music/playlist-nhac-chill-e-to-giup-cau.m4a" },
-  { title: "Tổng hợp nhạc Trung Hoa tạo động lực", url: "/music/tong-hop-nhac-trung-hoa-tao-ong-luc.m4a" },
-  { title: "Học tập khó khăn thế", url: "/music/hoc-tap-kho-khan-the.m4a" },
-  { title: "Chẳng lẽ gặp nghịch cảnh mới cố", url: "/music/chang-le-can-nghich-canh-moi-co-len.m4a" },
-  { title: "Nhạc quán Cafe Lofi", url: "/music/nhac-chill-quan-cafe-nhung-ca-khuc-lofi.m4a" },
-  { title: "Đường đến ngày vinh quang", url: "/music/duong_den_ngay_vinh_quang.mp3" },
-];
+// Playlist mặc định để trống — nhạc nền được cấu hình qua Firestore (metadata/exam_config.music_url)
+// hoặc thầy có thể thêm lại các bài từ Firebase Storage sau này.
+export const DEFAULT_PLAYLIST: { title: string; url: string }[] = [];
 
 export const BackgroundMusic = ({ className }: { className?: string }) => {
   const [playlist, setPlaylist] = useState(DEFAULT_PLAYLIST);

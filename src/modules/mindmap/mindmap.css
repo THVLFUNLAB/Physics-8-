@@ -1,0 +1,263 @@
+/* ═══════════════════════════════════════════════════════════════════
+ *  MINDMAP MODULE — CSS STYLES (LIGHT THEME)
+ *  Nền trắng sáng, dễ đọc, nội dung nổi bật
+ *  🔒 LOCAL ONLY — Độc quyền Thầy Hậu Vật lý
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* ══════ CONTENT PROTECTION ══════ */
+.mindmap-protected {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-drag: none !important;
+}
+
+.mindmap-protected img {
+  pointer-events: none !important;
+  -webkit-user-drag: none !important;
+  user-select: none !important;
+}
+
+@media print {
+  .mindmap-protected {
+    display: none !important;
+  }
+  body::after {
+    content: "⛔ NỘI DUNG BẢN QUYỀN — Không được phép in." !important;
+    display: block !important;
+    font-size: 40px !important;
+    text-align: center !important;
+    padding: 200px 40px !important;
+    color: red !important;
+  }
+}
+
+/* ══════ REACT FLOW — LIGHT THEME ══════ */
+.mindmap-canvas .react-flow__background {
+  background-color: #f8fafc !important;
+}
+
+.mindmap-canvas .react-flow__pane {
+  background-color: #f8fafc !important;
+}
+
+.mindmap-canvas .react-flow__minimap {
+  background-color: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+.mindmap-canvas .react-flow__minimap-mask {
+  fill: rgba(99, 102, 241, 0.08) !important;
+  stroke: rgba(99, 102, 241, 0.3) !important;
+  stroke-width: 1 !important;
+}
+
+.mindmap-canvas .react-flow__minimap-node {
+  fill: rgba(99, 102, 241, 0.5) !important;
+  stroke: none !important;
+}
+
+.mindmap-canvas .react-flow__controls {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08) !important;
+  overflow: hidden !important;
+}
+
+.mindmap-canvas .react-flow__controls-button {
+  background: #ffffff !important;
+  border: none !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  color: #64748b !important;
+  transition: all 0.2s ease !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.mindmap-canvas .react-flow__controls-button:hover {
+  background: #f1f5f9 !important;
+  color: #6366f1 !important;
+}
+
+.mindmap-canvas .react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.mindmap-canvas .react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+
+.mindmap-canvas .react-flow__attribution {
+  display: none !important;
+}
+
+/* ══════ EDGE STYLES ══════ */
+.mindmap-canvas .react-flow__edge-path {
+  stroke-dasharray: none !important;
+  animation: none !important;
+}
+
+/* ══════ NODE STYLES ══════ */
+.mindmap-physics-node {
+  font-family: "Inter", sans-serif;
+  transition: box-shadow 0.3s ease, transform 0.15s ease;
+}
+
+.mindmap-physics-node:hover {
+  z-index: 10;
+}
+
+/* ══════ KATEX IN NODES ══════ */
+.mindmap-katex-inline .katex {
+  font-size: 0.95em !important;
+  white-space: nowrap;
+}
+
+.mindmap-katex-block .katex {
+  font-size: 1.15em !important;
+  color: #92400e !important;
+}
+
+.mindmap-katex-block .katex-display {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* ══════ FOCUS MODE BACKDROP ══════ */
+.mindmap-focus-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+/* ══════ CHAPTER SELECTOR CARDS ══════ */
+.mindmap-chapter-card {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 20px 24px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.mindmap-chapter-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.04), transparent);
+  transition: left 0.6s ease;
+}
+
+.mindmap-chapter-card:hover {
+  border-color: #6366f1;
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+}
+
+.mindmap-chapter-card:hover::before {
+  left: 100%;
+}
+
+/* ══════ GRADE TAB BUTTONS ══════ */
+.mindmap-grade-tab {
+  padding: 10px 24px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border: 1.5px solid transparent;
+  text-transform: uppercase;
+}
+
+.mindmap-grade-tab[data-active="true"] {
+  color: white;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.mindmap-grade-tab[data-active="false"] {
+  color: #64748b;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.mindmap-grade-tab[data-active="false"]:hover {
+  color: #334155;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+/* ══════ ADMIN PANEL ══════ */
+.mindmap-json-textarea {
+  width: 100%;
+  min-height: 300px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1.5px solid rgba(100, 116, 139, 0.25);
+  border-radius: 16px;
+  padding: 20px;
+  color: #e2e8f0;
+  font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.mindmap-json-textarea:focus {
+  border-color: rgba(167, 139, 250, 0.5);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+}
+
+.mindmap-json-textarea::placeholder {
+  color: rgba(100, 116, 139, 0.5);
+}
+
+/* ══════ WATERMARK ══════ */
+.mindmap-watermark {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0.035;
+}
+
+.mindmap-watermark-text {
+  position: absolute;
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 900;
+  font-family: "Inter", sans-serif;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transform: rotate(-35deg);
+  user-select: none;
+}
+
+/* ══════ RESPONSIVE ══════ */
+@media (max-width: 767px) {
+  .mindmap-chapter-card {
+    padding: 16px 18px;
+  }
+  
+  .mindmap-grade-tab {
+    padding: 8px 16px;
+    font-size: 11px;
+  }
+}

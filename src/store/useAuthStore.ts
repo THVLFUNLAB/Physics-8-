@@ -165,7 +165,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             _aSub = onSnapshot(aQuery, async (snap) => {
               const sortedAttempts = snap.docs
                 .map(d => ({ id: d.id, ...d.data() } as Attempt))
-                .sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds);
+                .sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0));
               set({ attempts: sortedAttempts });
 
               // Daily reminder

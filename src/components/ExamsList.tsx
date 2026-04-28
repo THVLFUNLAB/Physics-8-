@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db, collection, onSnapshot, query, orderBy, limit } from '../firebase';
 import { Exam } from '../types';
-import { Play } from 'lucide-react';
+import { Play, ChevronDown, BookOpen, Zap, Brain, FlaskConical, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
@@ -11,14 +11,52 @@ interface ExamsListProps {
   gradeFilter?: number;
 }
 
+// ── Xác định nhóm và icon cho từng loại đề ──
+const getExamGroup = (exam: Exam): string => {
+  const type = exam.type || '';
+  const title = (exam.title || '').toLowerCase();
+
+  if (type === 'AI_Diagnosis') return 'Đề AI Chẩn Đoán';
+  if (type === 'Dynamic') return 'Đề Thích Ứng';
+  if (title.includes('kiểm tra') || title.includes('kiem tra')) return 'Kiểm Tra';
+  if (title.includes('thpt') || title.includes('tốt nghiệp')) return 'Luyện Thi THPT';
+  if (title.includes('chương') || title.includes('chuong')) return 'Ôn Tập Chương';
+  if (type === 'Matrix') return 'Đề Ma Trận';
+  if (type === 'Digitized') return 'Đề Số Hóa';
+  return 'Bài Kiểm Tra';
+};
+
+const groupIcons: Record<string, React.ElementType> = {
+  'Đề AI Chẩn Đoán': Brain,
+  'Đề Thích Ứng': Zap,
+  'Kiểm Tra': FileText,
+  'Luyện Thi THPT': BookOpen,
+  'Ôn Tập Chương': FlaskConical,
+  'Đề Ma Trận': FileText,
+  'Đề Số Hóa': FileText,
+  'Bài Kiểm Tra': FileText,
+};
+
+const groupColors: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+  'Đề AI Chẩn Đoán': { bg: 'bg-fuchsia-500/5', border: 'border-fuchsia-500/20', text: 'text-fuchsia-400', badge: 'bg-fuchsia-500' },
+  'Đề Thích Ứng': { bg: 'bg-cyan-500/5', border: 'border-cyan-500/20', text: 'text-cyan-400', badge: 'bg-cyan-500' },
+  'Kiểm Tra': { bg: 'bg-red-500/5', border: 'border-red-500/20', text: 'text-red-400', badge: 'bg-red-500' },
+  'Luyện Thi THPT': { bg: 'bg-amber-500/5', border: 'border-amber-500/20', text: 'text-amber-400', badge: 'bg-amber-500' },
+  'Ôn Tập Chương': { bg: 'bg-emerald-500/5', border: 'border-emerald-500/20', text: 'text-emerald-400', badge: 'bg-emerald-500' },
+  'Đề Ma Trận': { bg: 'bg-blue-500/5', border: 'border-blue-500/20', text: 'text-blue-400', badge: 'bg-blue-500' },
+  'Đề Số Hóa': { bg: 'bg-violet-500/5', border: 'border-violet-500/20', text: 'text-violet-400', badge: 'bg-violet-500' },
+  'Bài Kiểm Tra': { bg: 'bg-slate-500/5', border: 'border-slate-500/20', text: 'text-slate-400', badge: 'bg-slate-500' },
+};
+
 export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }) => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGradeFilter, setSelectedGradeFilter] = useState<number | null>(gradeFilter ?? null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // Listen for exams in realtime, ordered by creation time
-    const q = query(collection(db, 'exams'), orderBy('createdAt', 'desc'), limit(30));
+    const q = query(collection(db, 'exams'), orderBy('createdAt', 'desc'), limit(50));
     const unsub = onSnapshot(q, (snapshot) => {
       const fetchedExams: Exam[] = [];
       snapshot.forEach(doc => {
@@ -43,6 +81,34 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
   const filteredExams = activeFilter 
     ? exams.filter(e => e.targetGrade === activeFilter)
     : exams;
+
+  // Nhóm exams theo loại
+  const groupedExams = useMemo(() => {
+    const groups: Record<string, Exam[]> = {};
+    for (const exam of filteredExams) {
+      const group = getExamGroup(exam);
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(exam);
+    }
+    return groups;
+  }, [filteredExams]);
+
+  const toggleGroup = (group: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
+
+  // Auto-expand first group on initial load
+  useEffect(() => {
+    const groups = Object.keys(groupedExams);
+    if (groups.length > 0 && expandedGroups.size === 0) {
+      setExpandedGroups(new Set([groups[0]]));
+    }
+  }, [groupedExams]);
 
   return (
     <div className="mt-16 space-y-8 relative z-10 w-full">
@@ -79,9 +145,9 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
       </div>
 
       {loading ? (
-        <div className="flex gap-6 overflow-x-auto pb-4">
+        <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="min-w-[280px] sm:min-w-[320px] h-48 bg-slate-900 border border-slate-800 rounded-3xl animate-pulse" />
+            <div key={i} className="h-16 bg-slate-900 border border-slate-800 rounded-2xl animate-pulse" />
           ))}
         </div>
       ) : filteredExams.length === 0 ? (
@@ -89,62 +155,130 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
           Chưa có bài kiểm tra nào được phát hành cho khối này.
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-6">
-          <AnimatePresence>
-            {filteredExams.map((exam, i) => (
-              <motion.div
-                key={exam.id || i}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: i * 0.1 }}
-                className="bg-slate-900/80 border border-slate-800 hover:border-red-600/50 p-6 rounded-3xl group transition-all duration-300 relative overflow-hidden flex flex-col"
-              >
-                {/* Status Badge */}
-                <div className="absolute top-0 right-0 bg-red-600 text-[10px] font-black text-white px-3 py-1 rounded-bl-xl uppercase tracking-widest z-10">
-                  {i === 0 ? 'Mới nhất' : 'Sẵn sàng'}
-                </div>
-                
-                {/* Background flare */}
-                <div className="absolute -inset-20 bg-gradient-to-br from-red-600/5 to-transparent blur-2xl opacity-0 group-hover:opacity-100 transition-opacity z-0" />
+        <div className="space-y-4">
+          {Object.entries(groupedExams).map(([groupName, groupExams]) => {
+            const isExpanded = expandedGroups.has(groupName);
+            const Icon = groupIcons[groupName] || FileText;
+            const colors = groupColors[groupName] || groupColors['Bài Kiểm Tra'];
 
-                <div className="relative z-10 flex-1 flex flex-col">
-                  <h4 className="text-lg font-black text-white mb-4 line-clamp-2 uppercase">
-                    {exam.title || exam.type || 'ĐỀ KIỂM TRA'}
-                  </h4>
-                  <div className="space-y-2 mb-6 flex-1">
-                    <p className="text-xs text-slate-400 font-bold flex items-center justify-between">
-                      <span className="uppercase text-slate-500">Thời gian:</span>
-                      <span className="text-white">50 phút</span>
-                    </p>
-                    <p className="text-xs text-slate-400 font-bold flex items-center justify-between">
-                      <span className="uppercase text-slate-500">Số câu hỏi:</span>
-                      <span className="text-white">{exam.questions?.length || 0} câu</span>
-                    </p>
-                    {exam.targetGrade && (
-                      <p className="text-xs font-bold flex items-center justify-between">
-                        <span className="uppercase text-slate-500">Khối lớp:</span>
-                        <span className="text-yellow-400">Khối {exam.targetGrade}</span>
+            return (
+              <div key={groupName} className={cn(
+                "rounded-2xl border overflow-hidden transition-all duration-300",
+                isExpanded ? colors.border : "border-slate-800",
+                isExpanded ? colors.bg : "bg-slate-900/60"
+              )}>
+                {/* Accordion Header */}
+                <button
+                  onClick={() => toggleGroup(groupName)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-5 py-4 transition-all group/header",
+                    "hover:bg-white/[0.02]"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center border transition-colors",
+                      isExpanded ? `${colors.bg} ${colors.border}` : "bg-slate-800/80 border-slate-700"
+                    )}>
+                      <Icon className={cn("w-5 h-5", isExpanded ? colors.text : "text-slate-500")} />
+                    </div>
+                    <div className="text-left">
+                      <h4 className={cn(
+                        "font-black text-sm uppercase tracking-wider transition-colors",
+                        isExpanded ? "text-white" : "text-slate-300"
+                      )}>
+                        {groupName}
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                        {groupExams.length} đề
                       </p>
-                    )}
-                    {exam.type && (
-                      <p className="text-xs text-slate-400 font-bold flex items-center justify-between">
-                        <span className="uppercase text-slate-500">Loại đề:</span>
-                        <span className="text-cyan-400">{exam.type}</span>
-                      </p>
-                    )}
+                    </div>
                   </div>
-                  
-                  <button 
-                    onClick={() => onStartExam(exam)}
-                    className="w-full bg-slate-950 border border-slate-800 hover:bg-red-600 hover:border-red-500 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 group-hover:shadow-red-600/20 whitespace-nowrap"
-                  >
-                    Bắt đầu làm bài <Play className="w-4 h-4 fill-current shrink-0" />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-black text-white",
+                      colors.badge
+                    )}>
+                      {groupExams.length}
+                    </span>
+                    <ChevronDown className={cn(
+                      "w-5 h-5 text-slate-500 transition-transform duration-300",
+                      isExpanded && "rotate-180"
+                    )} />
+                  </div>
+                </button>
+
+                {/* Accordion Content */}
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: [0.04, 0.62, 0.23, 0.98] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-3 pb-3 space-y-1.5">
+                        {groupExams.map((exam, i) => (
+                          <motion.div
+                            key={exam.id || i}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.03 }}
+                            className={cn(
+                              "flex items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-all group/item cursor-pointer",
+                              "bg-slate-950/50 border-slate-800/60 hover:border-slate-600 hover:bg-slate-900/80"
+                            )}
+                            onClick={() => onStartExam(exam)}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              {/* Index Badge */}
+                              <span className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0">
+                                {i + 1}
+                              </span>
+                              {/* Title + Meta */}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-slate-200 truncate group-hover/item:text-white transition-colors">
+                                  {exam.title || exam.type || 'ĐỀ KIỂM TRA'}
+                                </p>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  <span className="text-[10px] text-slate-500 font-bold">
+                                    {exam.questions?.length || 0} câu
+                                  </span>
+                                  {exam.targetGrade && (
+                                    <span className="text-[10px] text-yellow-500/80 font-bold">
+                                      Khối {exam.targetGrade}
+                                    </span>
+                                  )}
+                                  {i === 0 && (
+                                    <span className="text-[9px] font-black text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                      Mới
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {/* CTA */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onStartExam(exam); }}
+                              className={cn(
+                                "shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                "bg-slate-800 border border-slate-700 text-slate-300",
+                                "hover:bg-red-600 hover:border-red-500 hover:text-white hover:shadow-lg hover:shadow-red-600/20"
+                              )}
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span className="hidden sm:inline">Làm bài</span>
+                            </button>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
