@@ -22,7 +22,7 @@ import '@xyflow/react/dist/style.css';
 import './mindmap.css';
 
 import { motion, AnimatePresence } from 'motion/react';
-import { BrainCircuit, ChevronLeft, Lock, Maximize2, Minimize2 } from 'lucide-react';
+import { BrainCircuit, ChevronLeft, Lock, Maximize2, Minimize2, ZoomIn, ZoomOut, Crosshair } from 'lucide-react';
 
 import PhysicsNode from './PhysicsNode';
 import { useMindmapStore } from './useMindmapStore';
@@ -88,7 +88,14 @@ const MindmapCanvas: React.FC<{
   chapter: MindmapChapter;
   onBack: () => void;
 }> = ({ chapter, onBack }) => {
-  const { fitView } = useReactFlow();
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // ── Collapsible state: which nodes are "open" ──
   // Initially only root is expanded → shows root + its direct children
@@ -211,9 +218,61 @@ const MindmapCanvas: React.FC<{
         </div>
       </div>
 
-      {/* Hint (bottom center) */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-slate-200 text-slate-400 text-[10px] font-medium shadow-sm pointer-events-none">
+      {/* Desktop Hint (bottom center) - ẩn trên mobile để không chồng lên mobile hint */}
+      <div className="hidden md:block absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-slate-200 text-slate-400 text-[10px] font-medium shadow-sm pointer-events-none">
         💡 Click vào nhánh để mở rộng • Click lại để thu gọn
+      </div>
+
+      {/* ── Mobile Virtual Controls ──
+           Hiển ở bottom-right trên mobile, ẩn trên desktop (màn hình lớn). */}
+      <div
+        className="md:hidden absolute bottom-14 right-3 z-20 flex flex-col gap-2"
+        style={{ pointerEvents: 'auto' }}
+      >
+        {/* Zoom In */}
+        <motion.button
+          whileTap={{ scale: 0.88 }}
+          onClick={() => zoomIn({ duration: 300 })}
+          className="w-11 h-11 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-lg flex items-center justify-center text-slate-700 active:bg-slate-100 transition-colors"
+          aria-label="Zoom In"
+        >
+          <ZoomIn size={18} />
+        </motion.button>
+
+        {/* Zoom Out */}
+        <motion.button
+          whileTap={{ scale: 0.88 }}
+          onClick={() => zoomOut({ duration: 300 })}
+          className="w-11 h-11 rounded-2xl bg-white/95 backdrop-blur-md border border-slate-200 shadow-lg flex items-center justify-center text-slate-700 active:bg-slate-100 transition-colors"
+          aria-label="Zoom Out"
+        >
+          <ZoomOut size={18} />
+        </motion.button>
+
+        {/* Reset / Fit View */}
+        <motion.button
+          whileTap={{ scale: 0.88 }}
+          onClick={() => fitView({ padding: 0.3, duration: 400 })}
+          className="w-11 h-11 rounded-2xl bg-indigo-600/90 backdrop-blur-md border border-indigo-400/40 shadow-lg shadow-indigo-500/30 flex items-center justify-center text-white active:bg-indigo-700 transition-colors"
+          aria-label="Reset View"
+        >
+          <Crosshair size={18} />
+        </motion.button>
+
+        {/* Expand / Collapse All (shortcut for mobile) */}
+        <motion.button
+          whileTap={{ scale: 0.88 }}
+          onClick={allExpanded ? collapseAll : expandAll}
+          className="w-11 h-11 rounded-2xl bg-fuchsia-600/90 backdrop-blur-md border border-fuchsia-400/40 shadow-lg shadow-fuchsia-500/30 flex items-center justify-center text-white active:bg-fuchsia-700 transition-colors"
+          aria-label={allExpanded ? 'Thu gọn tất cả' : 'Mở rộng tất cả'}
+        >
+          {allExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </motion.button>
+      </div>
+
+      {/* Mobile hint */}
+      <div className="md:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-slate-200 text-slate-400 text-[10px] font-medium shadow-sm pointer-events-none">
+        👆 1 ngón để cuộn • 2 ngón để zoom • Nút bên phải để điều hướng
       </div>
 
       <ReactFlow
@@ -224,23 +283,27 @@ const MindmapCanvas: React.FC<{
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        minZoom={0.15}
+        minZoom={0.1}
         maxZoom={2.5}
         proOptions={{ hideAttribution: true }}
         className="mindmap-canvas"
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={true}
-        panOnScroll
-        zoomOnPinch
+        panOnScroll={!isMobile}       // desktop: scroll = pan
+        zoomOnPinch                    // mobile: 2-finger zoom always on
+        panOnDrag={[1, 2]}            // left-click or touch drag = pan
+        zoomOnScroll={!isMobile}      // mobile: dùng nút thay vì scroll zoom
+        zoomActivationKeyCode={null}  // bỏ "Ctrl+scroll" requirement
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#cbd5e1" />
-        <Controls showInteractive={false} />
+        {/* Ẩn Controls mặc định trên mobile vì có panel riêng */}
+        {!isMobile && <Controls showInteractive={false} />}
         <MiniMap
           nodeStrokeWidth={3}
           pannable
           zoomable
-          style={{ width: 140, height: 90 }}
+          style={{ width: isMobile ? 100 : 140, height: isMobile ? 65 : 90 }}
         />
       </ReactFlow>
     </div>

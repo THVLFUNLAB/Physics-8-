@@ -43,6 +43,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import { ConfettiCelebration } from './components/ConfettiCelebration';
 import { SimulationModal } from './components/SimulationModal';
 import { UpgradeModal } from './components/UpgradeModal';
+import { AuthErrorBoundary } from './components/AuthErrorBoundary';
 import { PerformanceChart } from './components/charts/PerformanceChart';
 import { TopicCard } from './components/TopicCard';
 import { SkeletonNumber } from './components/SkeletonLoader';
@@ -1149,6 +1150,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex flex-col md:flex-row relative">
       <ToastProvider />
+      <AuthErrorBoundary />
       {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
       <ConfettiCelebration show={showConfetti} onComplete={() => setShowConfetti(false)} />
 

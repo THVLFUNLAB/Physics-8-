@@ -5,11 +5,13 @@ interface AuthState {
   user: UserProfile | null;
   loading: boolean;
   authError: string | null;
+  isOffline: boolean;     // ← NEW: theo dõi trạng thái mạng
   attempts: Attempt[];
 
   setUser: (user: UserProfile | null) => void;
   setLoading: (loading: boolean) => void;
   setAuthError: (error: string | null) => void;
+  setIsOffline: (v: boolean) => void;
   setAttempts: (attempts: Attempt[]) => void;
 
   // ── Khởi động listener Firebase Auth — gọi 1 lần duy nhất ở App.tsx ──
@@ -19,16 +21,19 @@ interface AuthState {
 // Giữ unsubscribe refs ngoài store để tránh lưu functions vào Zustand state
 let _uSub: (() => void) | null = null;
 let _aSub: (() => void) | null = null;
+let _tokenRefreshInterval: ReturnType<typeof setInterval> | null = null; // ← NEW
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: true,
   authError: null,
+  isOffline: false,
   attempts: [],
 
   setUser: (user) => set({ user }),
   setLoading: (loading) => set({ loading }),
   setAuthError: (authError) => set({ authError }),
+  setIsOffline: (isOffline) => set({ isOffline }),
   setAttempts: (attempts) => set({ attempts }),
 
   initializeAuth: () => {
@@ -217,12 +222,63 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     // Chạy async, trả về cleanup function đồng bộ
     let cleanupFn: (() => void) | null = null;
-    runListener().then((unsub) => { cleanupFn = unsub; });
+
+    // ── Periodic Token Refresh (every 55 minutes) ──
+    const startTokenRefresh = async () => {
+      const { auth } = await import('../firebase');
+      if (_tokenRefreshInterval) clearInterval(_tokenRefreshInterval);
+      _tokenRefreshInterval = setInterval(async () => {
+        try {
+          const currentUser = auth.currentUser;
+          if (currentUser) {
+            await currentUser.getIdToken(true); // force refresh
+            console.info('[Auth] ✅ Token tự động làm mới thành công');
+          }
+        } catch (err) {
+          console.warn('[Auth] ⚠️ Không thể refresh token:', err);
+        }
+      }, 55 * 60 * 1000); // 55 phút
+    };
+
+    // ── Network Reconnect → Force Token Refresh ──
+    const handleOnline = async () => {
+      set({ isOffline: false, authError: null });
+      console.info('[Auth] 🌐 Mạng trở lại — đang làm mới xác thực...');
+      try {
+        const { auth } = await import('../firebase');
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await currentUser.getIdToken(true);
+          console.info('[Auth] ✅ Token đã làm mới sau khi có mạng lại');
+        }
+      } catch (err) {
+        console.warn('[Auth] ⚠️ Lỗi refresh token sau khi online:', err);
+      }
+    };
+
+    const handleOffline = () => {
+      set({ isOffline: true });
+      console.info('[Auth] 📴 Mất kết nối mạng');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Kiểm tra trạng thái mạng ngay lúc khởi động
+    if (!navigator.onLine) set({ isOffline: true });
+
+    runListener().then((unsub) => {
+      cleanupFn = unsub;
+      startTokenRefresh(); // Bắt đầu chu kỳ refresh token sau khi auth listener sẵn sàng
+    });
 
     return () => {
       if (cleanupFn) cleanupFn();
       if (_uSub) { _uSub(); _uSub = null; }
       if (_aSub) { _aSub(); _aSub = null; }
+      if (_tokenRefreshInterval) { clearInterval(_tokenRefreshInterval); _tokenRefreshInterval = null; }
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   },
 }));
