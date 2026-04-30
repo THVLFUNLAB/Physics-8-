@@ -588,7 +588,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
             )}
             {!user?.photoURL && <div className={cn("absolute inset-0 opacity-20 bg-current", accent.hex)} />}
           </div>
-          <div className="flex flex-col justify-center truncate relative z-10 w-[120px] sm:w-[250px] md:w-[350px]">
+          <div className="flex flex-col justify-center truncate relative z-10 flex-1 min-w-0 sm:w-[250px] md:w-[350px]">
              <div className="flex items-center gap-2">
                <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase tracking-wider">
                  {user?.tier === 'vip' ? '🔥 VIP' : 'Chiến binh'}
