@@ -99,7 +99,7 @@ const TimeBox = ({ label, value, color }: { label: string, value: number, color:
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className={`
-        w-[3.5rem] h-[4.5rem] sm:w-20 sm:h-24 md:w-28 md:h-32
+        flex-1 min-w-[3rem] max-w-[7rem] aspect-[3/4]
         rounded-xl md:rounded-3xl flex items-center justify-center
         ${styles.bg} border ${styles.border}
         backdrop-blur-md relative overflow-hidden
@@ -111,13 +111,13 @@ const TimeBox = ({ label, value, color }: { label: string, value: number, color:
         {/* Scanline effect */}
         <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.03)_2px,rgba(0,0,0,0.03)_4px)] pointer-events-none" />
         <span
-          className={`text-4xl sm:text-5xl md:text-7xl font-black ${styles.text} font-mono tracking-tighter relative z-10`}
-          style={{ textShadow: styles.shadow }}
+          className={`font-black ${styles.text} font-mono tracking-tighter relative z-10 leading-none`}
+          style={{ textShadow: styles.shadow, fontSize: 'clamp(1.5rem, 5vw + 0.5rem, 4.5rem)' }}
         >
           {value.toString().padStart(2, '0')}
         </span>
       </div>
-      <span className={`text-[9px] sm:text-[11px] font-black uppercase tracking-[0.2em] ${styles.text} opacity-80`}>{label}</span>
+      <span className={`text-[9px] sm:text-[11px] font-black uppercase tracking-[0.2em] ${styles.text} opacity-80 mt-2`}>{label}</span>
     </div>
   );
 };
