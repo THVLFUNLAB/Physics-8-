@@ -60,7 +60,6 @@ import QuestionBank from './components/QuestionBank';
 import ExamGenerator from './components/ExamGenerator';
 import { DuplicateReviewHubWrapper } from './components/DuplicateReviewHubWrapper';
 import { ReviewExam } from './components/ReviewExam';
-import { ReviewExam } from './components/ReviewExam';
 import { ProExamExperience } from './components/ProExamExperience';
 import { HistoryDashboard } from './components/HistoryDashboard';
 import { InvitePage } from './components/InvitePage';
@@ -1701,3 +1700,4 @@ export default function App() {
     </div>
   );
 }
+
