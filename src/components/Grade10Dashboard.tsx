@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Rocket, Target, Star, BrainCircuit, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { getYCCDByGrade } from '../data/yccdData';
@@ -164,7 +164,7 @@ function MasteryRadarChart() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function $([0] -replace 'export default function ',''-replace '\(\{.*','')({ user, onStartPrescription, onStartExam, onDownloadPDF }: ) {
+export default function Grade10Dashboard({ user, onStartPrescription, onStartExam, onDownloadPDF }: Grade10DashboardProps) {
   // [FIX] Lift accordion state lên parent để tránh mất state khi YCCDTopicSection
   // bị re-render bởi scroll event trong container overflow-y-auto
   const [openTopics, setOpenTopics] = useState<Record<string, boolean>>({});
