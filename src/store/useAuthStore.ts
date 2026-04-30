@@ -115,7 +115,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
                 streak: 1,
                 lastStreakDate: today,
                 usedAttempts: 0,
-                maxAttempts: 30,
+                maxAttempts: 20,
                 learningPath: {
                   completedTopics: [],
                   topicProgress: {},

@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Rocket, Target, Clock, Star, AlertTriangle, BrainCircuit, Play, Settings } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { TopicCard } from './TopicCard';
 import { ExamsList } from './ExamsList';
-import { Topic, Exam } from '../types';
+import { Topic, Exam, UserProfile } from '../types';
+import { UserRankCard } from './UserRankCard';
+import { GradeLeaderboard } from './GradeLeaderboard';
 
 // ═══════════════════════════════════════════
 //  Định nghĩa Topics chính thức của Lớp 12
@@ -17,6 +19,7 @@ const GRADE_12_TOPICS: { topic: Topic; displayName: string; color: string }[] = 
 
 // ═══ Props Interface ═══
 interface Grade12DashboardProps {
+  user?: UserProfile;
   onStartPrescription?: (topic: Topic, examId: string) => void;
   onStartExam?: (exam: Exam) => void;
   onDownloadPDF?: (exam: Exam) => void;
@@ -189,11 +192,17 @@ function DailyQuestBoard() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function Grade12Dashboard({ onStartPrescription, onStartExam, onDownloadPDF }: Grade12DashboardProps) {
+export default function Grade12Dashboard({ user, onStartPrescription, onStartExam, onDownloadPDF }: Grade12DashboardProps) {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in duration-500">
       {/* ── Hero Countdown (giữ nguyên) ── */}
-      <HeroCountdown />
+      <HeroCountdown />      {/* ── Bảng Xếp Hạng & Cá Nhân ── */}
+      {user && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <UserRankCard user={user} />
+          <GradeLeaderboard currentUser={user} />
+        </div>
+      )}
 
       {/* ── Năng lực + Lệnh triệu tập ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">

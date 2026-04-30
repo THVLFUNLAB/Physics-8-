@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+﻿// ═══════════════════════════════════════════════════════════════════════
 //  App.tsx — PURE ROUTING & ORCHESTRATION (Post-Refactor)
 //  Tất cả UI components đã được tách ra /components & /layouts
 //  File này CHỉ chứa: State, Auth, Effects, Routing Logic
@@ -79,7 +79,7 @@ const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationT
 const ScoreRecalibrationTool = lazy(() => import('./components/ScoreRecalibrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
-const SimulationViewer: React.FC<{simulation: Simulation, onClose: () => void}> = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default }))) as any;
+const SimulationViewer: React.FC<{ simulation: Simulation, onClose: () => void }> = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default }))) as any;
 const AICampaignManager = lazy(() => import('./components/AICampaignManager'));
 const YCCDAutoTagger = lazy(() => import('./components/YCCDAutoTagger'));
 const StudentViewSimulator = lazy(() => import('./components/StudentViewSimulator'));
@@ -380,7 +380,7 @@ export default function App() {
     const pageWidth = pdfDoc.internal.pageSize.getWidth();
     const pageHeight = pdfDoc.internal.pageSize.getHeight();
     const marginBottom = 20;
-    
+
     pdfDoc.setFontSize(10);
     pdfDoc.text("SỞ GIÁO DỤC VÀ ĐÀO TẠO", 20, 20);
     pdfDoc.text("TRƯỜNG THPT CHUYÊN PHYS-9+", 20, 25);
@@ -393,7 +393,7 @@ export default function App() {
     pdfDoc.setFont("helvetica", "normal");
     pdfDoc.text("Thời gian làm bài: 50 phút, không kể thời gian phát đề", pageWidth / 2, 58, { align: "center" });
     pdfDoc.line(20, 65, pageWidth - 20, 65);
-    
+
     let y = 75;
 
     const estimateQuestionHeight = (q: Question, label: string): number => {
@@ -455,7 +455,7 @@ export default function App() {
         if (Array.isArray(block)) {
           const clusterTag = block[0]?.tags?.find((t: string) => t.startsWith('__cluster_context:'));
           const sharedCtx = clusterTag?.replace('__cluster_context:', '');
-          
+
           let totalHeight = 0;
           if (sharedCtx) {
             const ctxText = sharedCtx.replace(/\$|\$\$/g, '').replace(/<[^>]*>/g, '');
@@ -497,7 +497,15 @@ export default function App() {
     idx = renderPart("PHẦN II. Câu trắc nghiệm Đúng/Sai.", exam.questions.filter(q => q.part === 2), idx);
     renderPart("PHẦN III. Câu trắc nghiệm trả lời ngắn.", exam.questions.filter(q => q.part === 3), idx);
 
-    const safeTitle = (exam.title || 'De_Thi').replace(/[\/\\:*?"<>|]/g, '-');
+    // Normalize: bo dau tieng Viet -> ASCII de browser nhan dung filename (jsPDF khong ho tro Unicode filename)
+    const normalizeVN = (str: string) => str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\u0111/g, 'd').replace(/\u0110/g, 'D')
+      .replace(/[^a-zA-Z0-9\s\-_.]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const safeTitle = normalizeVN(exam.title || 'De_Thi') || 'De_Thi';
     pdfDoc.save(`${safeTitle}.pdf`);
   };
 
@@ -550,7 +558,7 @@ export default function App() {
     // [FIX] Guard chống click nhiều lần: nếu đang trong quá trình khởi tạo bài thì bỏ qua
     if (isStartingExam) return;
     setIsStartingExam(true);
-    
+
     // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
     try {
       const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
@@ -570,7 +578,7 @@ export default function App() {
     // ---------------------------------
 
     setLoading(true);
-    
+
     try {
 
       const savedSession = localStorage.getItem(SESSION_KEY);
@@ -598,9 +606,9 @@ export default function App() {
             setLoading(false);
             return;
           }
-          
+
           const publishedQuestions = examData.questions.filter(q => (q.status || 'published') === 'published');
-          
+
           if (publishedQuestions.length === 0) {
             toast.error("Đề thi này chưa có câu hỏi nào được duyệt. Bạn vui lòng chọn đề khác.");
             setLoading(false);
@@ -625,11 +633,11 @@ export default function App() {
         const qQuery = query(qRef, where('topic', '==', topic));
         snapshot = await getDocs(qQuery);
       }
-      
+
       let allQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
 
       const shuffle = (array: any[]) => array.sort(() => Math.random() - 0.5);
-      
+
       const categorize = (qs: Question[]) => {
         const buckets: Record<number, { NB: Question[], TH: Question[], VD: Question[] }> = {
           1: { NB: [], TH: [], VD: [] },
@@ -649,9 +657,9 @@ export default function App() {
 
       const buckets = categorize(shuffle(allQuestions));
 
-      const pick = (part: 1|2|3, expectedNb: number, expectedTh: number, expectedVd: number, total: number) => {
+      const pick = (part: 1 | 2 | 3, expectedNb: number, expectedTh: number, expectedVd: number, total: number) => {
         const result: Question[] = [];
-        const take = (cat: 'NB'|'TH'|'VD', count: number) => {
+        const take = (cat: 'NB' | 'TH' | 'VD', count: number) => {
           const taken = buckets[part][cat].splice(0, count);
           result.push(...taken);
         };
@@ -783,7 +791,7 @@ export default function App() {
     // Lớp 12: Part 3 = 0.25đ/câu | Lớp 10-11: Part 3 = 0.5đ/câu
     const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
     const part3ScorePerQuestion = gradeNumber <= 11 ? 0.5 : 0.25;
-    
+
     let totalScore = 0;
     const normalizeDecimal = (v: any) => parseFloat(String(v ?? '0').replace(',', '.'));
     const newFailedQuestionIds = new Set(user.failedQuestionIds || []);
@@ -813,10 +821,10 @@ export default function App() {
             correctSubCount++;
           }
         }
-        if (correctSubCount === totalSubItems)    totalScore += 1.0;
+        if (correctSubCount === totalSubItems) totalScore += 1.0;
         else if (correctSubCount === totalSubItems - 1) totalScore += 0.5;
         else if (correctSubCount === totalSubItems - 2) totalScore += 0.25;
-        else if (correctSubCount === 1)                 totalScore += 0.1;
+        else if (correctSubCount === 1) totalScore += 0.1;
         // 0 ý đúng = 0đ
         isCorrect = correctSubCount === totalSubItems; // Chỉ "đúng" hoàn toàn mới tính pass SM-2
       } else if (q.part === 3) {
@@ -826,20 +834,20 @@ export default function App() {
         isCorrect = !isNaN(studentVal) && Math.abs(studentVal - correctVal) < 0.01;
         if (isCorrect) totalScore += part3ScorePerQuestion;
       }
-      
+
       if (q.id) {
         sm2Evaluations.push({ questionId: q.id, isCorrect, topic: q.topic });
         // Ghi vào scoredQuestions cho profileUpdater
         scoredQuestions.push({ questionId: q.id, topic: q.topic ?? '', isCorrect });
-        if (!isCorrect) { 
-          newFailedQuestionIds.add(q.id); 
+        if (!isCorrect) {
+          newFailedQuestionIds.add(q.id);
           const isSkipped = studentAns === undefined || studentAns === '' || (Array.isArray(studentAns) && studentAns.length === 0);
           if (isSkipped) {
             skippedRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false });
           } else {
             incorrectRecords.push({ question: q, studentAnswer: studentAns, isCorrect: false });
           }
-        } else { 
+        } else {
           newFailedQuestionIds.delete(q.id);
           correctQuestionIds.push(q.id); // Gom ID đã đúng để pop
         }
@@ -871,7 +879,7 @@ export default function App() {
 
     try {
       await addDoc(collection(db, 'attempts'), attempt);
-      
+
       const updatedUser = { ...user };
       const newBadges: Badge[] = [...(user.badges || [])];
       const newNotifications: AppNotification[] = [...(user.notifications || [])];
@@ -889,7 +897,7 @@ export default function App() {
       updatedUser.badges = newBadges;
       updatedUser.notifications = newNotifications;
       updatedUser.failedQuestionIds = Array.from(newFailedQuestionIds);
-      
+
       if (aiResult?.redZones && aiResult.redZones.length > 0) { // [HOTFIX] guard null
         updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...aiResult.redZones]));
       }
@@ -944,11 +952,11 @@ export default function App() {
 
       // ─ Áp dụng vào user ──────────────────────────────────────────
       const prevStars = user.stars ?? 0;
-      const prevRank  = getCurrentRank(prevStars);
-      updatedUser.stars         = prevStars + earnedXP + xpBreakdown.streakBonus;
-      updatedUser.streak        = newStreak;
+      const prevRank = getCurrentRank(prevStars);
+      updatedUser.stars = prevStars + earnedXP + xpBreakdown.streakBonus;
+      updatedUser.streak = newStreak;
       updatedUser.lastStreakDate = today;
-      updatedUser.lastActive    = Timestamp.now();
+      updatedUser.lastActive = Timestamp.now();
 
       // ─ Rank Up ───────────────────────────────────────────────────
       const newRank = getCurrentRank(updatedUser.stars);
@@ -1009,12 +1017,12 @@ export default function App() {
     if (!results || !results.weaknessProfile || !user) return;
     const matrix = results.weaknessProfile.remedialMatrix;
     if (!matrix || matrix.length === 0) { toast.error("Hệ thống chưa tạo được ma trận khắc phục. Hãy thử phân tích lại."); return; }
-    
+
     setLoading(true);
     try {
       const resultQuestions: Question[] = [];
       const qRef = collection(db, 'questions');
-      
+
       const levelMap: Record<string, number> = {
         'Nhận biết': 1, 'NB': 1,
         'Thông hiểu': 2, 'TH': 2,
@@ -1027,7 +1035,7 @@ export default function App() {
         const qQuery = query(qRef, where('topic', '==', item.topic));
         const snapshot = await getDocs(qQuery);
         let qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
-        
+
         // Ưu tiên các câu thuộc list level yêu cầu, nếu có
         if (item.levels && item.levels.length > 0) {
           const mappedTargetLevels = item.levels.map(l => levelMap[l] || 5);
@@ -1218,7 +1226,7 @@ export default function App() {
 
   if (isAuthInitializing) return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <motion.div 
+      <motion.div
         animate={{ rotate: 360 }}
         transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
         className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full"
@@ -1234,7 +1242,7 @@ export default function App() {
       <ToastProvider />
       <AuthErrorBoundary />
       {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
-      
+
       {/* ── Confirm PDF Modal ── */}
       {confirmPdfExam && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -1244,13 +1252,13 @@ export default function App() {
               Tải đề <b>{confirmPdfExam.title}</b> dưới dạng PDF sẽ tiêu tốn <span className="text-amber-500 font-bold">5 lượt</span> sử dụng của bạn. Bạn có chắc chắn muốn tải không?
             </p>
             <div className="flex gap-3 justify-end">
-              <button 
+              <button
                 onClick={() => setConfirmPdfExam(null)}
                 className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:bg-slate-800 transition-colors"
               >
                 Hủy
               </button>
-              <button 
+              <button
                 onClick={executePdfDownload}
                 disabled={isPdfDownloading}
                 className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 transition-colors flex items-center gap-2"
@@ -1301,15 +1309,15 @@ export default function App() {
       })()}
       {activeSimulationViewer && (
         <LazyWrap>
-              <SimulationViewer 
-                simulation={activeSimulationViewer} 
-                onClose={() => setActiveSimulationViewer(null)} 
-              />
+          <SimulationViewer
+            simulation={activeSimulationViewer}
+            onClose={() => setActiveSimulationViewer(null)}
+          />
         </LazyWrap>
       )}
-      
+
       {!isFullScreenMode && (
-        <Sidebar 
+        <Sidebar
           user={user}
           isAdmin={user?.role === 'admin' || user?.email === 'haunn.vietanhschool@gmail.com'}
           isCollapsed={isSidebarCollapsed}
@@ -1344,11 +1352,11 @@ export default function App() {
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <NotificationCenter 
-                notifications={user.notifications} 
-                onRead={markNotificationAsRead} 
+              <NotificationCenter
+                notifications={user.notifications}
+                onRead={markNotificationAsRead}
               />
-              <button 
+              <button
                 onClick={signOut}
                 className="p-2 rounded-xl text-slate-500 hover:text-red-500 hover:bg-red-600/10 transition-all"
               >
@@ -1365,503 +1373,357 @@ export default function App() {
         user && !isFullScreenMode ? "pt-[56px] md:pt-0" : ""
       )}>
         <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
-        {!authUser && activeView === 'dashboard' ? (
-          /* ══════ LANDING PAGE — Cinematic Video Hero ══════ */
-          <div className="relative w-full min-h-screen overflow-hidden flex flex-col items-center justify-center py-20 -mx-4 -mt-6 md:-mx-6 md:-mt-12 px-0">
-            {/* ── Video Background ── */}
-            <video
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="absolute inset-0 w-full h-full object-cover z-0"
-              src="/1000028512.mp4"
-              aria-hidden="true"
-            />
+          {!authUser && activeView === 'dashboard' ? (
+            /* ══════ LANDING PAGE — Cinematic Video Hero ══════ */
+            <div className="relative w-full min-h-screen overflow-hidden flex flex-col items-center justify-center py-20 -mx-4 -mt-6 md:-mx-6 md:-mt-12 px-0">
+              {/* ── Video Background ── */}
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover z-0"
+                src="/1000028512.mp4"
+                aria-hidden="true"
+              />
 
-            {/* ── Dark Overlay ── */}
-            <div className="absolute inset-0 bg-[#0B0F19]/85 z-10" />
+              {/* ── Dark Overlay ── */}
+              <div className="absolute inset-0 bg-[#0B0F19]/85 z-10" />
 
-            {/* ── Content ── */}
-            <div className="relative z-20 flex flex-col items-center text-center px-4 w-full max-w-5xl mx-auto">
-              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: "easeOut" }} className="w-full">
-                {/* ── Badge ── */}
-                <div
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-[11px] font-black uppercase tracking-[0.25em] mb-10"
-                  style={{ background: 'rgba(0,0,0,0.6)', borderColor: 'rgba(255,255,255,0.3)', color: '#e2e8f0', backdropFilter: 'blur(8px)' }}
-                >
-                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
-                  Hệ thống luyện thi Vật lý 2026
-                </div>
+              {/* ── Content ── */}
+              <div className="relative z-20 flex flex-col items-center text-center px-4 w-full max-w-5xl mx-auto">
+                <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: "easeOut" }} className="w-full">
+                  {/* ── Badge ── */}
+                  <div
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-[11px] font-black uppercase tracking-[0.25em] mb-10"
+                    style={{ background: 'rgba(0,0,0,0.6)', borderColor: 'rgba(255,255,255,0.3)', color: '#e2e8f0', backdropFilter: 'blur(8px)' }}
+                  >
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+                    Hệ thống luyện thi Vật lý 2026
+                  </div>
 
-                {/* ── Heading: cân đối 3 dòng ── */}
-                <h1
-                  className="font-black tracking-tighter text-center mb-8"
-                  style={{ isolation: 'isolate' }}
-                >
-                  {/* CHINH PHỤC */}
-                  <span style={{
-                    display: 'block',
-                    color: '#ffffff',
-                    fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
-                    lineHeight: 1.1,
-                    letterSpacing: '-0.02em',
-                    textShadow: '0 2px 30px rgba(0,0,0,1)',
-                    marginBottom: '0.1em',
-                  }}>CHINH PHỤC</span>
+                  {/* ── Heading: cân đối 3 dòng ── */}
+                  <h1
+                    className="font-black tracking-tighter text-center mb-8"
+                    style={{ isolation: 'isolate' }}
+                  >
+                    {/* CHINH PHỤC */}
+                    <span style={{
+                      display: 'block',
+                      color: '#ffffff',
+                      fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
+                      lineHeight: 1.1,
+                      letterSpacing: '-0.02em',
+                      textShadow: '0 2px 30px rgba(0,0,0,1)',
+                      marginBottom: '0.1em',
+                    }}>CHINH PHỤC</span>
 
-                  {/* 9.0+ — điểm nhấn, lớn hơn nhưng không quá chênh */}
-                  <span style={{
-                    display: 'block',
-                    fontSize: 'clamp(4rem, 14vw, 9rem)',
-                    fontWeight: 900,
-                    lineHeight: 0.95,
-                    background: 'linear-gradient(135deg, #ef4444 0%, #f97316 60%, #fbbf24 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    marginBottom: '0.05em',
-                  }}>9.0+</span>
+                    {/* 9.0+ — điểm nhấn, lớn hơn nhưng không quá chênh */}
+                    <span style={{
+                      display: 'block',
+                      fontSize: 'clamp(4rem, 14vw, 9rem)',
+                      fontWeight: 900,
+                      lineHeight: 0.95,
+                      background: 'linear-gradient(135deg, #ef4444 0%, #f97316 60%, #fbbf24 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      marginBottom: '0.05em',
+                    }}>9.0+</span>
 
-                  {/* VẬT LÝ */}
-                  <span style={{
-                    display: 'block',
-                    color: '#ffffff',
-                    fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
-                    lineHeight: 1.1,
-                    letterSpacing: '-0.02em',
-                    textShadow: '0 2px 30px rgba(0,0,0,1)',
-                  }}>VẬT LÝ</span>
-                </h1>
+                    {/* VẬT LÝ */}
+                    <span style={{
+                      display: 'block',
+                      color: '#ffffff',
+                      fontSize: 'clamp(2.2rem, 7vw, 5.5rem)',
+                      lineHeight: 1.1,
+                      letterSpacing: '-0.02em',
+                      textShadow: '0 2px 30px rgba(0,0,0,1)',
+                    }}>VẬT LÝ</span>
+                  </h1>
 
-                {/* ── Subtitle ── */}
-                <div
-                  className="mb-10 max-w-xl mx-auto rounded-2xl px-6 py-4"
-                  style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.1)' }}
-                >
-                  <p className="text-sm sm:text-base md:text-lg leading-relaxed font-medium" style={{ color: 'rgba(241,245,249,0.9)' }}>
-                    Hệ thống luyện thi chiến thuật tích hợp{' '}
-                    <span style={{ color: '#ffffff', fontWeight: 700 }}>AI chẩn đoán sư phạm</span>,{' '}
-                    giúp bạn tối ưu hóa điểm số theo cấu trúc đề thi mới nhất của Bộ GD&ĐT.
+                  {/* ── Subtitle ── */}
+                  <p style={{ color: 'rgba(226,232,240,0.7)', fontSize: 'clamp(0.9rem, 2vw, 1.1rem)', fontWeight: 500, marginBottom: '2.5rem', maxWidth: '560px', margin: '0 auto 2.5rem' }}>
+                    Nền tảng luyện thi Vật lý thông minh — AI cá nhân hoá lộ trình học cho từng học sinh.
                   </p>
-                </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-                  <div className="flex flex-col items-center gap-3">
-                    <button onClick={handleSignIn} className="group relative bg-red-600 hover:bg-red-700 text-white px-12 py-5 rounded-2xl font-black text-lg uppercase tracking-widest transition-all shadow-2xl shadow-red-600/40 flex items-center gap-3 overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-                      <Play className="w-6 h-6 fill-current" /> Bắt đầu ngay
-                    </button>
-                    {authError && (
-                      <div className="max-w-md text-center px-4 py-3 bg-red-600/10 border border-red-600/40 rounded-xl text-xs text-red-400 font-medium leading-relaxed">
-                        ⚠️ {authError}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex -space-x-3">
-                    {[1, 2, 3, 4].map(i => (
-                      <div key={i} className="w-12 h-12 rounded-full border-4 border-[#0B0F19] bg-slate-800 flex items-center justify-center overflow-hidden">
-                        <img src={`https://picsum.photos/seed/user${i}/100/100`} alt="User" referrerPolicy="no-referrer" />
-                      </div>
-                    ))}
-                    <div className="w-12 h-12 rounded-full border-4 border-[#0B0F19] bg-white/10 backdrop-blur-md flex items-center justify-center text-[10px] font-black text-white">+2K</div>
-                  </div>
-                </div>
+                  {/* ── CTA Button ── */}
+                  <motion.button
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleSignIn}
+                    className="inline-flex items-center gap-3 px-10 py-5 rounded-2xl font-black text-base uppercase tracking-widest text-white shadow-2xl transition-all"
+                    style={{ background: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)', boxShadow: '0 0 40px rgba(239,68,68,0.4)' }}
+                  >
+                    <ArrowRight className="w-5 h-5" />
+                  </motion.button>
+                </motion.div>
+              </div>
+            </div>
+        ) : activeTest ? (
+        /* ══════ RESULTS PANEL ══════ */
+        <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
+          {results.weaknessProfile ? (
+            <PersonalizedResultPanel
+              profile={results.weaknessProfile}
+              attempt={results}
+              incorrectRecords={activeTest.questions.filter(q => {
+                const studentAns = results.answers[q.id || ''];
+                if (q.part === 1) return studentAns !== q.correctAnswer;
+                if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
+                if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
+                return false;
+              }).map(q => ({ question: q, studentAnswer: results.answers[q.id || ''], isCorrect: false }))}
+              onRetry={() => { clearExamSession(); setActiveTest(null); }}
+              onFixWeaknesses={handleAdaptiveTestFix}
+              onReviewTheory={() => { }}
+              onSaveToVault={handleSaveToVault}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800">
+              <div className="text-amber-500 mb-4"><AlertTriangle className="w-16 h-16" /></div>
+              <h3 className="text-xl font-bold text-white mb-2">Đang thiết lập hồ sơ điểm yếu...</h3>
+              <p className="text-slate-400">Vui lòng đợi vài giây để hệ thống phân tích năng lực.</p>
+            </div>
+          )}
 
-                {/* ── Glassmorphism Feature Cards ── */}
-                <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-                  {[
-                    { title: 'AI Chẩn đoán', desc: 'Phát hiện chính xác lỗ hổng kiến thức qua từng câu trả lời.', icon: BrainCircuit },
-                    { title: 'Đề thi chuẩn', desc: 'Cập nhật liên tục theo cấu trúc đề thi 2026 của Bộ GD&ĐT.', icon: Target },
-                    { title: 'Bệnh án học tập', desc: 'Theo dõi tiến trình hồi phục điểm số như một hồ sơ y tế.', icon: Activity },
-                  ].map((feature, i) => (
-                    <div
-                      key={i}
-                      className="backdrop-blur-xl border rounded-2xl p-6 transition-all duration-300 hover:scale-[1.02]"
-                      style={{
-                        background: 'rgba(255,255,255,0.08)',
-                        borderColor: 'rgba(255,255,255,0.25)',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
-                      }}
-                    >
-                      <feature.icon className="w-8 h-8 text-red-400 mb-4 drop-shadow-[0_0_8px_rgba(248,113,113,0.6)]" />
-                      <h3 className="text-lg font-bold mb-2" style={{ color: '#ffffff' }}>{feature.title}</h3>
-                      <p className="text-sm leading-relaxed" style={{ color: 'rgba(226,232,240,0.9)' }}>{feature.desc}</p>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
+          <div className="mt-8 flex justify-center">
+            <button onClick={() => setIsReviewing(true)} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center border border-slate-700 shadow-lg"><Info className="w-5 h-5 text-blue-400" /> XEM CHI TIẾT LỜI GIẢI</button>
+          </div>
+        </motion.div>
+    ) : (
+    /* ══════ MAIN DASHBOARD VIEW ══════ */
+    <div className="space-y-12 relative z-10">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+        <div className="space-y-1">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
+            CHÀO MỪNG ĐẾN VỚI <span className="text-fuchsia-500 text-glow-neon">PHY9+</span>
+          </h2>
+          <p className="text-slate-500 font-medium flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            Hệ thống đã kết nối. Chúc các chiến binh có một phiên huấn luyện hiệu quả!
+          </p>
+        </div>
+        <div className="hidden md:flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl">
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Huy hiệu</span>
+              <span className="text-sm font-bold text-white">{user.badges?.length || 0}</span>
+            </div>
+            <div className="w-px h-8 bg-slate-800" />
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Điểm TB</span>
+              <span className="text-sm font-bold text-red-500">{(attempts.reduce((acc, a) => acc + a.score, 0) / (attempts.length || 1)).toFixed(1)}</span>
             </div>
           </div>
-        ) : activeTest ? (
-          /* ══════ EXAM / RESULTS VIEW ══════ */
-          <div className="max-w-4xl mx-auto">
-            <AnimatePresence mode="wait">
-              {isReviewing && results ? (
-                <ReviewExam test={activeTest} answers={results.answers} onBack={() => setIsReviewing(false)} />
-              ) : !results ? (
-                <ProExamExperience test={activeTest} answers={answers} onAnswer={handleAnswer} onSubmit={submitTest} onCancel={() => { clearExamSession(); setActiveTest(null); }} />
-              ) : submissionResult?.show ? (
-                <motion.div key="victory-modal" initial={{ opacity: 0, scale: 0.8, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -50 }} transition={{ type: 'spring', damping: 20, stiffness: 100 }} className="w-full max-w-xl mx-auto flex flex-col pt-10">
-                  <div className={`relative flex flex-col items-center justify-center p-12 rounded-[3rem] border shadow-2xl overflow-hidden ${submissionResult.score >= 8.0 ? 'bg-gradient-to-b from-amber-500/20 to-slate-900 border-amber-500/50 shadow-amber-500/20' : submissionResult.score >= 6.0 ? 'bg-gradient-to-b from-blue-500/20 to-slate-900 border-blue-500/50 shadow-blue-500/20' : 'bg-gradient-to-b from-red-600/30 to-slate-900 border-red-500/50 shadow-red-600/30'}`}>
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
-                    <motion.div animate={submissionResult.score < 6.0 ? { scale: [1, 1.1, 1], opacity: [0.3, 0.6, 0.3] } : {}} transition={{ duration: 1.5, repeat: Infinity }} className={`absolute inset-0 opacity-30 bg-radial-gradient ${submissionResult.score < 6.0 ? 'from-red-600' : 'from-transparent'} to-transparent`} />
-                    <div className="relative z-10 flex flex-col items-center w-full">
-                      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: 'spring' }} className={`w-32 h-32 rounded-[2rem] flex items-center justify-center shadow-2xl mb-8 ${submissionResult.score >= 8.0 ? 'bg-gradient-to-br from-amber-400 to-orange-600 shadow-amber-500/50 text-white' : submissionResult.score >= 6.0 ? 'bg-gradient-to-br from-blue-400 to-indigo-600 shadow-blue-500/50 text-white' : 'bg-gradient-to-br from-red-500 to-rose-700 shadow-red-600/50 text-white'}`}>
-                        {submissionResult.score >= 8.0 ? <Trophy className="w-14 h-14" /> : submissionResult.score >= 6.0 ? <CheckCircle2 className="w-14 h-14" /> : <AlertTriangle className="w-14 h-14" />}
-                      </motion.div>
-                      <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className={`text-3xl sm:text-4xl font-black text-center mb-3 uppercase tracking-tight ${submissionResult.score >= 8.0 ? 'text-amber-400' : submissionResult.score >= 6.0 ? 'text-blue-400' : 'text-red-400'}`}>
-                        {submissionResult.score >= 8.0 ? 'XUẤT SẮC - MASTER!' : submissionResult.score >= 6.0 ? 'KHÁ - ĐÃ HOÀN THÀNH!' : '🚨 CẢNH BÁO BỆNH ÁN!'}
-                      </motion.h2>
-                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-slate-300 text-center mb-8 text-lg font-medium px-4">
-                        {submissionResult.score >= 8.0 ? 'Mức độ thông hiểu của bạn sặc mùi thủ khoa. Tuyệt vời!' : submissionResult.score >= 6.0 ? 'Làm tốt lắm. Giữ vững phong độ để bứt phá thêm nhé!' : 'Hệ thống AI đã phát hiện lỗ hổng nghiêm trọng ở chuyên đề này. Vùng kiến thức này đã được đưa vào Danh sách Cách Ly Đỏ!'}
-                      </motion.p>
-                      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5, type: 'spring' }} className="w-full flex flex-col gap-4 mb-10">
-                        <div className="bg-slate-950/80 border border-slate-700 p-6 rounded-3xl w-full flex items-center justify-between shadow-inner mx-auto max-w-[280px]">
-                          <div>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest pl-1 mb-1">XP Thu Thập</p>
-                            <p className="text-3xl font-black text-amber-400">+{submissionResult.earnedXP} XP</p>
-                          </div>
-                          <div className="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center">
-                            <Star className="w-6 h-6 text-amber-400" />
-                          </div>
-                        </div>
-
-                        {submissionResult.xpBreakdown && (
-                          <div className="bg-slate-950/50 border border-slate-800/80 p-4 rounded-2xl w-full max-w-sm mx-auto space-y-2 text-xs md:text-sm text-slate-400 font-medium">
-                            <div className="flex justify-between">
-                              <span>Điểm cơ sở ({submissionResult.xpBreakdown.rawScore}đ):</span>
-                              <span className="text-slate-200">{submissionResult.xpBreakdown.baseXP} XP</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Độ dài đề ({submissionResult.xpBreakdown.numQuestions} câu):</span>
-                              <span className="text-slate-200">×{submissionResult.xpBreakdown.weightFactor.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Hệ số loại đề:</span>
-                              <span className="text-slate-200">×{submissionResult.xpBreakdown.typeMultiplier}</span>
-                            </div>
-                            {submissionResult.xpBreakdown.streakBonus > 0 && (
-                              <div className="flex justify-between text-amber-400/90 font-bold">
-                                <span className="flex items-center gap-1">🔥 Thưởng chuyên cần:</span>
-                                <span>+{submissionResult.xpBreakdown.streakBonus} XP</span>
-                              </div>
-                            )}
-                            {submissionResult.xpBreakdown.belowFloor && (
-                              <div className="flex justify-between text-red-400 font-bold border-t border-slate-800 pt-2 mt-2">
-                                <span>🚨 Dưới điểm sàn ({submissionResult.xpBreakdown.rankFloor}đ):</span>
-                                <span>Bị hủy toàn bộ XP</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </motion.div>
-                      <motion.button initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} onClick={() => setSubmissionResult({ ...submissionResult, show: false })} className={`w-full py-4 sm:py-5 rounded-2xl font-black text-white text-lg transition-all active:scale-95 shadow-xl flex items-center justify-center gap-3 ${submissionResult.score >= 6.0 ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/20' : 'bg-red-600 hover:bg-red-500 shadow-red-600/30 animate-pulse'}`}>
-                        {submissionResult.score >= 6.0 ? 'NHẬN THƯỞNG & XEM LỜI GIẢI' : 'CHẤP NHẬN BỆNH ÁN & CHỮA LỖI'}
-                        <ArrowRight className="w-5 h-5" />
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              ) : (
-                /* ══════ RESULTS PANEL ══════ */
-                <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
-                  {results.weaknessProfile ? (
-                    <PersonalizedResultPanel 
-                      profile={results.weaknessProfile}
-                      attempt={results}
-                      incorrectRecords={activeTest.questions.filter(q => {
-                        const studentAns = results.answers[q.id || ''];
-                        if (q.part === 1) return studentAns !== q.correctAnswer;
-                        if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
-                        if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
-                        return false;
-                      }).map(q => ({ question: q, studentAnswer: results.answers[q.id || ''], isCorrect: false }))}
-                      onRetry={() => { clearExamSession(); setActiveTest(null); }}
-                      onFixWeaknesses={handleAdaptiveTestFix}
-                      onReviewTheory={() => {}}
-                      onSaveToVault={handleSaveToVault}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800">
-                      <div className="text-amber-500 mb-4"><AlertTriangle className="w-16 h-16" /></div>
-                      <h3 className="text-xl font-bold text-white mb-2">Đang thiết lập hồ sơ điểm yếu...</h3>
-                      <p className="text-slate-400">Vui lòng đợi vài giây để hệ thống phân tích năng lực.</p>
-                    </div>
-                  )}
-
-                  <div className="mt-8 flex justify-center">
-                    <button onClick={() => setIsReviewing(true)} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center border border-slate-700 shadow-lg"><Info className="w-5 h-5 text-blue-400"/> XEM CHI TIẾT LỜI GIẢI</button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ) : (
-          /* ══════ MAIN DASHBOARD VIEW ══════ */
-          <div className="space-y-12 relative z-10">
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
-              <div className="space-y-1">
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
-                  CHÀO MỪNG ĐẾN VỚI <span className="text-fuchsia-500 text-glow-neon">PHY9+</span>
-                </h2>
-                <p className="text-slate-500 font-medium flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  Hệ thống đã kết nối. Chúc các chiến binh có một phiên huấn luyện hiệu quả!
-                </p>
-              </div>
-              <div className="hidden md:flex items-center gap-4">
-                <div className="hidden sm:flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl">
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Huy hiệu</span>
-                    <span className="text-sm font-bold text-white">{user.badges?.length || 0}</span>
-                  </div>
-                  <div className="w-px h-8 bg-slate-800" />
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Điểm TB</span>
-                    <span className="text-sm font-bold text-red-500">{(attempts.reduce((acc, a) => acc + a.score, 0) / (attempts.length || 1)).toFixed(1)}</span>
-                  </div>
-                </div>
-                <NotificationCenter notifications={user.notifications} onRead={markNotificationAsRead} />
-                <button onClick={signOut} className="p-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-red-600/10 hover:border-red-600/50 transition-all group">
-                  <LogOut className="w-5 h-5 text-slate-500 group-hover:text-red-500" />
-                </button>
-              </div>
-            </header>
-
-            {/* ──── CONTENT ROUTING ──── */}
-            {activeView === 'liveExam' && <LazyWrap><LiveClassExam user={user} /></LazyWrap>}
-            {activeView === 'adaptive' && (
-              <LazyWrap>
-                <AdaptiveDashboard 
-                  user={user} 
-                  attempts={attempts} 
-                  onStartAdaptiveTest={(questions, config, assessment) => {
-                    setActiveTest({
-                      topic: `Đề Thích Ứng: ${config.examType}`,
-                      questions,
-                      adaptiveConfig: config,
-                    } as any);
-                    setActiveView('liveExam');
-                  }}
-                />
-              </LazyWrap>
-            )}
-            {activeView === 'StudentView' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
-              <LazyWrap>
-                <StudentViewSimulator 
-                   user={user} 
-                   attempts={attempts} 
-                   onStartPrescription={(topic, examId) => startTest(topic, examId)} 
-                   onStartExam={(exam) => startTest(exam.title, exam.id)} 
-                />
-              </LazyWrap>
-            )}
-
-            {activeView === 'history' && (
-              <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
-            )}
-
-            {/* ══════ MINDMAP VIEWER ══════ */}
-            {activeView === 'mindmap' && (
-              <LazyWrap><MindmapViewer user={user} /></LazyWrap>
-            )}
-            {activeView === 'MindmapAdmin' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
-              <LazyWrap><MindmapAdminPanel user={user} /></LazyWrap>
-            )}
-
-            {(activeView === 'dashboard' || activeView === 'tasks') && (
-              <LazyWrap>
-                {user.role === 'admin' ? (
-                  <div className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800">
-                    <h3 className="text-xl font-bold text-white mb-2">Xin chào Quản trị viên</h3>
-                    <p className="text-slate-400">Vui lòng chọn chức năng quản trị ở Sidebar bên trái.</p>
-                  </div>
-                ) : user.className?.startsWith('10') ? (
-                  <Grade10Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
-                ) : user.className?.startsWith('11') ? (
-                  <Grade11Dashboard onStartPrescription={(topic, examId) => startTest(topic, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
-                ) : (
-                  <Grade12Dashboard onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
-                )}
-              </LazyWrap>
-            )}
-
-            {activeView === 'simulations' && (
-              <div className="space-y-12">
-                <section className="space-y-6">
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-red-500" /> VIRTUAL LAB & THỰC TẾ</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div onClick={() => {
-                      if (!authUser) { handleSignIn(); return; }
-                      setActiveSimulation({ title: 'Máy chụp MRI', description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html' });
-                    }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
-                      <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4"><BrainCircuit className="w-6 h-6" /></div>
-                      <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
-                      <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
-                    </div>
-                    <div onClick={() => {
-                      if (!authUser) { handleSignIn(); return; }
-                      setActiveSimulation({ title: 'Định luật Boyle', description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html' });
-                    }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
-                      <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4"><FlaskConical className="w-6 h-6" /></div>
-                      <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
-                      <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
-                    </div>
-                  </div>
-                </section>
-                <section id="resources" className="space-y-8">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-2"><Beaker className="text-blue-500" /> KHO HỌC LIỆU MÔ PHỎNG SỐ</h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {simulations.map(sim => (
-                      <div key={sim.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 group hover:border-blue-500/50 transition-colors flex flex-col">
-                        <div className="text-4xl mb-4">{sim.thumbnail}</div>
-                        <h4 className="text-lg font-black text-white mb-2 line-clamp-2">{sim.title}</h4>
-                        <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3">{sim.category}</p>
-                        <p className="text-sm text-slate-400 mb-6 flex-1 line-clamp-3">{sim.description}</p>
-                        <button onClick={async () => {
-                          if (!authUser) { handleSignIn(); return; }
-                          
-                          // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
-                          try {
-                            const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
-                            await startExamAttempt(user.uid, 'Simulation_' + sim.id, isAdmin);
-                          } catch (err: any) {
-                            if (err.message === "EXCEEDED_LIMIT") {
-                              setShowUpgradeModal(true);
-                              return;
-                            }
-                            console.warn('[Simulation] Lỗi không xác định từ startExamAttempt:', err.message);
-                          }
-                          
-                          setActiveSimulationViewer(sim);
-                        }} className="w-full bg-slate-950 border border-slate-800 hover:bg-blue-600 hover:border-blue-500 hover:text-white text-slate-300 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex justify-center items-center gap-2">
-                          <Play className="w-4 h-4" /> Bắt đầu thí nghiệm
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <SimulationModal isOpen={!!activeSimulation} onClose={() => setActiveSimulation(null)} title={activeSimulation?.title || ''} description={activeSimulation?.description || ''} simulationUrl={activeSimulation?.url || ''} />
-              </div>
-            )}
-
-            {/* ══════ STUDENT VIEW SIMULATOR (Khối 10, 11, 12) ══════ */}
-            {activeView === 'StudentView' && (
-              <div className="w-full h-full">
-                <LazyWrap>
-                  <StudentViewSimulator 
-                    user={user} 
-                    attempts={attempts} 
-                    onStartPrescription={(topic, examId) => startTest(topic, examId)} 
-                    onStartExam={(exam) => startTest(exam.title, exam.id)} 
-                  />
-                </LazyWrap>
-              </div>
-            )}
-
-            {/* ══════ ADMIN SECTION ══════ */}
-            {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView as any) && activeView !== 'StudentView' && (
-              <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
-                <div className="text-center mb-4">
-                  <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
-                    CHÀO THẦY THUỐC {user.displayName} — HỆ THỐNG SẴN SÀNG
-                  </h2>
-                  <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-6 sm:leading-7">Trung tâm điều khiển Phy9+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8">
-                  {[
-                    { label: 'Trạng thái AI', value: 'Sẵn sàng', icon: BrainCircuit, color: 'text-green-500' },
-                    { label: 'Tổng số câu hỏi', value: adminStats.isLoading ? null : adminStats.totalQuestions.toLocaleString(), icon: BookOpen, color: 'text-cyan-400' },
-                    { label: 'Lượt thi hôm nay', value: adminStats.isLoading ? null : adminStats.todayAttempts.toString(), icon: Activity, color: 'text-fuchsia-400' },
-                    { label: 'HS đang Online', value: adminStats.isLoading ? null : adminStats.onlineStudents.toString(), icon: Settings, color: 'text-amber-400' },
-                  ].map((s, i) => (
-                    <div key={i} className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-4 rounded-2xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 min-h-[88px]">
-                      <div className={cn("p-2 rounded-xl bg-slate-800/80 shrink-0", s.color)}><s.icon className="w-5 h-5" /></div>
-                      <div className="flex-1">
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-5 line-clamp-1 truncate">{s.label}</p>
-                        {s.value !== null ? (<p className="text-lg font-black text-white truncate">{s.value}</p>) : (<div className="mt-1"><SkeletonNumber width="60px" height="20px" /></div>)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
-                  <h3 className="text-lg sm:text-xl md:text-2xl font-black flex items-center gap-2 md:gap-3 text-gradient-fire font-headline"><Settings className="text-cyan-400 w-5 h-5 md:w-7 md:h-7" /> HỆ THỐNG QUẢN TRỊ PHYS-9+</h3>
-                  <div className="flex overflow-x-auto bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full md:w-auto scrolling-touch hide-scrollbar">
-                    {[
-                      { id: 'Digitize', label: 'Số hóa đề', icon: History },
-                      { id: 'Bank', label: 'Kho câu hỏi', icon: BookOpen },
-                      { id: 'Matrix', label: 'Ma Trận Đề', icon: Target },
-                      { id: 'Generator', label: 'Tạo đề thi', icon: Play },
-                      { id: 'SimLab', label: 'Kho Mô phỏng', icon: Beaker },
-                      { id: 'Duplicates', label: 'Trùng lặp', icon: ArrowLeftRight },
-                      { id: 'Sanitizer', label: 'Bảo trì', icon: ShieldAlert },
-                      { id: 'Reports', label: 'Báo lỗi', icon: Flag },
-                      { id: 'Classroom', label: 'Phòng Thi', icon: Activity },
-                      { id: 'Tracking', label: 'Theo dõi HS', icon: BarChart3 },
-                      { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
-                      { id: 'YCCD', label: 'YCCĐ', icon: Target },
-                      { id: 'AIChats', label: 'Log Chat AI', icon: BrainCircuit },
-                       { id: 'RecalibScore', label: 'Hi\u1ec7u Ch\u1ec9nh \u0110i\u1ec3m', icon: ShieldAlert },
-                    ].map(tab => (
-                      <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
-                        <tab.icon className="w-4 h-4" />
-                        <span className="hidden sm:inline">{tab.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <motion.div key={adminTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-                  <LazyWrap>
-                    {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
-                    {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
-                    {adminTab === 'Matrix' && <ExamMatrixGenerator />}
-                    {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} onExportWord={handleExportWord} />}
-                    {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
-                    {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
-                    {adminTab === 'Sanitizer' && <DataSanitizer />}
-                    {adminTab === 'Reports' && <ReportHub />}
-                    {adminTab === 'Classroom' && <ClassManager user={user} />}
-                    {adminTab === 'Directory' && <StudentDirectory />}
-                    {adminTab === 'Library' && <ExamLibrary />}
-                    {adminTab === 'Tracking' && <TeacherDashboard />}
-                    {adminTab === 'Campaign' && <AICampaignManager />}
-                    {adminTab === 'YCCD' && <YCCDAutoTagger />}
-                    {adminTab === 'Migration' && <DatabaseMigrationTool />}
-                    {adminTab === 'RecalibScore' && <ScoreRecalibrationTool />}
-                    {adminTab === 'AIChats' && <AIChatLogsDashboard />}
-                  </LazyWrap>
-                </motion.div>
-              </section>
-            )}
-          </div>
-        )}
-      </main>
-
-      <footer className="border-t border-slate-900 py-12 mt-20">
-        <div className="max-w-7xl mx-auto px-6 text-center space-y-4">
-          <p className="text-slate-500 font-bold">© 2026 PHYS-9+ Xây dựng bởi Thầy Hậu Vật lý & AI</p>
-          <div className="flex items-center justify-center gap-6 text-sm font-medium">
-            <a href="https://www.facebook.com/thayhauvatlydian/about?locale=vi_VN" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-500 transition-colors">Facebook</a>
-            <a href="https://www.youtube.com/@thayhauvatlydian7396" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-red-500 transition-colors">YouTube</a>
-            <a href="https://www.tiktok.com/@thayhauvatly" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-200 transition-colors">TikTok</a>
-            <a href="https://zalo.me/0962662736" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-400 transition-colors">Zalo: 0962662736</a>
-          </div>
+          <NotificationCenter notifications={user.notifications} onRead={markNotificationAsRead} />
+          <button onClick={signOut} className="p-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-red-600/10 hover:border-red-600/50 transition-all group">
+            <LogOut className="w-5 h-5 text-slate-500 group-hover:text-red-500" />
+          </button>
         </div>
-      </footer>
+      </header>
 
-      {/* ── MODAL KHAI BÁO BẮT BUỘC KHI ĐĂNG NHẬP LẦN ĐẦU ── */}
-      {user && <StudentOnboardingModal user={user} />}
-
-      {/* ── THÔNG BÁO NÂNG CẤP HỆ THỐNG & RESET RANK ── */}
-      {user && user.role === 'student' && (
-        <ResetNoticeModal userId={user.uid} userName={user.displayName || user.email} />
+      {/* ──── CONTENT ROUTING ──── */}
+      {activeView === 'liveExam' && <LazyWrap><LiveClassExam user={user} /></LazyWrap>}
+      {activeView === 'adaptive' && (
+        <LazyWrap>
+          <AdaptiveDashboard
+            user={user}
+            attempts={attempts}
+            onStartAdaptiveTest={(questions, config, assessment) => {
+              setActiveTest({
+                topic: `Đề Thích Ứng: ${config.examType}`,
+                questions,
+                adaptiveConfig: config,
+              } as any);
+              setActiveView('liveExam');
+            }}
+          />
+        </LazyWrap>
+      )}
+      {activeView === 'StudentView' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
+        <LazyWrap>
+          <StudentViewSimulator
+            user={user}
+            attempts={attempts}
+            onStartPrescription={(topic, examId) => startTest(topic, examId)}
+            onStartExam={(exam) => startTest(exam.title, exam.id)}
+          />
+        </LazyWrap>
       )}
 
+      {activeView === 'history' && (
+        <HistoryDashboard attempts={attempts} onReviewAttempt={handleReviewAttempt} />
+      )}
+
+      {/* ══════ MINDMAP VIEWER ══════ */}
+      {activeView === 'mindmap' && (
+        <LazyWrap><MindmapViewer user={user} /></LazyWrap>
+      )}
+      {activeView === 'MindmapAdmin' && (user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (
+        <LazyWrap><MindmapAdminPanel user={user} /></LazyWrap>
+      )}
+
+      {(activeView === 'dashboard' || activeView === 'tasks') && (
+        <LazyWrap>
+          <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
+        </LazyWrap>
+      )}
+
+      {activeView === 'simulations' && (
+        <div className="space-y-12">
+          <section className="space-y-6">
+            <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-red-500" /> VIRTUAL LAB & THỰC TẾ</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div onClick={() => {
+                if (!authUser) { handleSignIn(); return; }
+                setActiveSimulation({ title: 'Máy chụp MRI', description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html' });
+              }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
+                <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4"><BrainCircuit className="w-6 h-6" /></div>
+                <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
+                <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
+              </div>
+              <div onClick={() => {
+                if (!authUser) { handleSignIn(); return; }
+                setActiveSimulation({ title: 'Định luật Boyle', description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html' });
+              }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
+                <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4"><FlaskConical className="w-6 h-6" /></div>
+                <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
+                <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
+              </div>
+            </div>
+          </section>
+          <section id="resources" className="space-y-8">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2"><Beaker className="text-blue-500" /> KHO HỌC LIỆU MÔ PHỎNG SỐ</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {simulations.map(sim => (
+                <div key={sim.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 group hover:border-blue-500/50 transition-colors flex flex-col">
+                  <div className="text-4xl mb-4">{sim.thumbnail}</div>
+                  <h4 className="text-lg font-black text-white mb-2 line-clamp-2">{sim.title}</h4>
+                  <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3">{sim.category}</p>
+                  <p className="text-sm text-slate-400 mb-6 flex-1 line-clamp-3">{sim.description}</p>
+                  <button onClick={async () => {
+                    if (!authUser) { handleSignIn(); return; }
+
+                    // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
+                    try {
+                      const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+                      await startExamAttempt(user.uid, 'Simulation_' + sim.id, isAdmin);
+                    } catch (err: any) {
+                      if (err.message === "EXCEEDED_LIMIT") {
+                        setShowUpgradeModal(true);
+                        return;
+                      }
+                      console.warn('[Simulation] Lỗi không xác định từ startExamAttempt:', err.message);
+                    }
+
+                    setActiveSimulationViewer(sim);
+                  }} className="w-full bg-slate-950 border border-slate-800 hover:bg-blue-600 hover:border-blue-500 hover:text-white text-slate-300 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex justify-center items-center gap-2">
+                    <Play className="w-4 h-4" /> Bắt đầu thí nghiệm
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+          <SimulationModal isOpen={!!activeSimulation} onClose={() => setActiveSimulation(null)} title={activeSimulation?.title || ''} description={activeSimulation?.description || ''} simulationUrl={activeSimulation?.url || ''} />
+        </div>
+      )}
+
+      {/* ══════ STUDENT VIEW SIMULATOR (Khối 10, 11, 12) ══════ */}
+      {activeView === 'StudentView' && (
+        <div className="w-full h-full">
+          <LazyWrap>
+            <StudentViewSimulator
+              user={user}
+              attempts={attempts}
+              onStartPrescription={(topic, examId) => startTest(topic, examId)}
+              onStartExam={(exam) => startTest(exam.title, exam.id)}
+            />
+          </LazyWrap>
+        </div>
+      )}
+
+      {/* ══════ ADMIN SECTION ══════ */}
+      {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView as any) && activeView !== 'StudentView' && (
+        <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
+          <div className="text-center mb-4">
+            <h2 className="text-lg sm:text-xl md:text-3xl font-black font-headline text-gradient-cyber tracking-tight uppercase">
+              CHÀO THẦY THUỐC {user.displayName} — HỆ THỐNG SẴN SÀNG
+            </h2>
+            <p className="text-slate-500 text-xs sm:text-sm mt-2 leading-6 sm:leading-7">Trung tâm điều khiển Phy9+ | Quản lý câu hỏi, số hóa đề thi & phân tích dữ liệu</p>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-6 md:mb-8">
+            {[
+              { label: 'Trạng thái AI', value: 'Sẵn sàng', icon: BrainCircuit, color: 'text-green-500' },
+              { label: 'Tổng số câu hỏi', value: adminStats.isLoading ? null : adminStats.totalQuestions.toLocaleString(), icon: BookOpen, color: 'text-cyan-400' },
+              { label: 'Lượt thi hôm nay', value: adminStats.isLoading ? null : adminStats.todayAttempts.toString(), icon: Activity, color: 'text-fuchsia-400' },
+              { label: 'HS đang Online', value: adminStats.isLoading ? null : adminStats.onlineStudents.toString(), icon: Settings, color: 'text-amber-400' },
+            ].map((s, i) => (
+              <div key={i} className="bg-slate-900/50 backdrop-blur-md border border-slate-700/50 p-4 rounded-2xl flex items-center gap-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/5 min-h-[88px]">
+                <div className={cn("p-2 rounded-xl bg-slate-800/80 shrink-0", s.color)}><s.icon className="w-5 h-5" /></div>
+                <div className="flex-1">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-5 line-clamp-1 truncate">{s.label}</p>
+                  {s.value !== null ? (<p className="text-lg font-black text-white truncate">{s.value}</p>) : (<div className="mt-1"><SkeletonNumber width="60px" height="20px" /></div>)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+            <h3 className="text-lg sm:text-xl md:text-2xl font-black flex items-center gap-2 md:gap-3 text-gradient-fire font-headline"><Settings className="text-cyan-400 w-5 h-5 md:w-7 md:h-7" /> HỆ THỐNG QUẢN TRỊ PHYS-9+</h3>
+            <div className="flex overflow-x-auto bg-slate-900 p-1 rounded-2xl border border-slate-800 w-full md:w-auto scrolling-touch hide-scrollbar">
+              {[
+                { id: 'Digitize', label: 'Số hóa đề', icon: History },
+                { id: 'Bank', label: 'Kho câu hỏi', icon: BookOpen },
+                { id: 'Matrix', label: 'Ma Trận Đề', icon: Target },
+                { id: 'Generator', label: 'Tạo đề thi', icon: Play },
+                { id: 'SimLab', label: 'Kho Mô phỏng', icon: Beaker },
+                { id: 'Duplicates', label: 'Trùng lặp', icon: ArrowLeftRight },
+                { id: 'Sanitizer', label: 'Bảo trì', icon: ShieldAlert },
+                { id: 'Reports', label: 'Báo lỗi', icon: Flag },
+                { id: 'Classroom', label: 'Phòng Thi', icon: Activity },
+                { id: 'Tracking', label: 'Theo dõi HS', icon: BarChart3 },
+                { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
+                { id: 'YCCD', label: 'YCCĐ', icon: Target },
+                { id: 'AIChats', label: 'Log Chat AI', icon: BrainCircuit },
+                { id: 'RecalibScore', label: 'Hi\u1ec7u Ch\u1ec9nh \u0110i\u1ec3m', icon: ShieldAlert },
+              ].map(tab => (
+                <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
+                  <tab.icon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <motion.div key={adminTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+            <LazyWrap>
+              {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
+              {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
+              {adminTab === 'Matrix' && <ExamMatrixGenerator />}
+              {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} onExportWord={handleExportWord} />}
+              {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
+              {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
+              {adminTab === 'Sanitizer' && <DataSanitizer />}
+              {adminTab === 'Reports' && <ReportHub />}
+              {adminTab === 'Classroom' && <ClassManager user={user} />}
+              {adminTab === 'Directory' && <StudentDirectory />}
+              {adminTab === 'Library' && <ExamLibrary />}
+              {adminTab === 'Tracking' && <TeacherDashboard />}
+              {adminTab === 'Campaign' && <AICampaignManager />}
+              {adminTab === 'YCCD' && <YCCDAutoTagger />}
+              {adminTab === 'Migration' && <DatabaseMigrationTool />}
+              {adminTab === 'RecalibScore' && <ScoreRecalibrationTool />}
+              {adminTab === 'AIChats' && <AIChatLogsDashboard />}
+            </LazyWrap>
+          </motion.div>
+        </section>
+      )}
+    </div>
+          )}
+        </main>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, collection, onSnapshot, query, orderBy, limit } from '../firebase';
 import { Exam } from '../types';
 import { Play, ChevronDown, Download, BookOpen, Zap, Brain, FlaskConical, FileText } from 'lucide-react';
@@ -49,11 +49,14 @@ const groupColors: Record<string, { bg: string; border: string; text: string; ba
   'Bài Kiểm Tra': { bg: 'bg-slate-500/5', border: 'border-slate-500/20', text: 'text-slate-400', badge: 'bg-slate-500' },
 };
 
-export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }) => {
+export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, onDownloadPDF, gradeFilter }) => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGradeFilter, setSelectedGradeFilter] = useState<number | null>(gradeFilter ?? null);
+  // [FIX] Tách biệt hoàn toàn UI state (expandedGroups) với Data state (exams)
+  // Dùng useRef để lưu key nhóm đã auto-expand, không bị reset theo render cycle
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const autoExpandedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Listen for exams in realtime, ordered by creation time
@@ -103,11 +106,21 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
     });
   };
 
-  // Auto-expand first group on initial load
+  // [FIX] Auto-expand first group ONCE — dùng ref thay vì state để tránh re-render trigger
+  // So sánh bằng key của nhóm đầu tiên, không phải object reference của groupedExams
   useEffect(() => {
     const groups = Object.keys(groupedExams);
-    if (groups.length > 0 && expandedGroups.size === 0) {
-      setExpandedGroups(new Set([groups[0]]));
+    if (groups.length > 0) {
+      const firstGroupKey = groups[0];
+      // Chỉ auto-expand nếu chưa từng expand nhóm này — tránh reset khi data refresh
+      if (autoExpandedKeyRef.current !== firstGroupKey) {
+        autoExpandedKeyRef.current = firstGroupKey;
+        setExpandedGroups(prev => {
+          // Nếu user đã mở/đóng một nhóm nào đó thì KHÔNG ghi đè state của họ
+          if (prev.size > 0) return prev;
+          return new Set([firstGroupKey]);
+        });
+      }
     }
   }, [groupedExams]);
 
@@ -145,19 +158,23 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
         )}
       </div>
 
-      {loading ? (
+      {/* Skeleton loader - Chỉ hiện khi đang fetch dữ liệu, không unmount nội dung */}
+      {loading && (
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-16 bg-slate-900 border border-slate-800 rounded-2xl animate-pulse" />
+            <div key={`skeleton-${i}`} className="h-16 bg-slate-900 border border-slate-800 rounded-2xl animate-pulse" />
           ))}
         </div>
-      ) : filteredExams.length === 0 ? (
-        <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl text-center text-slate-500">
-          Chưa có bài kiểm tra nào được phát hành cho khối này.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(groupedExams).map(([groupName, groupExams]) => {
+      )}
+
+      {/* Content thật - Được giữ lại trong DOM nhưng ẩn đi khi loading để không mất state */}
+      <div className={cn("space-y-4", loading && "hidden")}>
+        {!loading && filteredExams.length === 0 ? (
+          <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl text-center text-slate-500">
+            Chưa có bài kiểm tra nào được phát hành cho khối này.
+          </div>
+        ) : (
+          Object.entries(groupedExams).map(([groupName, groupExams]) => {
             const isExpanded = expandedGroups.has(groupName);
             const Icon = groupIcons[groupName] || FileText;
             const colors = groupColors[groupName] || groupColors['Bài Kiểm Tra'];
@@ -295,9 +312,9 @@ export const ExamsList: React.FC<ExamsListProps> = ({ onStartExam, gradeFilter }
                 </AnimatePresence>
               </div>
             );
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
     </div>
   );
 };

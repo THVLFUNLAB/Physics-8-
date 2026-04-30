@@ -238,9 +238,9 @@ export const updateDoc = (ref: any, data: any) => {
 /**
  * Ghi nhận một lượt làm bài kiểm tra.
  * Admin được Miễn đếm lượt. VIP là Vô cực (không giới hạn).
- * Free users: tối đa 30 lượt thử, sau đó hiện cửa sổ nâng cấp VIP.
+ * Free users: tối đa 20 lượt thử, sau đó hiện cửa sổ nâng cấp VIP.
  *
- * @throws "EXCEEDED_LIMIT" — khi hết 30 lượt free
+ * @throws "EXCEEDED_LIMIT" — khi hết 20 lượt free
  * Các lỗi khác (mạng, permission) → graceful fallback để HS không bị block oan
  */
 export const startExamAttempt = async (userId: string, examId: string, isAdmin: boolean) => {
@@ -291,7 +291,7 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
   }
 
   const used = data.usedAttempts || 0;
-  const max  = data.maxAttempts  || 30; // Mặc định Free là 30
+  const max  = data.maxAttempts  || 20; // Mặc định Free là 20
 
   // ━━━ HẾT LƯỢT FREE → throw để App.tsx hiện modal Zalo ━━━
   if (used >= max) {
@@ -302,7 +302,7 @@ export const startExamAttempt = async (userId: string, examId: string, isAdmin: 
   try {
     // [FIX] set(merge:true) an toàn hơn update() — tạo field mới nếu chưa có
     const batch = writeBatch(db);
-    // usedAttempts: chỉ FREE, có giới hạn (dùng để chặn sau 30 lượt)
+    // usedAttempts: chỉ FREE, có giới hạn (dùng để chặn sau 20 lượt)
     batch.set(userRef, { usedAttempts: increment(1), totalAttempts: increment(1) }, { merge: true });
 
     const logRef = doc(collection(db, 'usage_logs'));
@@ -342,7 +342,7 @@ export async function consumePdfDownloadAttempts(userId: string, examId: string 
   }
 
   const userRef = doc(db, 'users', userId);
-  const userDoc = await originalGetDoc(userRef);
+  const userDoc = await getDoc(userRef);
 
   if (!userDoc || !userDoc.exists()) {
     return true; // Bỏ qua nếu user lỗi
@@ -360,7 +360,7 @@ export async function consumePdfDownloadAttempts(userId: string, examId: string 
   }
 
   const used = data.usedAttempts || 0;
-  const max = data.maxAttempts || 30;
+  const max = data.maxAttempts || 20;
 
   // Cần 5 lượt để tải, nếu số lượt hiện tại + 5 vượt quá max thì chặn lại
   if (used + 5 > max) {

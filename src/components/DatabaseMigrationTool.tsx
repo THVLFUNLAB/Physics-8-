@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db as newDb, app, handleFirestoreError, OperationType } from '../firebase';
-import { initializeFirestore, collection, getDocs, doc, setDoc } from 'firebase/firestore';
-import { Database, Play, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { initializeFirestore, collection, getDocs, doc, setDoc, writeBatch, where, query } from 'firebase/firestore';
+import { Database, Play, AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { toast } from './Toast';
 
@@ -34,8 +34,12 @@ export const DatabaseMigrationTool = () => {
   const [pendingConfirm, setPendingConfirm] = useState(false);
   const [currentCollection, setCurrentCollection] = useState<string>('');
   
+  // Quota migration state
+  const [isQuotaMigrating, setIsQuotaMigrating] = useState(false);
+  const [quotaResult, setQuotaResult] = useState<string>('');
+  
   // Progress states
-  const [progress, setProgress] = useState<Record<string, { total: number; done: number; failed: number; status: 'waiting' | 'reading' | 'writing' | 'done' | 'error' }>>({});
+  const [progress, setProgress] = useState<Record<string, { total: number; done: number; failed: number; status: 'waiting' | 'reading' | 'writing' | 'done' | 'error' }>({});
   
   // Logs
   const [logs, setLogs] = useState<string[]>([]);
@@ -74,6 +78,49 @@ export const DatabaseMigrationTool = () => {
       index += size;
     }
     return chunked;
+  };
+
+  const migrateQuota = async () => {
+    setIsQuotaMigrating(true);
+    setQuotaResult('');
+    try {
+      const snapshot = await getDocs(collection(newDb, 'users'));
+      let updated = 0, skipped = 0, errors = 0;
+      const BATCH_MAX = 400;
+      let batch = writeBatch(newDb);
+      let batchCount = 0;
+
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        // Bỏ qua VIP
+        if (data.tier === 'vip' || data.isUnlimited === true) { skipped++; continue; }
+        // Đã là 20 rồi
+        if (data.maxAttempts === 20) { skipped++; continue; }
+        // Bảo vệ học sinh đã dùng > 20 lượt
+        if ((data.usedAttempts || 0) > 20) { skipped++; continue; }
+
+        batch.update(doc(newDb, 'users', docSnap.id), { maxAttempts: 20 });
+        batchCount++;
+        updated++;
+
+        if (batchCount >= BATCH_MAX) {
+          await batch.commit();
+          batch = writeBatch(newDb);
+          batchCount = 0;
+        }
+      }
+      if (batchCount > 0) await batch.commit();
+
+      const msg = `✅ Xong! Đã cập nhật ${updated} học sinh (30→20). Bỏ qua ${skipped} (VIP / đã đúng / bảo vệ).`;
+      setQuotaResult(msg);
+      toast.success(`Cập nhật quota thành công: ${updated} học sinh`);
+    } catch (e: any) {
+      const msg = `❌ Lỗi: ${e.message}`;
+      setQuotaResult(msg);
+      toast.error('Lỗi migration quota: ' + e.message);
+    } finally {
+      setIsQuotaMigrating(false);
+    }
   };
 
   const handleStartMigration = async () => {
@@ -184,6 +231,35 @@ export const DatabaseMigrationTool = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+
+      {/* ── QUOTA MIGRATION CARD ── */}
+      <div className="bg-slate-900 border border-amber-500/30 p-6 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center border border-amber-500/30">
+            <RefreshCw className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-base font-black text-white">Cập nhật Quota FREE: 30 → 20 lượt</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Chỉ update user FREE (bỏ qua VIP & user đã dùng &gt;20 lượt để không lock họ đột ngột)</p>
+            {quotaResult && (
+              <p className={`text-xs mt-1 font-bold ${quotaResult.startsWith('✅') ? 'text-emerald-400' : 'text-red-400'}`}>{quotaResult}</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={migrateQuota}
+          disabled={isQuotaMigrating}
+          className={cn(
+            "shrink-0 flex items-center gap-2 px-6 py-3 rounded-xl font-black text-sm uppercase tracking-widest transition-all",
+            isQuotaMigrating
+              ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+              : "bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(251,191,36,0.3)] hover:scale-105"
+          )}
+        >
+          {isQuotaMigrating ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang cập nhật...</> : <><RefreshCw className="w-4 h-4" /> Chạy Ngay</>}
+        </button>
+      </div>
+
       {/* HEADER */}
       <div className="bg-slate-900 border border-slate-800 p-8 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
         {isMigrating && (

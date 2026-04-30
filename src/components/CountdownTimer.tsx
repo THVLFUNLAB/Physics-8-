@@ -52,12 +52,15 @@ export const CountdownTimer = () => {
 
   return (
     <div className="flex flex-col items-center justify-center py-4 w-full">
-      <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-center w-full">
+      <div className="flex items-center justify-center gap-1 sm:gap-2 w-full">
         {!isExpired ? (
           <>
             <TimeBox label="NGÀY" value={timeLeft.days} color="cyan" />
+            <Separator />
             <TimeBox label="GIỜ" value={timeLeft.hours} color="fuchsia" />
+            <Separator />
             <TimeBox label="PHÚT" value={timeLeft.minutes} color="amber" />
+            <Separator />
             <TimeBox label="GIÂY" value={timeLeft.seconds} color="red" />
           </>
         ) : (
@@ -70,24 +73,51 @@ export const CountdownTimer = () => {
   );
 };
 
+const Separator = () => {
+  const [visible, setVisible] = React.useState(true);
+  React.useEffect(() => {
+    const id = setInterval(() => setVisible(v => !v), 500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span
+      className="text-3xl sm:text-5xl md:text-6xl font-black text-slate-500 select-none mb-4 transition-opacity duration-200"
+      style={{ opacity: visible ? 1 : 0.1 }}
+    >:</span>
+  );
+};
+
 type GlowColor = 'cyan' | 'fuchsia' | 'amber' | 'red';
 const TimeBox = ({ label, value, color }: { label: string, value: number, color: GlowColor }) => {
   const styles = {
-    cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/40', text: 'text-cyan-400', shadow: 'drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]', outer: 'hover:shadow-cyan-500/30' },
-    fuchsia: { bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/40', text: 'text-fuchsia-400', shadow: 'drop-shadow-[0_0_15px_rgba(217,70,239,0.8)]', outer: 'hover:shadow-fuchsia-500/30' },
-    amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-400', shadow: 'drop-shadow-[0_0_15px_rgba(251,191,36,0.8)]', outer: 'hover:shadow-amber-500/30' },
-    red: { bg: 'bg-red-500/10', border: 'border-red-500/40', text: 'text-red-500', shadow: 'drop-shadow-[0_0_15px_rgba(239,68,68,0.8)]', outer: 'hover:shadow-red-500/30' }
+    cyan:    { bg: 'bg-cyan-500/10',    border: 'border-cyan-500/50',    text: 'text-cyan-300',    shadow: '0 0 30px rgba(34,211,238,0.9), 0 0 60px rgba(34,211,238,0.4)',    outer: 'shadow-cyan-500/40' },
+    fuchsia: { bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/50', text: 'text-fuchsia-300', shadow: '0 0 30px rgba(217,70,239,0.9), 0 0 60px rgba(217,70,239,0.4)',    outer: 'shadow-fuchsia-500/40' },
+    amber:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/50',   text: 'text-amber-300',   shadow: '0 0 30px rgba(251,191,36,0.9), 0 0 60px rgba(251,191,36,0.4)',    outer: 'shadow-amber-500/40' },
+    red:     { bg: 'bg-red-500/10',     border: 'border-red-500/50',     text: 'text-red-400',     shadow: '0 0 30px rgba(239,68,68,0.9), 0 0 60px rgba(239,68,68,0.4)',      outer: 'shadow-red-500/40' },
   }[color];
 
   return (
-    <div className="flex flex-col items-center">
-      <div className={`w-16 h-20 sm:w-20 sm:h-24 md:w-24 md:h-28 rounded-2xl md:rounded-3xl flex items-center justify-center shadow-inner ${styles.bg} ${styles.border} border backdrop-blur-md relative overflow-hidden group transition-all duration-300 hover:scale-105 ${styles.outer}`}>
-        <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent mix-blend-overlay pointer-events-none"></div>
-        <span className={`text-[2rem] sm:text-5xl md:text-6xl font-black ${styles.text} ${styles.shadow} font-mono tracking-tighter`}>
+    <div className="flex flex-col items-center gap-1.5">
+      <div className={`
+        w-[4.5rem] h-[5.5rem] sm:w-24 sm:h-28 md:w-28 md:h-32
+        rounded-2xl md:rounded-3xl flex items-center justify-center
+        ${styles.bg} border ${styles.border}
+        backdrop-blur-md relative overflow-hidden
+        transition-all duration-300 hover:scale-105
+        shadow-[0_0_20px_rgba(0,0,0,0.5)]
+      `}>
+        {/* Gradient shine overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-transparent to-black/30 pointer-events-none" />
+        {/* Scanline effect */}
+        <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.03)_2px,rgba(0,0,0,0.03)_4px)] pointer-events-none" />
+        <span
+          className={`text-5xl sm:text-6xl md:text-7xl font-black ${styles.text} font-mono tracking-tighter relative z-10`}
+          style={{ textShadow: styles.shadow }}
+        >
           {value.toString().padStart(2, '0')}
         </span>
       </div>
-      <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mt-2">{label}</span>
+      <span className={`text-[9px] sm:text-[11px] font-black uppercase tracking-[0.2em] ${styles.text} opacity-80`}>{label}</span>
     </div>
   );
 };

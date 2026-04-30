@@ -115,7 +115,7 @@ export const StudentDirectory: React.FC = () => {
     try {
       for (const uid of Array.from(selectedIds)) {
         try {
-          await updateDoc(doc(db, 'users', uid), { tier: 'free', isUnlimited: false, maxAttempts: 30 });
+          await updateDoc(doc(db, 'users', uid), { tier: 'free', isUnlimited: false, maxAttempts: 20 });
           ok++;
         } catch (err: any) {
           toast.error(`Lỗi thu hồi VIP: ${err?.message || 'Unknown'}`);
@@ -139,7 +139,7 @@ export const StudentDirectory: React.FC = () => {
 
     try {
       if (isVip) {
-        await updateDoc(doc(db, 'users', student.uid), { tier: 'free', isUnlimited: false, maxAttempts: 30 });
+        await updateDoc(doc(db, 'users', student.uid), { tier: 'free', isUnlimited: false, maxAttempts: 20 });
         toast.success(`🔄 ${student.displayName} đã hạ xuống FREE`);
       } else {
         await updateDoc(doc(db, 'users', student.uid), { tier: 'vip', isUnlimited: true, maxAttempts: 9999 });
@@ -353,7 +353,7 @@ export const StudentDirectory: React.FC = () => {
                             (student.usedAttempts || 0) >= 25 ? "text-red-400" :
                             (student.usedAttempts || 0) >= 20 ? "text-amber-400" : "text-slate-500"
                           )}>
-                            {student.usedAttempts || 0}/{student.maxAttempts || 30} lượt
+                            {student.usedAttempts || 0}/{student.maxAttempts || 20} lượt
                           </span>
                         )}
                       </div>

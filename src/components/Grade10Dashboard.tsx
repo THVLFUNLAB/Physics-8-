@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { Rocket, Target, Star, BrainCircuit, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { getYCCDByGrade } from '../data/yccdData';
 import { TopicCard } from './TopicCard';
 import { ExamsList } from './ExamsList';
-import { Topic, Exam } from '../types';
+import { Topic, Exam, UserProfile } from '../types';
+import { UserRankCard } from './UserRankCard';
+import { GradeLeaderboard } from './GradeLeaderboard';
 
 // ═══════════════════════════════════════════
 //  Định nghĩa Topics chính thức của Lớp 10
@@ -20,6 +22,7 @@ const GRADE_10_TOPICS: { topic: Topic; displayName: string; color: string }[] = 
 
 // ═══ Props Interface ═══
 interface Grade10DashboardProps {
+  user?: UserProfile;
   onStartPrescription?: (topic: Topic, examId: string) => void;
   onStartExam?: (exam: Exam) => void;
   onDownloadPDF?: (exam: Exam) => void;
@@ -76,8 +79,8 @@ function HeroBanner() {
 }
 
 // ═══ YCCĐ Accordion cho từng Topic ═══
-function YCCDTopicSection({ topic, color }: { topic: string; color: string }) {
-  const [isOpen, setIsOpen] = useState(false);
+// [FIX] isOpen được truyền từ parent để tránh mất state khi scroll re-render trong overflow container
+function YCCDTopicSection({ topic, color, isOpen, onToggle }: { topic: string; color: string; isOpen: boolean; onToggle: () => void }) {
   const yccdItems = useMemo(() => getYCCDByGrade('10').filter(y => y.topic === topic), [topic]);
 
   if (yccdItems.length === 0) return null;
@@ -85,7 +88,7 @@ function YCCDTopicSection({ topic, color }: { topic: string; color: string }) {
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={onToggle}
         className="w-full flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -161,11 +164,22 @@ function MasteryRadarChart() {
 }
 
 // ═══ MAIN COMPONENT ═══
-export default function Grade10Dashboard({ onStartPrescription, onStartExam, onDownloadPDF }: Grade10DashboardProps) {
+export default function $([0] -replace 'export default function ',''-replace '\(\{.*','')({ user, onStartPrescription, onStartExam, onDownloadPDF }: ) {
+  // [FIX] Lift accordion state lên parent để tránh mất state khi YCCDTopicSection
+  // bị re-render bởi scroll event trong container overflow-y-auto
+  const [openTopics, setOpenTopics] = useState<Record<string, boolean>>({});
+  const toggleTopic = (topic: string) => setOpenTopics(prev => ({ ...prev, [topic]: !prev[topic] }));
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in duration-500">
       {/* ── Hero Banner ── */}
-      <HeroBanner />
+      <HeroBanner />      {/* ── Bảng Xếp Hạng & Cá Nhân ── */}
+      {user && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <UserRankCard user={user} />
+          <GradeLeaderboard currentUser={user} />
+        </div>
+      )}
 
       {/* ── Năng lực + Lệnh triệu tập ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -183,7 +197,13 @@ export default function Grade10Dashboard({ onStartPrescription, onStartExam, onD
           </h2>
           <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
             {GRADE_10_TOPICS.map(t => (
-              <YCCDTopicSection key={t.topic} topic={t.topic} color={t.color} />
+              <YCCDTopicSection
+                key={t.topic}
+                topic={t.topic}
+                color={t.color}
+                isOpen={!!openTopics[t.topic]}
+                onToggle={() => toggleTopic(t.topic)}
+              />
             ))}
           </div>
         </div>

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * InteractiveMascot.tsx
  * ─────────────────────────────────────────────────────────────────────────────
  * THVL-bot: a "Talking Tom"-style mascot widget for the PHYS-9+ Dashboard.
@@ -314,7 +314,7 @@ export const InteractiveMascot: React.FC = () => {
       style={{
         position: 'fixed',
         // Above mobile bottom-nav (typically 64px), with extra breathing room
-        bottom: '5.5rem',
+        bottom: 'var(--mascot-bottom, 5.5rem)',
         right: '1rem',
         zIndex: 9990,
         display: 'flex',
@@ -405,10 +405,12 @@ export const InteractiveMascot: React.FC = () => {
       <style>{`
         #interactive-mascot-root {
           --mascot-size: 150px;
+          --mascot-bottom: 5.5rem;
         }
         @media (max-width: 767px) {
           #interactive-mascot-root {
-            --mascot-size: 120px;
+            --mascot-size: 75px;
+            --mascot-bottom: 4.5rem;
           }
         }
         /* Keyboard focus ring */

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ResponsiveContainer, 
@@ -259,7 +259,7 @@ interface DashboardProps {
   onStartExam?: (exam: Exam) => void;
 }
 
-export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onStartExam }: DashboardProps) => {
+export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onStartExam, onDownloadPDF }: DashboardProps) => {
   const defaultGrade = user?.className?.startsWith('12') ? '12' : user?.className?.startsWith('11') ? '11' : '10';
   const [activeGrade, setActiveGrade] = useState<'10' | '11' | '12'>(defaultGrade);
   const [expandedTopics, setExpandedTopics] = useState<string[]>([]);
@@ -594,7 +594,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
                </p>
                {user && user.tier !== 'vip' && (
                  <span className="text-[9px] font-black uppercase bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/30">
-                   Lượt: {Math.max(0, (user.maxAttempts || 30) - (user.usedAttempts || 0))}
+                   Lượt: {Math.max(0, (user.maxAttempts || 20) - (user.usedAttempts || 0))}
                  </span>
                )}
              </div>
@@ -633,17 +633,15 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
           {/* ── TẦNG 1: HOOK — Rank Card ── */}
           {user && <UserRankCard user={user} />}
 
-          {/* ── TẦNG 2: URGENCY — Countdown (chỉ Khối 12) + Quote gọn ── */}
+          {/* ── TẦNG 2: URGENCY — Countdown + Quote gọn ── */}
           <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-3xl p-4 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 blur-3xl rounded-full pointer-events-none" />
-            {defaultGrade === '12' && (
-              <>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
-                  <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT 2026
-                </p>
-                <CountdownTimer />
-              </>
-            )}
+            {/* [FIX] Hiện CountdownTimer cho tất cả khối, không chỉ khối 12
+                 Khối 12 thêm label rõ ràng; khối 10/11 cũng được xem đếm ngược để tạo urgency */}
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT 2026
+            </p>
+            <CountdownTimer />
             <MotivationalQuote />
           </div>
 
@@ -688,13 +686,17 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
           {/* ── TẦNG 4: SOCIAL — Mini Leaderboard Top 3 ── */}
           {user && <MiniLeaderboardPreview currentUser={user} onViewAll={() => setActiveTab('PROFILE')} />}
 
+          {/* ── TẦNG 4b: LEADERBOARD ĐẦY ĐỦ — GradeLeaderboard ── */}
+          {/* [FIX] Đây là component bị mất — khôi phục lại đúng vị trí trên tab HOME */}
+          {user && <GradeLeaderboard currentUser={user} />}
+
           {/* ── TẦNG 5: DEPTH — Danh sách đề luyện tập ── */}
           {onStartExam && (
             <div className="space-y-3">
               <h2 className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
                 <Award className="w-3.5 h-3.5 text-amber-400" /> ĐỀ LUYỆN TẬP
               </h2>
-              <ExamsList onStartExam={onStartExam} gradeFilter={Number(defaultGrade)} />
+              <ExamsList onStartExam={onStartExam} onDownloadPDF={onDownloadPDF} gradeFilter={Number(defaultGrade)} />
             </div>
           )}
 
@@ -818,7 +820,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
                     key={mode.id}
                     className={cn("p-5 rounded-2xl border flex items-center justify-between cursor-pointer backdrop-blur-md", mode.bgColor, mode.borderColor, mode.glow)}
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
                       <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center bg-slate-950/50 border", mode.borderColor)}>
                         <mode.icon className={cn("w-6 h-6", mode.color)} />
                       </div>
@@ -930,13 +932,13 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
                 (user.usedAttempts || 0) >= 20 ? "text-amber-500" :
                 "text-emerald-500"
               )}>
-                {isVipUser(user) ? '∞' : `${user.usedAttempts || 0} / 30`}
+                {isVipUser(user) ? '∞' : `${user.usedAttempts || 0} / 20`}
               </span>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden relative z-10">
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: isVipUser(user) ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / 30) * 100)}%` }}
+                animate={{ width: isVipUser(user) ? '100%' : `${Math.min(100, ((user.usedAttempts || 0) / 20) * 100)}%` }}
                 className={cn(
                   "h-full rounded-full relative",
                   isVipUser(user) ? "bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-300" :

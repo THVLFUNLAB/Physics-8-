@@ -66,7 +66,7 @@ export const ProExamExperience = ({
 
   // ── Gated Content Logic: Khóa nếu user chưa đăng nhập HOẶC (user FREE và hết lượt) ──
   // Xác định sớm để truyền vào hook AntiCheat
-  const isLockedGlobal = (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 30)));
+  const isLockedGlobal = (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 20)));
   
   // Kích hoạt Anti-Cheat/Anti-Copy/Inspect nếu bị khóa
   useAntiCheat(isLockedGlobal);
@@ -240,7 +240,7 @@ export const ProExamExperience = ({
   const currentQuestion = test.questions[currentIndex];
 
   // ── Gated Content Logic: Khóa nếu user chưa đăng nhập HOẶC (user FREE và hết lượt) ──
-  const isLocked = currentIndex >= 3 && (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 30)));
+  const isLocked = currentIndex >= 3 && (!user || (user.tier !== 'vip' && (user.usedAttempts || 0) >= (user.maxAttempts || 20)));
 
   const handleGateAction = async () => {
     if (!user) {

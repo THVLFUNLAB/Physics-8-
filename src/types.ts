@@ -77,7 +77,7 @@ export interface UserProfile {
   tier?: 'free' | 'vip';           // Hạng tài khoản
   usedAttempts?: number;           // Số lượt thi đã dùng (chỉ tính FREE, có giới hạn)
   totalAttempts?: number;          // Tổng số đề đã làm (cả VIP + FREE, không giới hạn — dùng để phân tích)
-  maxAttempts?: number;            // Giới hạn lượt thi (Free: 30)
+  maxAttempts?: number;            // Giới hạn lượt thi (Free: 20)
   isUnlimited?: boolean;           // Cờ VIP không giới hạn
   // ── Learning Path ──
   learningPath?: {

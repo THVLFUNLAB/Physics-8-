@@ -111,12 +111,12 @@ const AdminStudentProfile: React.FC<AdminStudentProfileProps> = ({ user, attempt
           <p className="text-sm font-medium text-slate-400">Số lượt thử đã dùng</p>
           <div className="flex items-baseline gap-2 mt-2">
             <p className="text-3xl font-semibold text-white">{isVipUser(user) ? '∞' : user.usedAttempts || 0}</p>
-            <p className="text-sm text-slate-500">/ {isVipUser(user) ? '∞' : user.maxAttempts || 30}</p>
+            <p className="text-sm text-slate-500">/ {isVipUser(user) ? '∞' : user.maxAttempts || 20}</p>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-1.5 mt-4">
             <div 
               className={cn("h-1.5 rounded-full transition-all duration-1000", isVipUser(user) ? 'bg-amber-500' : 'bg-indigo-500')} 
-              style={{ width: isVipUser(user) ? '100%' : `${Math.min(((user.usedAttempts || 0) / (user.maxAttempts || 30)) * 100, 100)}%` }}
+              style={{ width: isVipUser(user) ? '100%' : `${Math.min(((user.usedAttempts || 0) / (user.maxAttempts || 20)) * 100, 100)}%` }}
             />
           </div>
         </div>
