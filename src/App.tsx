@@ -30,7 +30,8 @@ import type { ScoredQuestion } from './services/profileUpdater';
 import { useDashboardStats } from './hooks/useDashboardStats';
 import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
-import { jsPDF } from 'jspdf';
+import { useReactToPrint } from 'react-to-print';
+import { PrintableExamView } from './components/PrintableExamView';
 import { exportExamToWord } from './services/ExamWordExporter';
 import { robotoBase64 } from './utils/robotoFont';
 
@@ -178,6 +179,22 @@ const GUEST_USER: UserProfile = {
 //  MAIN APP — ORCHESTRATION ONLY
 // ═══════════════════════════════════════════════════════════════════════
 export default function App() {
+  // ── Print State ──
+  const printRef = useRef<HTMLDivElement>(null);
+  const [printingExam, setPrintingExam] = useState<Exam | null>(null);
+
+  const handlePrintParams = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: printingExam ? De_Thi_ : 'De_Thi',
+    onAfterPrint: () => setPrintingExam(null),
+  });
+
+  useEffect(() => {
+    if (printingExam && printRef.current) {
+      handlePrintParams();
+    }
+  }, [printingExam, handlePrintParams]);
+
   const authStore = useAuthStore();
   const authUser = authStore.user;
   const user = authUser || GUEST_USER;
@@ -376,139 +393,7 @@ export default function App() {
   };
 
   // ═══ PDF EXPORT ═══
-  const exportExamToPDF = async (exam: Exam) => {
-    const pdfDoc = new jsPDF();
-    const pageWidth = pdfDoc.internal.pageSize.getWidth();
-    const pageHeight = pdfDoc.internal.pageSize.getHeight();
-    const marginBottom = 20;
-
-    pdfDoc.setFontSize(10);
-    pdfDoc.text("SỞ GIÁO DỤC VÀ ĐÀO TẠO", 20, 20);
-    pdfDoc.text("TRƯỜNG THPT CHUYÊN PHYS-9+", 20, 25);
-    pdfDoc.text("ĐỀ THI CHÍNH THỨC", 20, 30);
-    pdfDoc.setFontSize(12);
-    pdfDoc.setFont("helvetica", "bold");
-    pdfDoc.text("KỲ THI TỐT NGHIỆP TRUNG HỌC PHỔ THÔNG NĂM 2026", pageWidth / 2, 45, { align: "center" });
-    pdfDoc.text(`Bài thi: VẬT LÝ - Mã đề: ${Math.floor(Math.random() * 900) + 100}`, pageWidth / 2, 52, { align: "center" });
-    pdfDoc.setFontSize(10);
-    pdfDoc.setFont("helvetica", "normal");
-    pdfDoc.text("Thời gian làm bài: 50 phút, không kể thời gian phát đề", pageWidth / 2, 58, { align: "center" });
-    pdfDoc.line(20, 65, pageWidth - 20, 65);
-
-    let y = 75;
-
-    const estimateQuestionHeight = (q: Question, label: string): number => {
-      const contentLines = pdfDoc.splitTextToSize(`${label}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
-      let h = contentLines.length * 5 + 5;
-      if (q.options) {
-        h += (q.part === 1 ? Math.ceil(q.options.length / 2) : q.options.length) * 7 + 5;
-      }
-      return h;
-    };
-
-    const renderQuestion = (q: Question, label: string, currentY: number): number => {
-      const contentLines = pdfDoc.splitTextToSize(`${label}: ${q.content.replace(/\$|\$\$/g, '')}`, pageWidth - 40);
-      pdfDoc.text(contentLines, 20, currentY);
-      currentY += contentLines.length * 5 + 5;
-      if (q.part === 1) {
-        q.options?.forEach((opt, idx) => {
-          pdfDoc.text(String.fromCharCode(65 + idx) + ". " + opt.replace(/\$|\$\$/g, ''), 30 + (idx % 2 === 0 ? 0 : 80), currentY);
-          if (idx % 2 === 1) currentY += 7;
-        });
-        currentY += 5;
-      } else if (q.part === 2) {
-        q.options?.forEach((opt, idx) => {
-          pdfDoc.text(String.fromCharCode(97 + idx) + ") " + opt.replace(/\$|\$\$/g, ''), 30, currentY);
-          currentY += 7;
-        });
-        currentY += 5;
-      }
-      return currentY;
-    };
-
-    const buildBlocks = (questions: Question[]): (Question | Question[])[] => {
-      const blocks: (Question | Question[])[] = [];
-      const processed = new Set<string>();
-      for (const q of questions) {
-        if (q.clusterId) {
-          if (processed.has(q.clusterId)) continue;
-          processed.add(q.clusterId);
-          blocks.push(questions.filter(cq => cq.clusterId === q.clusterId).sort((a, b) => (a.clusterOrder ?? 0) - (b.clusterOrder ?? 0)));
-        } else {
-          blocks.push(q);
-        }
-      }
-      return blocks;
-    };
-
-    const renderPart = (partTitle: string, questions: Question[], startIdx: number): number => {
-      y += 10;
-      if (y > pageHeight - marginBottom) { pdfDoc.addPage(); y = 20; }
-      pdfDoc.setFont("helvetica", "bold");
-      pdfDoc.text(partTitle, 20, y);
-      y += 10;
-      pdfDoc.setFont("helvetica", "normal");
-
-      const blocks = buildBlocks(questions);
-      let qCounter = startIdx;
-
-      for (const block of blocks) {
-        if (Array.isArray(block)) {
-          const clusterTag = block[0]?.tags?.find((t: string) => t.startsWith('__cluster_context:'));
-          const sharedCtx = clusterTag?.replace('__cluster_context:', '');
-
-          let totalHeight = 0;
-          if (sharedCtx) {
-            const ctxText = sharedCtx.replace(/\$|\$\$/g, '').replace(/<[^>]*>/g, '');
-            totalHeight += pdfDoc.splitTextToSize(`[Dữ kiện chung] ${ctxText}`, pageWidth - 50).length * 5 + 8;
-          }
-          for (let ci = 0; ci < block.length; ci++) {
-            totalHeight += estimateQuestionHeight(block[ci], `Câu ${qCounter + ci + 1}`);
-          }
-
-          if (y + totalHeight > pageHeight - marginBottom && y > 40) {
-            pdfDoc.addPage();
-            y = 20;
-          }
-
-          if (sharedCtx) {
-            pdfDoc.setFont("helvetica", "italic");
-            const ctxText = sharedCtx.replace(/\$|\$\$/g, '').replace(/<[^>]*>/g, '');
-            const ctxLines = pdfDoc.splitTextToSize(`[Dữ kiện chung] ${ctxText}`, pageWidth - 50);
-            pdfDoc.text(ctxLines, 25, y);
-            y += ctxLines.length * 5 + 5;
-            pdfDoc.setFont("helvetica", "normal");
-          }
-
-          for (const cq of block) {
-            qCounter++;
-            y = renderQuestion(cq, `Câu ${qCounter}`, y);
-          }
-        } else {
-          qCounter++;
-          if (y > pageHeight - marginBottom) { pdfDoc.addPage(); y = 20; }
-          y = renderQuestion(block, `Câu ${qCounter}`, y);
-        }
-      }
-      return qCounter;
-    };
-
-    let idx = 0;
-    idx = renderPart("PHẦN I. Câu trắc nghiệm nhiều phương án lựa chọn.", exam.questions.filter(q => q.part === 1), idx);
-    idx = renderPart("PHẦN II. Câu trắc nghiệm Đúng/Sai.", exam.questions.filter(q => q.part === 2), idx);
-    renderPart("PHẦN III. Câu trắc nghiệm trả lời ngắn.", exam.questions.filter(q => q.part === 3), idx);
-
-    // Normalize: bo dau tieng Viet -> ASCII de browser nhan dung filename (jsPDF khong ho tro Unicode filename)
-    const normalizeVN = (str: string) => str
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\u0111/g, 'd').replace(/\u0110/g, 'D')
-      .replace(/[^a-zA-Z0-9\s\-_.]/g, '')
-      .trim()
-      .replace(/\s+/g, '_');
-    const safeTitle = normalizeVN(exam.title || 'De_Thi') || 'De_Thi';
-    pdfDoc.save(`${safeTitle}.pdf`);
-  };
+  
 
   // ═══ STUDENT PDF EXPORT (Trừ 5 lượt) ═══
   const handleStudentDownloadPDF = async (exam: Exam) => {
@@ -526,11 +411,11 @@ export default function App() {
     setIsPdfDownloading(true);
 
     try {
-      toast.info('Đang xử lý tải PDF...');
+      toast.info('Đang chuẩn bị file in PDF...');
       const success = await consumePdfDownloadAttempts(user.uid, examToDownload.id);
       if (success) {
-        exportExamToPDF(examToDownload);
-        toast.success('Đã tải PDF và trừ 5 lượt thành công!');
+        setPrintingExam(examToDownload);
+        toast.success('Đã mở giao diện in PDF và trừ 5 lượt thành công!');
       }
     } catch (err: any) {
       if (err.message === "EXCEEDED_LIMIT") {
@@ -1735,7 +1620,13 @@ export default function App() {
       )}
     </div>
           )}
-        </main>
+  
+      {/* ── HIDDEN PRINTABLE EXAM (STUDENT) ── */}
+      <div className="hidden">
+        {printingExam && <PrintableExamView ref={printRef} exam={printingExam} />}
+      </div>
+
+      </main>
       </div>
     </div>
   );
