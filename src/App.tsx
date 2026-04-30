@@ -185,7 +185,7 @@ export default function App() {
 
   const handlePrintParams = useReactToPrint({
     contentRef: printRef,
-    documentTitle: printingExam ? De_Thi_ : 'De_Thi',
+    documentTitle: printingExam ? `De_Thi_${printingExam.title}` : 'De_Thi',
     onAfterPrint: () => setPrintingExam(null),
   });
 
