@@ -81,7 +81,7 @@ const Separator = () => {
   }, []);
   return (
     <span
-      className="text-3xl sm:text-5xl md:text-6xl font-black text-slate-500 select-none mb-4 transition-opacity duration-200"
+      className="text-2xl sm:text-4xl md:text-6xl font-black text-slate-500 select-none mb-4 transition-opacity duration-200"
       style={{ opacity: visible ? 1 : 0.1 }}
     >:</span>
   );
@@ -99,8 +99,8 @@ const TimeBox = ({ label, value, color }: { label: string, value: number, color:
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className={`
-        w-[4.5rem] h-[5.5rem] sm:w-24 sm:h-28 md:w-28 md:h-32
-        rounded-2xl md:rounded-3xl flex items-center justify-center
+        w-[3.5rem] h-[4.5rem] sm:w-20 sm:h-24 md:w-28 md:h-32
+        rounded-xl md:rounded-3xl flex items-center justify-center
         ${styles.bg} border ${styles.border}
         backdrop-blur-md relative overflow-hidden
         transition-all duration-300 hover:scale-105
@@ -111,7 +111,7 @@ const TimeBox = ({ label, value, color }: { label: string, value: number, color:
         {/* Scanline effect */}
         <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.03)_2px,rgba(0,0,0,0.03)_4px)] pointer-events-none" />
         <span
-          className={`text-5xl sm:text-6xl md:text-7xl font-black ${styles.text} font-mono tracking-tighter relative z-10`}
+          className={`text-4xl sm:text-5xl md:text-7xl font-black ${styles.text} font-mono tracking-tighter relative z-10`}
           style={{ textShadow: styles.shadow }}
         >
           {value.toString().padStart(2, '0')}

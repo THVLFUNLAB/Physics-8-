@@ -32,6 +32,7 @@ import { syncMemoryLogs } from './utils/spacedRepetition';
 import { PHYSICS_TOPICS } from './utils/physicsTopics';
 import { jsPDF } from 'jspdf';
 import { exportExamToWord } from './services/ExamWordExporter';
+import { robotoBase64 } from './utils/robotoFont';
 
 // ── Layout ──
 import Sidebar from './components/Sidebar';
@@ -1463,7 +1464,7 @@ export default function App() {
         ) : activeTest ? (
         /* ══════ RESULTS PANEL ══════ */
         <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
-          {results.weaknessProfile ? (
+          {results?.weaknessProfile && activeTest ? (
             <PersonalizedResultPanel
               profile={results.weaknessProfile}
               attempt={results}

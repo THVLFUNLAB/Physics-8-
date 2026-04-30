@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ResponsiveContainer, 
@@ -257,6 +257,7 @@ interface DashboardProps {
   attempts?: Attempt[];
   onStartPrescription?: (topic: string, examId?: string) => void;
   onStartExam?: (exam: Exam) => void;
+  onDownloadPDF?: (exam: Exam) => void;
 }
 
 export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onStartExam, onDownloadPDF }: DashboardProps) => {
