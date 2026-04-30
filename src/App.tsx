@@ -1462,6 +1462,47 @@ export default function App() {
               </div>
             </div>
 // ══════════════════════════════════════════════════════════════════════
+    ﻿        ) : activeTest ? (
+          /* ══════ EXAM / RESULTS VIEW ══════ */
+          <div className="w-full">
+            <AnimatePresence mode="wait">
+              {isReviewing && results ? (
+                <ReviewExam key="review" test={activeTest} answers={results.answers} onBack={() => { setIsReviewing(false); setActiveTest(null); setResults(null); }} />
+              ) : !results ? (
+                <ProExamExperience key="pro-exam" test={activeTest} answers={answers} onAnswer={handleAnswer} onSubmit={submitTest} onCancel={() => { clearExamSession(); setActiveTest(null); }} />
+              ) : results?.weaknessProfile ? (
+                <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
+                  <PersonalizedResultPanel
+                    profile={results.weaknessProfile}
+                    attempt={results}
+                    incorrectRecords={activeTest.questions.filter(q => {
+                      const studentAns = results.answers[q.id || ''];
+                      if (q.part === 1) return studentAns !== q.correctAnswer;
+                      if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
+                      if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
+                      return false;
+                    }).map(q => ({ question: q, studentAnswer: results.answers[q.id || ''], isCorrect: false }))}
+                    onRetry={() => { clearExamSession(); setActiveTest(null); }}
+                    onFixWeaknesses={handleAdaptiveTestFix}
+                    onReviewTheory={() => { }}
+                    onSaveToVault={handleSaveToVault}
+                  />
+                  <div className="mt-8 flex justify-center">
+                    <button onClick={() => setIsReviewing(true)} className="px-8 bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all gap-2 flex items-center justify-center border border-slate-700 shadow-lg">
+                      <Info className="w-5 h-5 text-blue-400" /> XEM CHI TIẾT LỜI GIẢI
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                <div key="loading" className="flex flex-col items-center justify-center py-20 bg-slate-900 rounded-3xl border border-slate-800 max-w-5xl mx-auto">
+                  <div className="text-amber-500 mb-4 animate-bounce"><AlertTriangle className="w-16 h-16" /></div>
+                  <h3 className="text-xl font-bold text-white mb-2">Đang thiết lập hồ sơ điểm yếu...</h3>
+                  <p className="text-slate-400">Vui lòng đợi vài giây để hệ thống phân tích năng lực.</p>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+
     ) : (
     /* ══════ MAIN DASHBOARD VIEW ══════ */
     <div className="space-y-12 relative z-10">
