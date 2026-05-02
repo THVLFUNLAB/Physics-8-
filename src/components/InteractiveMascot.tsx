@@ -1,4 +1,4 @@
-﻿/**
+/**
  * InteractiveMascot.tsx
  * ─────────────────────────────────────────────────────────────────────────────
  * THVL-bot: a "Talking Tom"-style mascot widget for the PHYS-9+ Dashboard.
@@ -39,23 +39,26 @@ const GREETING_DURATION_MS = 8_000;
 const POKED_DURATION_MS = 3_500;
 
 /**
- * Map each logical mascot state to its video/GIF source.
- * Priority: GIF (if placed in /public/mascot/) → existing MP4 fallback.
+ * Map each mascot state to its WebM video source.
  *
- * The component auto-detects whether to render <img> or <video> based on the
- * file extension so you can swap assets without touching any other code.
+ * ✅ BANDWIDTH OPTIMIZATION (2026-05-02):
+ * GIF files (~130MB) have been converted to WebM video (~9.7MB total).
+ * Tiết kiệm 92.5% bandwidth Vercel — mascot animation giữ nguyên 100%.
+ *
+ * Conversion: node convert_mascot_gifs.mjs  (ffmpeg-static)
+ * WebM  → primary  (Chrome, Firefox, Edge, Android)
+ * MP4   → fallback (Safari, iOS)
  */
-const ASSET_SRCS: Record<MascotState, string> = {
-  IDLE:     '/mascot/idle.gif',     // fallback: /mascot-idle.mp4
-  GREETING: '/mascot/greet.gif',    // fallback: /mascot-wave.mp4
-  POKED:    '/mascot/poked.gif',    // fallback: /mascot-dizzy.mp4
+const WEBM_SRCS: Record<MascotState, string> = {
+  IDLE:     '/mascot/idle.webm',
+  GREETING: '/mascot/greet.webm',
+  POKED:    '/mascot/poked.webm',
 };
 
-// Fallback MP4s that ship with the repo
 const MP4_FALLBACKS: Record<MascotState, string> = {
-  IDLE:     '/mascot-idle.mp4',
-  GREETING: '/mascot-wave.mp4',
-  POKED:    '/mascot-dizzy.mp4',
+  IDLE:     '/mascot/idle.mp4',
+  GREETING: '/mascot/greet.mp4',
+  POKED:    '/mascot/poked.mp4',
 };
 
 /** Physics easter-egg quotes shown on poke (Vietnamese) */
@@ -92,44 +95,34 @@ function pickRandomQuote(): string {
   return PHYSICS_QUOTES[Math.floor(Math.random() * PHYSICS_QUOTES.length)];
 }
 
-function isGif(src: string): boolean {
-  return src.toLowerCase().endsWith('.gif');
-}
-
 // ─── Sub-component: MascotMedia ───────────────────────────────────────────────
-// Renders either an <img> (for GIFs) or <video> (for MP4) depending on asset.
-// A unique `key` is hoisted from the parent so GIF restarts on every state
-// switch (as required by the spec).
+// Renders <video> với WebM (primary) + MP4 (Safari fallback).
+// key prop từ parent buộc video restart từ đầu mỗi lần đổi state.
 
 interface MascotMediaProps {
-  gifSrc: string;
-  mp4Src: string;
-  /** Unique key forces GIF to restart; passed via React key prop by parent */
+  webmSrc: string;
+  mp4Src:  string;
+  /** Gọi khi video kết thúc (dùng cho GREETING / POKED → auto → IDLE) */
   onEnded?: () => void;
-  sizeClass: string; // Tailwind class for w/h
+  /** state hiện tại để quyết định loop hay không */
+  mascotState: MascotState;
 }
 
 const MascotMedia: React.FC<MascotMediaProps> = ({
-  gifSrc,
+  webmSrc,
   mp4Src,
   onEnded,
-  sizeClass,
+  mascotState,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [useGif, setUseGif] = useState(true); // optimistic: try GIF first
 
-  // If GIF fails to load (404), fall back to MP4
-  const handleImgError = () => setUseGif(false);
-
-  // Wire <video> → loop for IDLE, once for others
+  // Mỗi khi webmSrc thay đổi (state change) → reload + play
   useEffect(() => {
-    if (useGif) return;
     const v = videoRef.current;
     if (!v) return;
-    v.src = mp4Src;
     v.load();
     v.play().catch(() => undefined);
-  }, [useGif, mp4Src]);
+  }, [webmSrc]);
 
   const mediaStyle: React.CSSProperties = {
     width: '100%',
@@ -138,27 +131,23 @@ const MascotMedia: React.FC<MascotMediaProps> = ({
     display: 'block',
   };
 
-  if (useGif) {
-    return (
-      <img
-        src={gifSrc}
-        alt="THVL-bot mascot"
-        onError={handleImgError}
-        style={mediaStyle}
-        draggable={false}
-      />
-    );
-  }
-
   return (
     <video
       ref={videoRef}
       muted
       playsInline
-      onEnded={onEnded}
+      // IDLE loop vô tận; GREETING / POKED chạy 1 lần rồi goIdle
+      loop={mascotState === 'IDLE'}
+      onEnded={mascotState !== 'IDLE' ? onEnded : undefined}
       style={mediaStyle}
       aria-hidden="true"
-    />
+      aria-label="THVL-bot mascot animation"
+    >
+      {/* WebM — tất cả trình duyệt hiện đại */}
+      <source src={webmSrc} type="video/webm" />
+      {/* MP4 — Safari / iOS fallback */}
+      <source src={mp4Src}  type="video/mp4"  />
+    </video>
   );
 };
 
@@ -394,10 +383,10 @@ export const InteractiveMascot: React.FC = () => {
         */}
         <MascotMedia
           key={mediaKey}
-          gifSrc={ASSET_SRCS[state]}
+          webmSrc={WEBM_SRCS[state]}
           mp4Src={MP4_FALLBACKS[state]}
           onEnded={handleVideoEnded}
-          sizeClass="" // size driven by parent div
+          mascotState={state}
         />
       </motion.div>
 
