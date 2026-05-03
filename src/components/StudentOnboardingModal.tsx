@@ -33,8 +33,11 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    // Only show if user is a student and className is missing
-    if (user.role === 'student' && (!user.className || user.className.trim() === '')) {
+    // Show if user is a student (or has no role from old data) and className is missing
+    const isStudentOrUnassigned = !user.role || user.role === 'student';
+    const isMissingClass = !user.className || user.className.trim() === '';
+
+    if (isStudentOrUnassigned && isMissingClass) {
       setDisplayName(user.displayName || '');
       setIsOpen(true);
     } else {
