@@ -17,6 +17,7 @@ export interface ProxyGenerateOptions {
     responseSchema?: any;
     temperature?: number;
     maxOutputTokens?: number;
+    systemInstruction?: string;  // ✅ FIX: Bắt buộc cho voiceAITutor & các AI có persona
   };
 }
 

@@ -80,7 +80,6 @@ export const useExamStore = create<ExamState>((set, get) => ({
     const { activeTest, answers, currentQuestionIndex, results } = get();
     // Chỉ lưu nếu đang làm bài và chưa nộp
     if (activeTest && !results) {
-      // Dùng requestIdleCallback nếu trình duyệt hỗ trợ để chắc chắn không block Main Thread
       const performSave = () => {
         try {
           localStorage.setItem(SESSION_KEY, JSON.stringify({
@@ -119,10 +118,9 @@ export const useExamStore = create<ExamState>((set, get) => ({
       const elapsed = Date.now() - (session.savedAt || 0);
       if (elapsed > SESSION_TIMEOUT) {
         localStorage.removeItem(SESSION_KEY);
-        return false; // Quá hạn 2 tiếng
+        return false;
       }
 
-      // Khôi phục thành công
       set({
         activeTest: { topic: session.topic, questions: session.questions, examId: session.examId },
         answers: session.answers || {},
@@ -130,7 +128,7 @@ export const useExamStore = create<ExamState>((set, get) => ({
         results: null,
         lastSavedAt: session.savedAt,
       });
-      console.info(`[Session] ✅ Đã khôi phục phiên thi: ${session.topic} — ${session.questions.length} câu`);
+      console.info(`[Session] Đã khôi phục phiên thi: ${session.topic} — ${session.questions.length} câu`);
       return true;
     } catch (e) {
       console.warn('[Session] Lỗi khôi phục phiên thi:', e);
@@ -163,13 +161,15 @@ export const useExamStore = create<ExamState>((set, get) => ({
       isReviewing: false,
       submissionResult: null,
     });
-    // Kích hoạt session lưu nháp
     get().saveExamSession();
   },
 
+  // ═══════════════════════════════════════════════════════════════════
+  //  SUBMIT EXAM — Fire-and-Forget Architecture
+  //  Học sinh thấy điểm NGAY, AI chẩn đoán chạy ngầm sau đó
+  // ═══════════════════════════════════════════════════════════════════
   submitExam: async () => {
     const { activeTest, answers } = get();
-    // Dynamic import để tránh vòng lặp phụ thuộc (dependency cycle) giữa store và firebase
     const { useAuthStore } = await import('./useAuthStore');
     const { useAppStore } = await import('./useAppStore');
     const { examService } = await import('../services/examService');
@@ -184,71 +184,91 @@ export const useExamStore = create<ExamState>((set, get) => ({
 
     try {
       const gradeNumber = parseInt(user.className?.replace(/\D/g, '') || '12');
-      
-      // 1. Service: Tính điểm
-      const evaluation = examService.evaluateAnswers(activeTest.questions, answers, gradeNumber);
-      
-      // 2. Service: Chẩn đoán AI
-      const aiResult = await examService.callDiagnosis(
-        evaluation.incorrectRecords, 
-        evaluation.skippedRecords, 
-        gradeNumber, 
-        user.learningPath?.weaknessProfile
-      );
 
-      // 3. Chuẩn bị Payload bài thi
-      const attempt = {
+      // BƯỚC 1: Tính điểm ngay lập tức
+      const evaluation = examService.evaluateAnswers(activeTest.questions, answers, gradeNumber);
+      const wrongCount = evaluation.incorrectRecords.length;
+
+      // BƯỚC 2: FallbackProfile dựa trên điểm THỰC TẾ (không dùng message cũ "AI quá tải")
+      const overallLevel = evaluation.totalScore >= 9.0 ? 'S'
+        : evaluation.totalScore >= 8.0 ? 'A'
+        : evaluation.totalScore >= 5.0 ? 'B' : 'C';
+
+      const fallbackProfile = {
+        grade: gradeNumber,
+        overallLevel: overallLevel as 'S' | 'A' | 'B' | 'C',
+        behavioralNote: wrongCount === 0
+          ? 'Xuất sắc! Không phát hiện lỗ hổng kiến thức nào.'
+          : `Đã ghi nhận ${wrongCount} câu sai. Hệ thống đang phân tích lộ trình cá nhân hóa — kết quả chi tiết sẽ cập nhật sau.`,
+        items: [],
+        strengths: evaluation.totalScore >= 5.0 ? ['Hoàn thành bài kiểm tra'] : [],
+        actionPlan: wrongCount > 0
+          ? ['Ôn lại các câu đã làm sai trong bài thi', 'Tiếp tục luyện tập các đề thi tiếp theo']
+          : ['Tiếp tục duy trì phong độ xuất sắc'],
+        remedialMatrix: []
+      };
+
+      // BƯỚC 3: Lưu attempt NGAY với fallbackProfile (không chờ AI)
+      const attempt: any = {
         id: Math.random().toString(36).substr(2, 9),
         userId: user.uid,
         testId: activeTest.topic,
+        examId: (activeTest as any).examId || undefined,
         answers,
         score: evaluation.totalScore,
-        analysis: aiResult || null,
-        weaknessProfile: aiResult?.weaknessProfile || null,
+        analysis: null,
+        weaknessProfile: fallbackProfile,
         timestamp: Timestamp.now()
       };
 
-      // 4. Service: Lưu bài thi
-      await examService.saveAttempt(attempt);
+      const attemptDocRef = await examService.saveAttempt(attempt);
 
-      // 5. Service: Cập nhật User Profile
+      // BƯỚC 4: Cập nhật User Profile (XP, Rank, Streak) — không phụ thuộc AI
       const { updatedUser, earnedXP, xpBreakdown, isRankUp } = await examService.updateUserProfile(
-        user, activeTest, evaluation.totalScore, evaluation.newFailedQuestionIds, aiResult
+        user, activeTest, evaluation.totalScore, evaluation.newFailedQuestionIds, null
       );
 
-      // Cập nhật State Auth & App
       authState.setUser(updatedUser);
       if (isRankUp) useAppStore.getState().setShowConfetti(true);
 
-      // 6. Service: Chạy Background Sync (SM-2, Topic Progress)
+      // BƯỚC 5: SM-2 & Topic Progress (background)
       examService.triggerBackgroundTasks(
-        user.uid, evaluation.sm2Evaluations, evaluation.scoredQuestions, 
+        user.uid, evaluation.sm2Evaluations, evaluation.scoredQuestions,
         evaluation.totalScore, evaluation.correctQuestionIds
       );
 
-      // Cập nhật State nội bộ
+      // BƯỚC 6: Hiển thị kết quả NGAY — không cần chờ AI
       set({
         submissionResult: { score: evaluation.totalScore, earnedXP, show: true, xpBreakdown },
         results: attempt
       });
-      
       get().clearExamSession(user.uid);
       useAppStore.getState().setShowVirtualLab(false);
-      
+
+      // BƯỚC 7: FIRE-AND-FORGET — AI chạy ngầm sau khi HS đã thấy điểm
+      if (wrongCount > 0 || evaluation.skippedRecords.length > 0) {
+        examService.runDiagnosisInBackground(
+          attemptDocRef,
+          evaluation.incorrectRecords,
+          evaluation.skippedRecords,
+          gradeNumber,
+          user.learningPath?.weaknessProfile
+        ).catch((e: any) => console.error('[Background AI Diag] Failed silently:', e));
+      }
+
     } catch (e: any) {
       console.error('[submitExam] Lỗi nộp bài:', e);
       const msg = String(e?.message || e || '');
-      if (msg.includes('Timeout')) toast.error('⏱ Mạng chậm quá — Đã lưu bài cục bộ. Em có thể F5 và bấm Nộp bài lại mà không mất đáp án.');
-      else if (msg.includes('fetch') || msg.includes('network')) toast.error('📶 Mất kết nối — Bài làm vẫn được lưu nháp. Hãy kiểm tra WiFi.');
-      else toast.error('❌ Lỗi không xác định khi nộp bài.');
-      throw e; // Để component bắt và reset UI spinner
+      if (msg.includes('Timeout')) toast.error('Mạng chậm — Đã lưu bài cục bộ. Em có thể F5 và bấm Nộp bài lại mà không mất đáp án.');
+      else if (msg.includes('fetch') || msg.includes('network')) toast.error('Mất kết nối — Bài làm vẫn được lưu nháp. Hãy kiểm tra WiFi.');
+      else toast.error('Lỗi không xác định khi nộp bài.');
+      throw e;
     } finally {
       set({ isAnalyzing: false });
     }
   },
 
   handleAdaptiveTestFix: async () => {
-    // Tạm thời đặt logic cơ bản, có thể move vào examService sau
     console.log('handleAdaptiveTestFix gọi!');
   }
 }));

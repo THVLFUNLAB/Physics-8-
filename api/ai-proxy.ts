@@ -127,6 +127,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (config.responseSchema) {
         geminiBody.generationConfig.responseSchema = config.responseSchema;
       }
+      // ✅ FIX: Forward systemInstruction — bắt buộc cho voiceAITutor & các AI có persona
+      if (config.systemInstruction) {
+        geminiBody.systemInstruction = {
+          parts: [{ text: config.systemInstruction }]
+        };
+      }
     }
 
     const geminiRes = await fetch(geminiUrl, {

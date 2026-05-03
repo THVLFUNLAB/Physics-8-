@@ -37,11 +37,16 @@ export const PersonalizedResultPanel: React.FC<Props> = ({
     ? { icon: '⚡', color: 'from-blue-400 to-indigo-600', text: 'text-blue-400', label: 'KHÁ (B)' }
     : { icon: '⚠️', color: 'from-rose-400 to-red-600', text: 'text-rose-400', label: 'CẦN CỐ GẮNG (C)' };
 
-  // Calculate stats
-  const totalQuestions = Object.keys(attempt.answers || {}).length;
+  // Calculate stats — dùng incorrectRecords.length để tính ngược, KHÔNG đếm keys của answers
+  // vì answers chỉ chứa câu đã chạm tới, có thể ít hơn tổng câu → gây số âm
   const incorrectCount = incorrectRecords.length;
-  const skippedCount = profile.items?.filter(i => i.errorType === 'skipped').reduce((a,b)=>a+b.wrongCount, 0) || 0;
-  const correctCount = totalQuestions - incorrectCount - skippedCount;
+  const skippedCount = profile.items?.filter(i => i.errorType === 'skipped').reduce((a, b) => a + b.wrongCount, 0) || 0;
+  // totalQuestions = lấy từ attempt.score để ước tính, fallback về đếm answers
+  // Tính: nếu toàn Phần 1 (0.25đ/câu) thì max = totalQ * 0.25. Nhưng không có đủ dữ liệu ở đây,
+  // ta đếm an toàn bằng cách: correctCount = totalAnswered - incorrect (không trừ skipped vì skipped nằm trong incorrect)
+  const totalAnswered = Object.keys(attempt.answers || {}).length;
+  // Đảm bảo correctCount không bao giờ âm
+  const correctCount = Math.max(0, totalAnswered - incorrectCount);
 
   return (
     <div className="w-full bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col">

@@ -174,7 +174,8 @@ export async function diagnoseUserExam(
   incorrectRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[],
   skippedRecords: { question: Question, studentAnswer: any, isCorrect: boolean }[] = [],
   grade: number = 12,
-  previousProfile?: { overallLevel: string; items: { topic: string; correctRate: number }[] } | null
+  previousProfile?: { overallLevel: string; items: { topic: string; correctRate: number }[] } | null,
+  allQuestions?: Question[] // Added to calculate percentages for Rule-based Fallback
 ): Promise<{
   feedback: string;
   redZones: string[];
@@ -209,19 +210,29 @@ export async function diagnoseUserExam(
     return cached;
   }
 
-  
-  // ── Tổng hợp câu sai theo topic để AI thấy pattern ──
-  const topicErrorMap: Record<string, { count: number; levels: Set<string>; subTopics: Set<string> }> = {};
+  // ── Tính tổng số câu theo topic (nếu có allQuestions) ──
+  const topicTotalMap: Record<string, number> = {};
+  if (allQuestions) {
+    allQuestions.forEach(q => {
+      const t = q.topic || 'Không rõ';
+      topicTotalMap[t] = (topicTotalMap[t] || 0) + 1;
+    });
+  }
+
+  // ── Tổng hợp câu sai theo topic để AI thấy pattern (Và để fallback) ──
+  const topicErrorMap: Record<string, { count: number; levels: Set<string>; subTopics: Set<string>; questions: Question[] }> = {};
   incorrectRecords.forEach(r => {
     const t = r.question.topic || 'Không rõ';
-    if (!topicErrorMap[t]) topicErrorMap[t] = { count: 0, levels: new Set(), subTopics: new Set() };
+    if (!topicErrorMap[t]) topicErrorMap[t] = { count: 0, levels: new Set(), subTopics: new Set(), questions: [] };
     topicErrorMap[t].count++;
+    topicErrorMap[t].questions.push(r.question);
     if (r.question.level) topicErrorMap[t].levels.add(r.question.level);
     if (r.question.subTopic) topicErrorMap[t].subTopics.add(r.question.subTopic);
   });
 
-  const topicSummary = Object.entries(topicErrorMap)
-    .map(([t, d]) => `- ${t}: ${d.count} câu sai | Mức: ${[...d.levels].join('/')} | Sub: ${[...d.subTopics].join(', ') || 'N/A'}`)
+  // ── Rút gọn prompt: CHỈ GỬI THỐNG KÊ (Directive 1) ──
+  const topicStatsStr = Object.entries(topicErrorMap)
+    .map(([t, d]) => `- Chủ đề: ${t} | Sai: ${d.count} câu | Mức độ sai: ${[...d.levels].join('/')}`)
     .join('\n');
 
   const prevNote = previousProfile
@@ -230,45 +241,95 @@ export async function diagnoseUserExam(
 
   const prompt = `
 Bạn là Chuyên gia Sư phạm Vật lý cấp cao, chuyên viên đánh giá theo Chuẩn GDPT 2018.
-Học sinh KHỐI ${grade} vừa hoàn thành bài test. Hãy thực hiện chẩn đoán năng lực CHUYÊN SÂU.
+Học sinh KHỐI ${grade} vừa hoàn thành bài test. Hãy thực hiện chẩn đoán năng lực.
 
 === DỮ LIỆU BÀI LÀM ===
 - Câu SAI: ${incorrectRecords.length}
 - Câu BỎ TRỐNG: ${skippedRecords.length}
 
 THỐNG KÊ LỖI THEO CHỦ ĐỀ:
-${topicSummary || 'Không có lỗi theo topic.'}
-
-CHI TIẾT CÂU SAI (tóm tắt):
-${incorrectRecords.slice(0, 12).map((r, i) =>
-  `#${i+1}: [${r.question.topic}|${r.question.level || '?'}|${r.question.subTopic || 'N/A'}] ${compressForPrompt(r.question.content, 120)}`
-).join('\n')}
+${topicStatsStr || 'Không có lỗi theo topic.'}
 ${prevNote}
 
-=== YÊU CẦU PHÂN TÍCH 5 TẦNG (theo chuẩn GDPT 2018 môn Vật lý Lớp ${grade}) ===
-
-1. TỔNG QUAN: Xếp hạng S/A/B/C và nhận xét hành vi học tập (chiến thuật, thái độ).
-
-2. ĐIỂM MẠNH: Liệt kê 2-3 điểm mạnh thực sự (dựa vào câu LÀM ĐÚNG/không sai).
-
-3. KẾ HOẠCH 3 BƯỚC: Viết 3 việc cụ thể học sinh cần làm ngay (tên chủ đề, dạng bài cụ thể).
-
-4. PHÂN TÍCH ĐIỂM YẾU (items): Với mỗi chủ đề làm sai:
-   - Xác định mã YCCĐ GDPT 2018 (ví dụ: "10.DLH.1 — Vận dụng định luật Newton")
-   - Phân loại lỗi: "fundamental" (sai bản chất vật lý) hay "careless" (biết nhưng tính sai)
-   - Mức Bloom yếu nhất: NB/TH/VD/VDC
-   - Mức ưu tiên: "critical" (>50% sai), "major" (25-50%), "minor" (<25%)
-   - remedialCount: số câu cần ôn (critical=10-12, major=6-8, minor=2-4)
-
-5. MA TRẬN ĐỀ CHỮA: 28 câu tổng, phân bổ theo logic SƯ PHẠM:
-   - Topic critical: lấy NB+TH trước (xây nền) rồi VD
-   - Topic major: bắt đầu từ TH → VD
-   - Không phân câu cho topic đã đúng >80%
-   - Thêm 2-3 câu VDC nếu HS đã masteróng NB+TH của topic đó
-   - feedBack: plain text markdown, ngôi thứ 2 (con/em), thân thiện nhưng cụ thể
+=== YÊU CẦU PHÂN TÍCH 5 TẦNG ===
+1. TỔNG QUAN: Xếp hạng S/A/B/C và nhận xét hành vi học tập.
+2. ĐIỂM MẠNH: Liệt kê 2-3 điểm mạnh.
+3. KẾ HOẠCH 3 BƯỚC: Viết 3 việc cụ thể học sinh cần làm ngay.
+4. PHÂN TÍCH ĐIỂM YẾU (items): Với mỗi chủ đề làm sai, trả về object: topic, subTopic (nếu có), yccDCode (fake), weakLevel (NB/TH/VD/VDC), errorType (careless/fundamental), wrongCount, correctRate, priority (critical/major/minor), remedialCount.
+5. MA TRẬN ĐỀ CHỮA (remedialMatrix):
+   - Topic critical (>50% sai): Cấp 5 câu (ưu tiên Nhận biết, Thông hiểu)
+   - Topic major (25-50% sai): Cấp 3 câu (ưu tiên Thông hiểu, Vận dụng)
+   - Topic minor (<25% sai): Cấp 1-2 câu (ưu tiên Vận dụng/VDC)
+   - feedBack: plain text markdown, thân thiện.
 
 Trả về ĐÚNG JSON Schema yêu cầu.
   `.trim();
+
+  // ── HÀM RULE-BASED FALLBACK (Chỉ thị 1 & 2) ──
+  const generateRuleBasedFallback = () => {
+    console.warn("[Diagnosis] Đang chạy Rule-based Fallback...");
+    const items: any[] = [];
+    const remedialMatrix: any[] = [];
+    
+    Object.entries(topicErrorMap).forEach(([topic, data]) => {
+      const totalInTopic = topicTotalMap[topic] || data.count; // Nếu ko có allQuestions, coi như sai 100%
+      const errorRatio = data.count / totalInTopic;
+      
+      let priority = 'minor';
+      let remedialCount = 1;
+      let targetLevels = ['Vận dụng', 'Vận dụng cao'];
+      let weakLevel = 'VD';
+
+      if (errorRatio > 0.5) {
+        priority = 'critical';
+        remedialCount = 5;
+        targetLevels = ['Nhận biết', 'Thông hiểu'];
+        weakLevel = 'NB';
+      } else if (errorRatio >= 0.25) {
+        priority = 'major';
+        remedialCount = 3;
+        targetLevels = ['Thông hiểu', 'Vận dụng'];
+        weakLevel = 'TH';
+      } else {
+        remedialCount = data.count === 1 ? 1 : 2; // Cấp 1-2 câu
+      }
+
+      items.push({
+        topic,
+        subTopic: [...data.subTopics][0] || '',
+        yccDCode: `FALLBACK.${grade}`,
+        weakLevel,
+        errorType: 'fundamental',
+        wrongCount: data.count,
+        correctRate: 1 - errorRatio,
+        remedialCount,
+        priority
+      });
+
+      remedialMatrix.push({
+        topic,
+        subTopic: [...data.subTopics][0] || '',
+        levels: targetLevels,
+        count: remedialCount
+      });
+    });
+
+    return {
+      feedback: "Hệ thống đang tự động tối ưu hóa lộ trình ôn tập dựa trên kết quả bài làm của bạn.",
+      redZones: Object.keys(topicErrorMap),
+      remedialMatrix: remedialMatrix.map(m => ({ topic: m.topic, count: m.count })),
+      behavioralAnalysis: { carelessCount: 0, fundamentalCount: incorrectRecords.length, skippedCount: skippedRecords.length },
+      weaknessProfile: {
+        grade,
+        overallLevel: 'B',
+        behavioralNote: "Phân tích tự động (Rule-based) do máy chủ AI đang bận.",
+        strengths: ["Đã hoàn thành bài kiểm tra"],
+        actionPlan: ["Ôn lại các chủ đề vừa làm sai", "Luyện thêm đề khắc phục điểm yếu"],
+        items,
+        remedialMatrix
+      }
+    };
+  };
 
   try {
     const response = await callAI({
@@ -349,12 +410,13 @@ Trả về ĐÚNG JSON Schema yêu cầu.
     });
 
     const rawText = response.text || "{}";
-    const result = safeJSONParse(rawText, {
-      redZones: [],
-      feedback: 'Không thể phân tích dữ liệu lúc này.',
-      remedialMatrix: [],
-      behavioralAnalysis: { carelessCount: 0, fundamentalCount: 0, skippedCount: 0 }
-    }) as any;
+    const result = safeJSONParse(rawText, null) as any;
+    
+    if (!result) {
+      const fallback = generateRuleBasedFallback();
+      setDiagnosisCache(cacheKey, fallback);
+      return fallback;
+    }
 
     if (result.behavioralAnalysis && result.behavioralAnalysis.skippedCount === undefined) {
       result.behavioralAnalysis.skippedCount = skippedRecords.length;
@@ -367,12 +429,8 @@ Trả về ĐÚNG JSON Schema yêu cầu.
     return result;
   } catch (error) {
     console.error("Gemini Batch Diagnosis Error:", error);
-    return {
-      feedback: "Không thể phân tích dữ liệu lúc này do lỗi hệ thống.",
-      redZones: [],
-      remedialMatrix: [],
-      behavioralAnalysis: { carelessCount: 0, fundamentalCount: incorrectRecords.length, skippedCount: skippedRecords.length }
-    };
+    // Nếu AI lỗi, dùng rule-based fallback thay vì dummy dữ liệu rỗng
+    return generateRuleBasedFallback();
   }
 }
 
@@ -1455,8 +1513,13 @@ ${groundTruthSection}`;
     const text = response.text?.trim();
     if (!text) return 'Thầy chưa nghe rõ ý em. Em thử hỏi lại nhé!';
     return text;
-  } catch (error) {
+  } catch (error: any) {
     console.error('[VoiceAITutor] Error:', error);
+    const errMsg = String(error?.message || error || '');
+    // Rate limit 429 → báo HS biết cần đợi, không phải lỗi thật
+    if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+      return 'Thầy đang xử lý quá nhiều yêu cầu cùng lúc! Em chờ khoảng 20 giây rồi hỏi lại nhé — Thầy sẽ trả lời ngay! ⏳';
+    }
     return 'Thầy đang gặp trục trặc kết nối. Em thử lại sau giây lát nhé!';
   }
 }

@@ -796,25 +796,22 @@ export default function App() {
       }
     }
 
-    // ── GỌI AI CHẨN ĐOÁN với timeout 10s ──────────────────────────────
-    // Promise.race đảm bảo: dù Gemini chậm hay lỗi mạng → addDoc vẫn chạy
-    // HS không bao giờ mất bài vì AI timeout.
-    // gradeNumber đã được tính ở trên (phần tính điểm)
-    const aiTimeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 10000));
-    const aiResult = await Promise.race([
-      diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, user.learningPath?.weaknessProfile)
-        .catch(() => null), // Nếu AI lỗi → trả null, không throw
-      aiTimeout,
-    ]);
-
-    // [FIX] Cung cấp fallbackProfile nếu AI timeout/lỗi để UI không bị kẹt ở màn hình loading
+    // ── GỌI AI CHẨN ĐOÁN CHẠY NGẦM (FIRE-AND-FORGET) ──────────────────────────────
+    // Không block luồng nộp bài của học sinh để hiển thị điểm ngay lập tức.
+    
+    // [FIX] FallbackProfile dựa vào điểm THỰC TẾ — không dùng message chung chung
+    const wrongCount = incorrectRecords.length;
     const fallbackProfile = {
       grade: gradeNumber,
       overallLevel: (totalScore >= 9.0 ? 'S' : totalScore >= 8.0 ? 'A' : totalScore >= 5.0 ? 'B' : 'C') as 'S' | 'A' | 'B' | 'C',
-      behavioralNote: "Bài làm đã được ghi nhận. Không có phân tích chi tiết vì máy chủ AI quá tải hoặc bạn đã làm đúng hết.",
+      behavioralNote: wrongCount === 0
+        ? 'Xuất sắc! Không phát hiện lỗ hổng kiến thức nào.'
+        : `Đã ghi nhận ${wrongCount} câu sai. Hệ thống đang phân tích lộ trình cá nhân hóa — kết quả chi tiết sẽ cập nhật sau.`,
       items: [],
-      strengths: totalScore >= 5.0 ? ["Hoàn thành bài kiểm tra đúng hạn"] : [],
-      actionPlan: ["Ôn tập lại các câu đã làm sai trong bài thi", "Tiếp tục luyện tập các đề thi tiếp theo"],
+      strengths: totalScore >= 5.0 ? ['Hoàn thành bài kiểm tra đúng hạn'] : [],
+      actionPlan: wrongCount > 0
+        ? ['Ôn lại các câu đã làm sai trong bài thi', 'Tiếp tục luyện tập các đề thi tiếp theo']
+        : ['Tiếp tục duy trì phong độ xuất sắc'],
       remedialMatrix: []
     };
 
@@ -825,13 +822,38 @@ export default function App() {
       examId: (activeTest as any).examId || (activeTest as any).id || undefined, // [FIX] Lưu examId để review lịch sử
       answers,
       score: totalScore,
-      analysis: aiResult ?? null,
-      weaknessProfile: (aiResult?.weaknessProfile && typeof aiResult.weaknessProfile === 'object' && Object.keys(aiResult.weaknessProfile).length > 0) ? aiResult.weaknessProfile : fallbackProfile, // [HOTFIX] Đảm bảo luôn có object hợp lệ
+      analysis: null,
+      weaknessProfile: fallbackProfile, // Dùng fallback tạm thời
       timestamp: Timestamp.now()
     };
 
     try {
-      await addDoc(collection(db, 'attempts'), attempt);
+      const attemptDocRef = await addDoc(collection(db, 'attempts'), attempt);
+
+      // --- CHẠY NGẦM AI DIAGNOSIS ---
+      if (incorrectRecords.length > 0 || skippedRecords.length > 0) {
+        diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, user.learningPath?.weaknessProfile, activeTest.questions)
+          .then(async (aiResult) => {
+             if (aiResult) {
+                // Lưu lại kết quả AI vào DB
+                await updateDoc(doc(db, 'attempts', attemptDocRef.id), {
+                   analysis: aiResult,
+                   weaknessProfile: aiResult.weaknessProfile || fallbackProfile
+                });
+                
+                // Nếu có redZones thì update luôn User Profile (fire-and-forget)
+                if (aiResult.redZones && aiResult.redZones.length > 0) {
+                   const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
+                   if (currentUserDoc.exists()) {
+                      const currentRedZones = currentUserDoc.data().redZones || [];
+                      const newRedZones = Array.from(new Set([...currentRedZones, ...aiResult.redZones]));
+                      await updateDoc(doc(db, 'users', user.uid), { redZones: newRedZones });
+                   }
+                }
+             }
+          })
+          .catch(e => console.error("Async AI Error", e));
+      }
 
       // [Teacher Portal] Cập nhật submittedCount trong assignment nếu HS làm bài GV phát
       // Fire-and-forget — không block luồng chính
@@ -857,9 +879,7 @@ export default function App() {
       updatedUser.notifications = newNotifications;
       updatedUser.failedQuestionIds = Array.from(newFailedQuestionIds);
 
-      if (aiResult?.redZones && aiResult.redZones.length > 0) { // [HOTFIX] guard null
-        updatedUser.redZones = Array.from(new Set([...(user.redZones || []), ...aiResult.redZones]));
-      }
+      // redZones đã được update ngầm trong luồng Async AI Diagnosis phía trên
 
       if (user.prescriptions) {
         updatedUser.prescriptions = user.prescriptions.map(p => {
@@ -991,30 +1011,50 @@ export default function App() {
 
       for (const item of matrix) {
         if (item.count <= 0) continue;
-        const qQuery = query(qRef, where('topic', '==', item.topic));
-        const snapshot = await getDocs(qQuery);
-        let qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
 
-        // Ưu tiên các câu thuộc list level yêu cầu, nếu có
-        if (item.levels && item.levels.length > 0) {
-          const mappedTargetLevels = item.levels.map(l => levelMap[l] || 5);
-          qs.sort((a, b) => {
-            const lA = levelMap[a.level] || 5;
-            const lB = levelMap[b.level] || 5;
-            const matchA = mappedTargetLevels.includes(lA) ? 0 : 1;
-            const matchB = mappedTargetLevels.includes(lB) ? 0 : 1;
-            if (matchA !== matchB) return matchA - matchB;
-            // Nếu cùng match (hoặc không match), ưu tiên Failed Questions (nếu có user memory)
-            const aFailed = user.failedQuestionIds?.includes(a.id || '') ? -1 : 1;
-            const bFailed = user.failedQuestionIds?.includes(b.id || '') ? -1 : 1;
-            if (aFailed !== bFailed) return aFailed - bFailed;
-            return Math.random() - 0.5;
-          });
-        } else {
-          qs = qs.sort(() => Math.random() - 0.5);
+        let qs: Question[] = [];
+        try {
+          let qQuery;
+          if (item.levels && item.levels.length > 0) {
+            // [OPTIMIZATION] Dùng Composite Query để tránh fetch cả mảng ngàn câu
+            qQuery = query(qRef, where('topic', '==', item.topic), where('level', 'in', item.levels), limit(20));
+          } else {
+            qQuery = query(qRef, where('topic', '==', item.topic), limit(20));
+          }
+          const snapshot = await getDocs(qQuery);
+          qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
+        } catch (err: any) {
+          // [HOTFIX] Bắt lỗi Index Required (failed-precondition)
+          if (err?.code === 'failed-precondition' || (err?.message && err.message.includes('index'))) {
+            console.error("🔥 LỖI THIẾU INDEX FIRESTORE! Hãy click vào URL dưới đây để tạo Composite Index:");
+            console.error(err.message);
+            toast.error("Đang yêu cầu cấu hình Index từ DB (F12 Console để lấy link tạo Index). Tạm thời dùng Fallback!");
+            
+            // Fallback tải một lượng nhỏ nếu chưa có index
+            const fallbackQuery = query(qRef, where('topic', '==', item.topic), limit(50));
+            const snapshot = await getDocs(fallbackQuery);
+            qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
+            if (item.levels && item.levels.length > 0) {
+               qs = qs.filter(q => item.levels.includes(q.level));
+            }
+          } else {
+            throw err;
+          }
         }
 
-        resultQuestions.push(...qs.slice(0, item.count));
+        // Ưu tiên câu sai (trong failedQuestionIds) rồi mới đến random
+        qs.sort((a, b) => {
+          const aFailed = user.failedQuestionIds?.includes(a.id || '') ? -1 : 1;
+          const bFailed = user.failedQuestionIds?.includes(b.id || '') ? -1 : 1;
+          if (aFailed !== bFailed) return aFailed - bFailed;
+          return Math.random() - 0.5;
+        });
+
+        // Xử lý chống trùng lặp trực tiếp
+        const existingIds = new Set(resultQuestions.map(q => q.id));
+        const uniqueQs = qs.filter(q => !existingIds.has(q.id));
+
+        resultQuestions.push(...uniqueQs.slice(0, item.count));
       }
 
       if (resultQuestions.length === 0) { toast.error("Xin lỗi, ngân hàng đề chưa đủ câu hỏi cho các chủ đề này."); setLoading(false); return; }

@@ -104,10 +104,11 @@ export const examService = {
   },
 
   /**
-   * 3. Lưu Attempt vào Firestore (Timeout 12s)
+   * 3. Lưu Attempt vào Firestore (Timeout 12s) — trả về DocumentReference để BG task update sau
    */
   async saveAttempt(attempt: Attempt) {
-    await withTimeout(addDoc(collection(db, 'attempts'), attempt), 12000, 'Lưu bài thi');
+    const docRef = await withTimeout(addDoc(collection(db, 'attempts'), attempt), 12000, 'Lưu bài thi');
+    return docRef;
   },
 
   /**
@@ -214,5 +215,36 @@ export const examService = {
     syncMemoryLogs(uid, sm2Evaluations).catch(e => console.error("SM2 Sync failed", e));
     refreshTopicProgress(uid, scoredQuestions, totalScore).catch(e => console.warn('[App] refreshTopicProgress:', e));
     popResolvedFailures(uid, correctQuestionIds).catch(e => console.warn('[App] popResolvedFailures:', e));
+  },
+
+  /**
+   * 6. FIRE-AND-FORGET: AI chẩn đoán ngầm, updateDoc attempt khi xong
+   *    Được gọi KHÔNG có await — học sinh đã thấy kết quả trước khi hàm này hoàn thành.
+   */
+  async runDiagnosisInBackground(
+    attemptDocRef: any,
+    incorrectRecords: any[],
+    skippedRecords: any[],
+    gradeNumber: number,
+    existingProfile: any
+  ) {
+    try {
+      const aiResult = await withTimeout(
+        diagnoseUserExam(incorrectRecords, skippedRecords, gradeNumber, existingProfile).catch(() => null),
+        15000,
+        'Background AI Diagnosis'
+      );
+      if (aiResult && attemptDocRef) {
+        const { updateDoc } = await import('../firebase');
+        await updateDoc(attemptDocRef, {
+          analysis: aiResult,
+          weaknessProfile: aiResult.weaknessProfile || null,
+        }).catch((e: any) => console.warn('[BG Diag] updateDoc failed:', e));
+        console.info('[BG Diag] AI diagnosis saved to attempt.');
+      }
+    } catch (e) {
+      // Silent fail — học sinh không bị ảnh hưởng
+      console.warn('[BG Diag] Timeout or error, no update:', e);
+    }
   }
 };
