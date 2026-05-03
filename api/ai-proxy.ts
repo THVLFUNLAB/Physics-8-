@@ -106,7 +106,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // ── 3. Lấy API key server-side ──
-  const apiKey = process.env.GEMINI_API_KEY;
+  let apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: 'Server configuration error: missing API key' });
   }
