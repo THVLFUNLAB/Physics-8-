@@ -52,6 +52,13 @@ const POOL_MULTIPLIER = 3;
 /** Giới hạn tối đa câu lấy mỗi query (Firestore limit) */
 const MAX_POOL_FETCH = 200;
 
+/**
+ * SỐ CÂU TỐI ĐA MỘT ĐỀ THI — NGUYÊN TẮC CỨNG
+ * Chuẩn Ma trận 2025: 28 câu (18+4+6). Cho phép tối đa 30 để dung sai cluster.
+ * TUYỆT ĐỐI không vượt con số này.
+ */
+const MAX_TOTAL_QUESTIONS = 30;
+
 // ─── Types nội bộ ─────────────────────────────────────────────────
 export interface GeneratorOptions {
   /** ID công thức ma trận trong collection 'dynamicMatrixFormulas' */
@@ -278,6 +285,53 @@ async function fetchDayDuCluster(clusterId: string): Promise<Question[]> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  HELPER: CẮT ĐỀ XUỐNG MAX_TOTAL_QUESTIONS — CLUSTER-AWARE TRIM
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Cắt danh sách câu hỏi xuống tối đa `cap` câu mà VỬĐAȐ BẠO:
+ *   - Cluster luôn đi NGUYÊN CỤM (không bao giờ bị cắt một nửa)
+ *   - Ưu tiên giữ cluster, loại câu đơn (singles) trước
+ *   - Nếu vẫn còn dư, loại cluster nhỏ nhất
+ */
+function trimToCapRespectingClusters(questions: Question[], cap: number): Question[] {
+  if (questions.length <= cap) return questions;
+
+  const clusterMap = new Map<string, Question[]>();
+  const singleIds: string[] = [];
+
+  for (const q of questions) {
+    const cid = q.clusterId && !isTempClusterId(q.clusterId) ? q.clusterId : null;
+    if (cid) {
+      if (!clusterMap.has(cid)) clusterMap.set(cid, []);
+      clusterMap.get(cid)!.push(q);
+    } else {
+      singleIds.push(q.id || '');
+    }
+  }
+
+  // Bước 1: Loại câu đơn từ cuối trước
+  const removedIds = new Set<string>();
+  for (const sid of [...singleIds].reverse()) {
+    if (questions.length - removedIds.size <= cap) break;
+    removedIds.add(sid);
+  }
+  let result = questions.filter(q => !removedIds.has(q.id || ''));
+
+  // Bước 2: Vẫn còn dư → loại nguyên cluster nhỏ nhất
+  if (result.length > cap) {
+    for (const group of [...clusterMap.values()].sort((a, b) => a.length - b.length)) {
+      if (result.length <= cap) break;
+      const groupIds = new Set(group.map(q => q.id));
+      result = result.filter(q => !groupIds.has(q.id));
+      console.warn(`[ExamGenerator] Trim: Loại cluster ${group[0]?.clusterId} (${group.length} câu) để ≤${cap} câu.`);
+    }
+  }
+
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 
 /**
  * generateDynamicExam — Hàm chính tạo đề động theo công thức ma trận.
@@ -407,6 +461,12 @@ export async function generateDynamicExam(
       }
 
       // ── Bước D: Bốc câu — Chùm trước, Đơn sau ──
+      // ╔══════════════════════════════════════════════════════════════════╗
+      // ║  NGUYÊN TẮC BẤT BIẾN: Câu chùm phải đi NGUYÊN CỤM              ║
+      // ║  - KHÔNG bao giờ tách anh em ra                                 ║
+      // ║  - KHÔNG dùng quota còn lại để skip cả chùm                     ║
+      // ║  - Mọi overshoot quota sẽ được xử lý bởi trimToCapRespectingClusters ║
+      // ╚══════════════════════════════════════════════════════════════════╝
       const picked: Question[] = [];
       let remaining = requiredCount;
 
@@ -415,25 +475,24 @@ export async function generateDynamicExam(
 
       for (const group of shuffledClusterGroups) {
         if (remaining <= 0) break;
-        // NGUYÊN TẮC: chỉ bốc chùm khi TOÀN BỘ nhóm vừa khớp quota còn lại
-        // Không bao giờ bốc nửa chùm → học sinh không bị thiếu dữ kiện
-        if (group.length <= remaining) {
-          // Kiểm tra: có câu nào trong nhóm bị trùng nội dung không?
-          const groupSigs = group.map(q => getQuestionSignature(q));
-          const hasContentDup = groupSigs.some(sig => sig && globalPickedContents.has(sig));
-          if (hasContentDup) continue; // Bỏ qua toàn bộ chùm nếu có bất kỳ câu nào trùng
 
-          for (const q of group) {
-            if (!globalPickedIds.has(q.id || '')) {
-              picked.push(q);
-              globalPickedIds.add(q.id || '');
-              const sig = getQuestionSignature(q);
-              if (sig) globalPickedContents.add(sig);
-              remaining--;
-            }
+        // Kiểm tra: có câu nào trong nhóm bị trùng nội dung không?
+        const groupSigs = group.map(q => getQuestionSignature(q));
+        const hasContentDup = groupSigs.some(sig => sig && globalPickedContents.has(sig));
+        if (hasContentDup) continue;
+
+        // ✅ Luôn bốc NGUYÊN CỤM — không kiểm tra group.length <= remaining
+        // Điều này đảm bảo anh em chùm KHÔNG BAO GIỜ bị tách rời.
+        // Overshoot quota (nếu có) sẽ được cắt bỏ bởi trimToCapRespectingClusters ở bước cuối.
+        for (const q of group) {
+          if (!globalPickedIds.has(q.id || '')) {
+            picked.push(q);
+            globalPickedIds.add(q.id || '');
+            const sig = getQuestionSignature(q);
+            if (sig) globalPickedContents.add(sig);
+            remaining--;
           }
         }
-        // Chùm quá lớn → thử chùm tiếp theo
       }
 
       // Fill slot còn lại bằng câu đơn (Fisher-Yates shuffle)
@@ -442,7 +501,7 @@ export async function generateDynamicExam(
         if (remaining <= 0) break;
         if (!globalPickedIds.has(q.id || '')) {
           const sig = getQuestionSignature(q);
-          if (sig && globalPickedContents.has(sig)) continue; // Trùng nội dung → bỏ qua
+          if (sig && globalPickedContents.has(sig)) continue;
           picked.push(q);
           globalPickedIds.add(q.id || '');
           if (sig) globalPickedContents.add(sig);
@@ -461,18 +520,31 @@ export async function generateDynamicExam(
   }
 
 
-  // ── Bước 4: Ghép 3 phần, shuffle tổng thể lần cuối ─────────────
+  // ── Bước 4: Ghép 3 phần ─────────────────────────────────────────
   // Thứ tự trong đề thi: Part 1 → Part 2 → Part 3 (giữ nguyên thứ tự phần)
-  // Nhưng bên trong mỗi phần thì đã shuffle rồi → không cần shuffle lại
-  const finalQuestions: Question[] = [
+  const mergedQuestions: Question[] = [
     ...part1Questions,
     ...part2Questions,
     ...part3Questions,
   ];
 
-  // ── Bước 4.5: Đảm bảo toàn vẹn câu chùm (Cluster Integrity) ────────
-  // Bất kỳ đề nào (kể cả đề ma trận) nếu bốc trúng câu chùm thì PHẢI kéo đủ anh em
-  const finalQuestionsWithClusters = await ensureClusterIntegrity(finalQuestions, db);
+  // ── Bước 4.5: ensureClusterIntegrity — Gắn sharedContext + Sort ──
+  // Ghi chú: ensureClusterIntegrity sẽ không cần fetch thêm anh em vì chúng ta
+  // đã luôn bốc NGUYÊN CỤM ở bước D phía trên. Tuy nhiên vẫn gọi để:
+  //   (a) Gắn sharedContext vào câu đầu mỗi chùm (hiển thị dữ kiện cho HS)
+  //   (b) Sort đúng thứ tự Part → clusterOrder
+  const questionsWithContext = await ensureClusterIntegrity(mergedQuestions, db);
+
+  // ── Bước 4.6: Áp dụng giới hạn cứng MAX_TOTAL_QUESTIONS = 30 ────
+  // Loại bỏ câu đơn (singles) dư thừa trước, rồi mới loại cluster nhỏ nhất
+  // NGUYÊN TẮC: Không bao giờ tách rời anh em cluster dù đang trim
+  const finalQuestionsWithClusters = trimToCapRespectingClusters(questionsWithContext, MAX_TOTAL_QUESTIONS);
+
+  if (questionsWithContext.length > MAX_TOTAL_QUESTIONS) {
+    warnings.push(
+      `ℹ️ Đề được cắt xuống ${finalQuestionsWithClusters.length} câu (từ ${questionsWithContext.length}) để đảm bảo ≤ ${MAX_TOTAL_QUESTIONS} câu.`
+    );
+  }
 
   // ── Bước 5: Tính thống kê ───────────────────────────────────────
   const stats: GeneratorResult['stats'] = {
