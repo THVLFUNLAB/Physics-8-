@@ -268,6 +268,7 @@ export const WelcomeMascot: React.FC = () => {
                 autoPlay
                 muted
                 playsInline
+                preload="none"
                 loop={false}
                 style={{
                   width: '170px',

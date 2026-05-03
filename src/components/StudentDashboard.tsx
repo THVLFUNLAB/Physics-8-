@@ -56,6 +56,7 @@ import { CountdownTimer } from './CountdownTimer';
 import InteractiveMascot from './InteractiveMascot';
 import { GradeLeaderboard } from './GradeLeaderboard';
 import { isVipUser } from '../lib/userUtils';
+import AssignedExamsBanner from './AssignedExamsBanner';
 
 // --- SUB-COMPONENTS ---
 
@@ -178,10 +179,19 @@ const TopicCard = ({ topic, accentVar, isExpanded, onToggle, onStartPrescription
 };
 
 // --- MINI LEADERBOARD PREVIEW (top 3, dùng trên HOME) ---
-import { collection, getDocs, query, orderBy, limit, where, getDoc, doc, addDoc, Timestamp } from 'firebase/firestore';
 import { db as _db } from '../firebase';
 import { getCurrentRank } from '../services/RankSystem';
 import { ensureClusterIntegrity } from '../utils/clusterIntegrity';
+import {
+  collection as _collection,
+  getDocs as _getDocs,
+  query as _query,
+  orderBy as _orderBy,
+  limit as _limit,
+  where as _where,
+  addDoc as _addDoc,
+  Timestamp as _Timestamp,
+} from 'firebase/firestore';
 
 const MiniLeaderboardPreview = ({ currentUser, onViewAll }: { currentUser: UserProfile; onViewAll: () => void }) => {
   const [top3, setTop3] = React.useState<UserProfile[]>([]);
@@ -190,14 +200,15 @@ const MiniLeaderboardPreview = ({ currentUser, onViewAll }: { currentUser: UserP
   React.useEffect(() => {
     const fetch = async () => {
       try {
-        const q = query(collection(_db, 'users'), orderBy('stars', 'desc'), limit(200));
-        const snap = await getDocs(q);
+        const q = _query(_collection(_db, 'users'), _orderBy('stars', 'desc'), _limit(200));
+        const snap = await _getDocs(q);
         const all = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
         setTop3(all.filter(u => u.className?.startsWith(gradePrefix)).slice(0, 3));
       } catch {}
     };
     fetch();
   }, [gradePrefix]);
+
 
   if (top3.length === 0) return null;
 
@@ -275,8 +286,8 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
       // 1. Lấy câu đến hạn SM-2
       let dueIds: string[] = [];
       try {
-        const dueSnap = await getDocs(
-          query(collection(_db, `users/${user.uid}/memoryLogs`), where('nextReviewDate', '<=', Timestamp.now()))
+        const dueSnap = await _getDocs(
+          _query(_collection(_db, `users/${user.uid}/memoryLogs`), _where('nextReviewDate', '<=', _Timestamp.now()))
         );
         dueIds = dueSnap.docs.map(d => d.data().questionId as string);
       } catch {}
@@ -295,10 +306,8 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
       const fetchedQuestions: any[] = [];
       for (let i = 0; i < selectedIds.length; i += 10) {
         const chunk = selectedIds.slice(i, i + 10);
-        const snap = await getDocs(query(collection(_db, 'questions'), where('__name__', 'in', chunk)));
+        const snap = await _getDocs(_query(_collection(_db, 'questions'), _where('__name__', 'in', chunk)));
         snap.forEach(d => {
-          // [FIX] Không lọc theo status — câu hỏi trong failedQuestionIds/SM-2
-          // của HS luôn hợp lệ để luyện lại, kể cả khi admin đổi về draft tạm thời
           if (d.exists()) {
             fetchedQuestions.push({ ...d.data(), id: d.id });
           }
@@ -311,20 +320,19 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         return;
       }
 
-      // 4. Cluster Integrity Guard — kéo đủ câu anh em + dữ kiện chung
-      //    Đảm bảo HS không bao giờ thấy câu chùm thiếu context
+      // 4. Cluster Integrity Guard
       const intactQuestions = await ensureClusterIntegrity(fetchedQuestions, _db);
 
       // 5. Tạo exam doc trên Firestore
       const examTitle = `🩺 Vá Lỗ Hổng — ${new Date().toLocaleDateString('vi-VN')}`;
-      const examRef = await addDoc(collection(_db, 'exams'), {
+      const examRef = await _addDoc(_collection(_db, 'exams'), {
         title: examTitle,
         questions: intactQuestions.map(q => {
           const clean: Record<string, any> = { ...q };
           Object.keys(clean).forEach(k => { if (clean[k] === undefined) delete clean[k]; });
           return clean;
         }),
-        createdAt: Timestamp.now(),
+        createdAt: _Timestamp.now(),
         createdBy: 'system_adaptive',
         type: 'AI_Diagnosis',
         targetStudentId: user.uid,
@@ -355,10 +363,8 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
       const fetchedQuestions: any[] = [];
       for (let i = 0; i < selectedIds.length; i += 10) {
         const chunk = selectedIds.slice(i, i + 10);
-        const snap = await getDocs(query(collection(_db, 'questions'), where('__name__', 'in', chunk)));
+        const snap = await _getDocs(_query(_collection(_db, 'questions'), _where('__name__', 'in', chunk)));
         snap.forEach(d => {
-          // [FIX] Kho Ôn Tập: không lọc status — câu HS đã đánh dấu trong vault
-          // vẫn hợp lệ để luyện dù admin có đổi về draft tạm thời
           if (d.exists()) {
             fetchedQuestions.push({ ...d.data(), id: d.id });
           }
@@ -371,18 +377,17 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
         return;
       }
 
-      // Cluster Integrity Guard — kéo đủ câu anh em + dữ kiện chung
       const intactQuestions = await ensureClusterIntegrity(fetchedQuestions, _db);
 
       const examTitle = `📦 Kho Ôn Tập Gap Vault — ${new Date().toLocaleDateString('vi-VN')}`;
-      const examRef = await addDoc(collection(_db, 'exams'), {
+      const examRef = await _addDoc(_collection(_db, 'exams'), {
         title: examTitle,
         questions: intactQuestions.map(q => {
           const clean: Record<string, any> = { ...q };
           Object.keys(clean).forEach(k => { if (clean[k] === undefined) delete clean[k]; });
           return clean;
         }),
-        createdAt: Timestamp.now(),
+        createdAt: _Timestamp.now(),
         createdBy: 'system_gap_vault',
         type: 'AI_Diagnosis',
         targetStudentId: user.uid,
@@ -611,12 +616,15 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
             transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
             className="absolute inset-0 flex items-center justify-center filter drop-shadow-[0_0_8px_rgba(0,240,255,0.6)]"
           >
-            <img 
-              src="/thvl-bot.png" 
-              alt="Mascot" 
-              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-              className="w-10 h-10 object-contain drop-shadow-xl" 
-            />
+            <picture>
+              <source srcSet="/thvl-bot.webp" type="image/webp" />
+              <img 
+                src="/thvl-bot.png" 
+                alt="Mascot" 
+                onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                className="w-10 h-10 object-contain drop-shadow-xl" 
+              />
+            </picture>
             {/* Fallback Mascot Placeholder if image missing */}
             <div className="absolute inset-0 w-8 h-8 m-auto bg-cyan-400 rounded-lg flex items-center justify-center font-bold text-[10px] text-slate-950 -z-10">
                THVL
@@ -683,6 +691,11 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
               </motion.button>
             </div>
           </div>
+
+          {/* ── TẦNG 3b: ĐỬợC GIAO BIỂU GV — AssignedExamsBanner ── */}
+          {user && onStartExam && (
+            <AssignedExamsBanner user={user} onStartExam={onStartExam} />
+          )}
 
           {/* ── TẦNG 4: SOCIAL — Mini Leaderboard Top 3 ── */}
           {user && <MiniLeaderboardPreview currentUser={user} onViewAll={() => setActiveTab('PROFILE')} />}

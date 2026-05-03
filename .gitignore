@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 .vercel
+
+# Large media files — served via external CDN
+public/1000028512.mp4
+

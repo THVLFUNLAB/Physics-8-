@@ -12,7 +12,7 @@ import MathRenderer from './lib/MathRenderer';
 import {
   auth, db, collection, doc, addDoc, getDocs, getDoc,
   setDoc, updateDoc, onSnapshot, query, where, Timestamp,
-  signInWithGoogle, signOut, startExamAttempt, consumePdfDownloadAttempts
+  signInWithGoogle, signOut, startExamAttempt, consumePdfDownloadAttempts, consumeAttempts
 } from './firebase';
 import { useAuthStore } from './store/useAuthStore';
 import {
@@ -78,6 +78,8 @@ const Grade10Dashboard = lazy(() => import('./components/Grade10Dashboard'));
 const Grade11Dashboard = lazy(() => import('./components/Grade11Dashboard'));
 const Grade12Dashboard = lazy(() => import('./components/Grade12Dashboard'));
 const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationTool'));
+const AdminStatsDashboard   = lazy(() => import('./modules/admin-stats/AdminStatsDashboard'));
+const AdminMaterialApprovals = lazy(() => import('./modules/admin-tools/AdminMaterialApprovals'));
 const ScoreRecalibrationTool = lazy(() => import('./components/ScoreRecalibrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
@@ -90,6 +92,10 @@ const AIChatLogsDashboard = lazy(() => import('./components/AIChatLogsDashboard'
 // ── Mindmap Module ──
 const MindmapViewer = lazy(() => import('./modules/mindmap/MindmapContainer'));
 const MindmapAdminPanel = lazy(() => import('./modules/mindmap/MindmapAdminPanel'));
+
+// ── Teacher Portal Module (Phase 2) ──
+const TeacherPortal = lazy(() => import('./modules/teacher-portal').then(m => ({ default: m.TeacherPortal })));
+import { incrementAssignmentSubmission } from './modules/teacher-portal/services/teacherClassService';
 
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
@@ -156,6 +162,44 @@ const LazyWrap = ({ children }: { children: React.ReactNode }) => (
   </StaleChunkBoundary>
 );
 
+// ═══════════════════════════════════════════════════════════════════════
+//  LIVE CLASS EXAM GATE — Kiểm tra lượt trước khi vào phòng thi
+//  Tham gia phòng thi LiveClass: trừ 1 lượt
+// ═══════════════════════════════════════════════════════════════════════
+const LiveClassExamGate: React.FC<{ user: any; authUser: any; onUpgrade: () => void }> = ({ user, authUser, onUpgrade }) => {
+  const [allowed, setAllowed] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    const check = async () => {
+      if (!authUser) { setAllowed(false); return; }
+      const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+      if (isAdmin) { setAllowed(true); return; }
+      try {
+        const { consumeAttempts: ca } = await import('./firebase');
+        await ca(user.uid, 1, 'live_class_join');
+        setAllowed(true);
+      } catch (err: any) {
+        if (err.message === 'EXCEEDED_LIMIT') { onUpgrade(); setAllowed(false); }
+        else { setAllowed(true); } // lỗi mạng → cho vào
+      }
+    };
+    check();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (allowed === null) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>;
+  if (!allowed) return null;
+  return <LazyWrap><LiveClassExam user={user} /></LazyWrap>;
+};
+
+// ── Email whitelist cho GV (để test không cần đổi Firestore role) ──
+const TEACHER_EMAILS = [
+  'haunn.vietanhschool@gmail.com', // Thêm tài khoản admin vào danh sách được phép thấy Cổng GV
+  'teacher@physics9plus.com',      // placeholder
+];
+const isTeacherEmail = (email?: string) =>
+  TEACHER_EMAILS.includes(email ?? '') || false;
+
 const GUEST_USER: UserProfile = {
   uid: 'guest',
   email: '',
@@ -205,8 +249,8 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats', 'RecalibScore'] as const;
-  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore'>('Digitize');
+  const ADMIN_TABS = ['Digitize', 'Bank', 'Matrix', 'Generator', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'YCCD', 'Migration', 'AIChats', 'RecalibScore', 'Stats', 'Approvals'] as const;
+  const [adminTab, setAdminTab] = useState<'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore' | 'Stats' | 'Approvals'>('Digitize');
   const [activeView, setActiveView] = useState<SidebarTab>('dashboard');
 
   // ── Magic Link: đọc ?invite=<token> từ URL khi app khởi động ──
@@ -315,6 +359,16 @@ export default function App() {
       setIsSidebarCollapsed(false);
     }
   }, [activeTest, isReviewing]);
+
+  // ═══ AUTO-REDIRECT: GV → TeacherPortal ngay khi login ═══
+  useEffect(() => {
+    if (!user || user === GUEST_USER) return;
+    const isTeacher = user.role === 'teacher' || isTeacherEmail(user.email);
+    if (isTeacher && activeView === 'dashboard') {
+      setActiveView('TeacherPortal' as any);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, user?.role, user?.email]);
 
   // Safe sign-in handler with error feedback
   const handleSignIn = async () => {
@@ -751,6 +805,17 @@ export default function App() {
       aiTimeout,
     ]);
 
+    // [FIX] Cung cấp fallbackProfile nếu AI timeout/lỗi để UI không bị kẹt ở màn hình loading
+    const fallbackProfile = {
+      grade: gradeNumber,
+      overallLevel: (totalScore >= 9.0 ? 'S' : totalScore >= 8.0 ? 'A' : totalScore >= 5.0 ? 'B' : 'C') as 'S' | 'A' | 'B' | 'C',
+      behavioralNote: "Bài làm đã được ghi nhận. Không có phân tích chi tiết vì máy chủ AI quá tải hoặc bạn đã làm đúng hết.",
+      items: [],
+      strengths: totalScore >= 5.0 ? ["Hoàn thành bài kiểm tra đúng hạn"] : [],
+      actionPlan: ["Ôn tập lại các câu đã làm sai trong bài thi", "Tiếp tục luyện tập các đề thi tiếp theo"],
+      remedialMatrix: []
+    };
+
     const attempt: Attempt = {
       id: Math.random().toString(36).substr(2, 9),
       userId: user.uid,
@@ -759,12 +824,18 @@ export default function App() {
       answers,
       score: totalScore,
       analysis: aiResult ?? null,
-      weaknessProfile: aiResult?.weaknessProfile ?? null, // [HOTFIX] aiResult có thể null khi AI timeout
+      weaknessProfile: (aiResult?.weaknessProfile && typeof aiResult.weaknessProfile === 'object' && Object.keys(aiResult.weaknessProfile).length > 0) ? aiResult.weaknessProfile : fallbackProfile, // [HOTFIX] Đảm bảo luôn có object hợp lệ
       timestamp: Timestamp.now()
     };
 
     try {
       await addDoc(collection(db, 'attempts'), attempt);
+
+      // [Teacher Portal] Cập nhật submittedCount trong assignment nếu HS làm bài GV phát
+      // Fire-and-forget — không block luồng chính
+      if (attempt.examId && user.classId) {
+        incrementAssignmentSubmission(attempt.examId, user.classId).catch(() => {});
+      }
 
       const updatedUser = { ...user };
       const newBadges: Badge[] = [...(user.badges || [])];
@@ -1206,6 +1277,7 @@ export default function App() {
         <Sidebar
           user={user}
           isAdmin={user?.role === 'admin' || user?.email === 'haunn.vietanhschool@gmail.com'}
+          isTeacher={user?.role === 'teacher' || isTeacherEmail(user?.email)}
           isCollapsed={isSidebarCollapsed}
           setIsCollapsed={setIsSidebarCollapsed}
           activeTab={activeView}
@@ -1260,21 +1332,31 @@ export default function App() {
       )}>
         <main className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-12">
           {!authUser && activeView === 'dashboard' ? (
-            /* ══════ LANDING PAGE — Cinematic Video Hero ══════ */
+            /* ══════ LANDING PAGE — Cinematic CSS Hero ══════ */
             <div className="relative w-full min-h-screen overflow-hidden flex flex-col items-center justify-center py-20 -mx-4 -mt-6 md:-mx-6 md:-mt-12 px-0">
-              {/* ── Video Background ── */}
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="absolute inset-0 w-full h-full object-cover z-0"
-                src="/1000028512.mp4"
+              {/* ── CSS Animated Background (replaces video — 0 bandwidth cost) ── */}
+              <div
+                className="absolute inset-0 z-0"
+                style={{
+                  background: 'linear-gradient(135deg, #0B0F19 0%, #0f1729 25%, #0d1a2e 50%, #0B0F19 75%, #130a1f 100%)',
+                  backgroundSize: '400% 400%',
+                  animation: 'heroGradientShift 12s ease infinite',
+                }}
+                aria-hidden="true"
+              />
+              {/* ── Radial glow orbs ── */}
+              <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] rounded-full opacity-10 blur-[120px] pointer-events-none" style={{ background: 'radial-gradient(circle, #ef4444 0%, transparent 70%)', animation: 'orbFloat1 8s ease-in-out infinite' }} aria-hidden="true" />
+              <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full opacity-8 blur-[100px] pointer-events-none" style={{ background: 'radial-gradient(circle, #f97316 0%, transparent 70%)', animation: 'orbFloat2 10s ease-in-out infinite' }} aria-hidden="true" />
+              <div className="absolute top-1/2 left-1/2 w-[400px] h-[400px] rounded-full opacity-5 blur-[80px] pointer-events-none" style={{ background: 'radial-gradient(circle, #fbbf24 0%, transparent 70%)', animation: 'orbFloat3 14s ease-in-out infinite', transform: 'translate(-50%,-50%)' }} aria-hidden="true" />
+              {/* ── Subtle grid overlay ── */}
+              <div
+                className="absolute inset-0 z-[1] pointer-events-none opacity-[0.03]"
+                style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)', backgroundSize: '60px 60px' }}
                 aria-hidden="true"
               />
 
               {/* ── Dark Overlay ── */}
-              <div className="absolute inset-0 bg-[#0B0F19]/85 z-10" />
+              <div className="absolute inset-0 bg-[#0B0F19]/40 z-10" />
 
               {/* ── Content ── */}
               <div className="relative z-20 flex flex-col items-center text-center px-4 w-full max-w-5xl mx-auto">
@@ -1421,7 +1503,9 @@ export default function App() {
       </header>
 
       {/* ──── CONTENT ROUTING ──── */}
-      {activeView === 'liveExam' && <LazyWrap><LiveClassExam user={user} /></LazyWrap>}
+      {activeView === 'liveExam' && (
+        <LiveClassExamGate user={user} authUser={authUser} onUpgrade={() => setShowUpgradeModal(true)} />
+      )}
       {activeView === 'adaptive' && (
         <LazyWrap>
           <AdaptiveDashboard
@@ -1472,22 +1556,30 @@ export default function App() {
           <section className="space-y-6">
             <h3 className="text-xl font-bold text-white flex items-center gap-2"><FlaskConical className="text-red-500" /> VIRTUAL LAB & THỰC TẾ</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div onClick={() => {
-                if (!authUser) { handleSignIn(); return; }
-                setActiveSimulation({ title: 'Máy chụp MRI', description: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html' });
-              }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
-                <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500 mb-4"><BrainCircuit className="w-6 h-6" /></div>
-                <h4 className="font-bold text-white mb-2">Máy chụp MRI</h4>
-                <p className="text-sm text-slate-400">Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.</p>
-              </div>
-              <div onClick={() => {
-                if (!authUser) { handleSignIn(); return; }
-                setActiveSimulation({ title: 'Định luật Boyle', description: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html' });
-              }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
-                <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center text-green-500 mb-4"><FlaskConical className="w-6 h-6" /></div>
-                <h4 className="font-bold text-white mb-2">Định luật Boyle</h4>
-                <p className="text-sm text-slate-400">Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.</p>
-              </div>
+              {/* Virtual Lab — mỗi lab trừ 2 lượt */}
+              {[
+                { title: 'Máy chụp MRI', desc: 'Ứng dụng từ trường mạnh và hiện tượng cộng hưởng từ hạt nhân.', url: 'https://phet.colorado.edu/sims/html/mri/latest/mri_all.html', icon: <BrainCircuit className="w-6 h-6" />, color: 'indigo' },
+                { title: 'Định luật Boyle', desc: 'Phân tích dữ liệu thực nghiệm từ bộ thí nghiệm áp kế.', url: 'https://phet.colorado.edu/sims/html/gas-properties/latest/gas-properties_all.html', icon: <FlaskConical className="w-6 h-6" />, color: 'green' },
+              ].map(lab => (
+                <div key={lab.title} onClick={async () => {
+                  if (!authUser) { handleSignIn(); return; }
+                  const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+                  if (!isAdmin) {
+                    try {
+                      await consumeAttempts(user.uid, 2, 'virtual_lab:' + lab.title);
+                    } catch (err: any) {
+                      if (err.message === 'EXCEEDED_LIMIT') { setShowUpgradeModal(true); return; }
+                      console.warn('[VirtualLab] Lỗi trừ lượt:', err.message);
+                    }
+                  }
+                  setActiveSimulation({ title: lab.title, description: lab.desc, url: lab.url });
+                }} className="bg-slate-900 border border-slate-800 p-6 rounded-2xl hover:bg-slate-800 transition-colors cursor-pointer group">
+                  <div className={`w-12 h-12 bg-${lab.color}-500/10 rounded-xl flex items-center justify-center text-${lab.color}-500 mb-4`}>{lab.icon}</div>
+                  <h4 className="font-bold text-white mb-2">{lab.title}</h4>
+                  <p className="text-sm text-slate-400">{lab.desc}</p>
+                  <p className="text-xs text-amber-400/70 mt-2 font-semibold">(-2 lượt)</p>
+                </div>
+              ))}
             </div>
           </section>
           <section id="resources" className="space-y-8">
@@ -1504,16 +1596,18 @@ export default function App() {
                   <button onClick={async () => {
                     if (!authUser) { handleSignIn(); return; }
 
-                    // --- BẮT ĐẦU TRỪ LƯỢT FREE ---
-                    try {
-                      const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
-                      await startExamAttempt(user.uid, 'Simulation_' + sim.id, isAdmin);
-                    } catch (err: any) {
-                      if (err.message === "EXCEEDED_LIMIT") {
-                        setShowUpgradeModal(true);
-                        return;
+                    // --- TRỪ 2 LƯỢT cho mỗi Mô phỏng số ---
+                    const isAdmin = user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com';
+                    if (!isAdmin) {
+                      try {
+                        await consumeAttempts(user.uid, 2, 'simulation:' + sim.id);
+                      } catch (err: any) {
+                        if (err.message === 'EXCEEDED_LIMIT') {
+                          setShowUpgradeModal(true);
+                          return;
+                        }
+                        console.warn('[Simulation] Lỗi trừ lượt:', err.message);
                       }
-                      console.warn('[Simulation] Lỗi không xác định từ startExamAttempt:', err.message);
                     }
 
                     setActiveSimulationViewer(sim);
@@ -1542,7 +1636,15 @@ export default function App() {
         </div>
       )}
 
-      {/* ══════ ADMIN SECTION ══════ */}
+
+      {/* ═════ TEACHER PORTAL SECTION ═════ */}
+      {(user.role === 'teacher' || isTeacherEmail(user.email)) && activeView === 'TeacherPortal' && (
+        <LazyWrap>
+          <TeacherPortal user={user} />
+        </LazyWrap>
+      )}
+
+      {/* ═════ ADMIN SECTION ═════ */}
       {(user.role === 'admin' || user.email === 'haunn.vietanhschool@gmail.com') && (ADMIN_TABS as readonly string[]).includes(activeView as any) && activeView !== 'StudentView' && (
         <section className="space-y-10 mt-12 pt-12 border-t border-slate-800/50">
           <div className="text-center mb-4">
@@ -1600,7 +1702,7 @@ export default function App() {
               {adminTab === 'Digitize' && <DigitizationDashboard onQuestionsAdded={() => { setAdminTab('Bank'); adminStats.refetch(); }} />}
               {adminTab === 'Bank' && <QuestionBank onCountChanged={(delta) => adminStats.adjustCount(delta)} onQuestionsLoaded={(n) => adminStats.setCount(n)} />}
               {adminTab === 'Matrix' && <ExamMatrixGenerator />}
-              {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={exportExamToPDF} onExportWord={handleExportWord} />}
+              {adminTab === 'Generator' && <ExamGenerator user={user} onExportPDF={(exam) => { window.print(); }} onExportWord={handleExportWord} />}
               {adminTab === 'SimLab' && <SimulationAdminBoard onPlay={(sim) => setActiveSimulationViewer(sim)} />}
               {adminTab === 'Duplicates' && <DuplicateReviewHubWrapper />}
               {adminTab === 'Sanitizer' && <DataSanitizer />}
@@ -1614,6 +1716,8 @@ export default function App() {
               {adminTab === 'Migration' && <DatabaseMigrationTool />}
               {adminTab === 'RecalibScore' && <ScoreRecalibrationTool />}
               {adminTab === 'AIChats' && <AIChatLogsDashboard />}
+              {adminTab === 'Approvals' && <AdminMaterialApprovals adminId={user.uid} />}
+              {adminTab === 'Stats'   && <AdminStatsDashboard />}
             </LazyWrap>
           </motion.div>
         </section>

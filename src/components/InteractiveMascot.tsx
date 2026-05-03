@@ -136,6 +136,7 @@ const MascotMedia: React.FC<MascotMediaProps> = ({
       ref={videoRef}
       muted
       playsInline
+      preload="none"
       // IDLE loop vô tận; GREETING / POKED chạy 1 lần rồi goIdle
       loop={mascotState === 'IDLE'}
       onEnded={mascotState !== 'IDLE' ? onEnded : undefined}
