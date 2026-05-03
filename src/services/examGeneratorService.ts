@@ -103,6 +103,50 @@ function fisherYatesShuffle<T>(array: T[]): T[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  CONTENT DEDUPLICATION — Loại bỏ câu trùng nội dung
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Chuẩn hóa nội dung câu hỏi thành chuỗi "chữ ký" (signature) để so sánh.
+ *
+ * Thuật toán:
+ *   1. Xóa toàn bộ thẻ HTML (<p>, <b>, <img ...>, v.v.)
+ *   2. Decode HTML entities (&amp; → &, &lt; → <, v.v.)
+ *   3. Xóa mọi khoảng trắng (space, tab, newline)
+ *   4. Chuyển về chữ thường
+ *
+ * Kết quả: hai câu hỏi có cùng nội dung văn bản (dù format HTML khác nhau)
+ * sẽ cho ra chữ ký giống nhau và bị coi là trùng lặp.
+ *
+ * An toàn: câu hỏi chỉ khác con số (v = 2m/s vs v = 3m/s) sẽ có chữ ký
+ * KHÁC NHAU → KHÔNG bị lọc nhầm.
+ */
+function normalizeContent(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]*>/g, '')          // 1. Xóa HTML tags
+    .replace(/&amp;/g, '&')           // 2. Decode HTML entities
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#\d+;/g, '')           //    Xóa numeric entities còn sót
+    .replace(/\s+/g, '')              // 3. Xóa mọi whitespace
+    .toLowerCase();                   // 4. Lowercase
+}
+
+/**
+ * Tính chữ ký nội dung tổng hợp của một câu hỏi.
+ * Kết hợp: nội dung câu + đáp án đúng (để phân biệt câu cùng nội dung nhưng đáp án khác).
+ */
+function getQuestionSignature(q: Question): string {
+  const contentSig = normalizeContent(q.content || '');
+  // Với câu dạng số (Part 3), đáp án là number nên stringify luôn
+  const answerSig = normalizeContent(String(q.correctAnswer ?? ''));
+  // Giới hạn 200 ký tự đầu để tránh signature quá dài, vẫn đủ phân biệt
+  return (contentSig + '||' + answerSig).substring(0, 300);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  HELPER: LẤY POOL CÂU HỎI TỪ FIRESTORE
 // ═══════════════════════════════════════════════════════════════════
 
@@ -310,6 +354,10 @@ export async function generateDynamicExam(
   // Đảm bảo không có câu nào xuất hiện 2 lần, kể cả anh em chùm
   const globalPickedIds = new Set<string>();
 
+  // ── Theo dõi nội dung đã chọn — Chữ ký nội dung (content signature) ──
+  // Loại bỏ câu trùng lặp nội dung dù có ID khác nhau trong Firestore
+  const globalPickedContents = new Set<string>();
+
   for (const { partNum, config, targetArray } of partConfigs) {
     const levels = Object.entries(config.levels) as [QuestionLevel, number][];
 
@@ -335,6 +383,9 @@ export async function generateDynamicExam(
 
       for (const q of pool) {
         if (globalPickedIds.has(q.id || '')) continue; // Đã chọn ở vòng trước
+        // ── CONTENT DEDUP: Bỏ qua câu có nội dung trùng với câu đã chọn ──
+        const sig = getQuestionSignature(q);
+        if (sig && globalPickedContents.has(sig)) continue;
         if (q.clusterId && !isTempClusterId(q.clusterId)) {
           clusterIdsInPool.add(q.clusterId);
         } else {
@@ -367,10 +418,17 @@ export async function generateDynamicExam(
         // NGUYÊN TẮC: chỉ bốc chùm khi TOÀN BỘ nhóm vừa khớp quota còn lại
         // Không bao giờ bốc nửa chùm → học sinh không bị thiếu dữ kiện
         if (group.length <= remaining) {
+          // Kiểm tra: có câu nào trong nhóm bị trùng nội dung không?
+          const groupSigs = group.map(q => getQuestionSignature(q));
+          const hasContentDup = groupSigs.some(sig => sig && globalPickedContents.has(sig));
+          if (hasContentDup) continue; // Bỏ qua toàn bộ chùm nếu có bất kỳ câu nào trùng
+
           for (const q of group) {
             if (!globalPickedIds.has(q.id || '')) {
               picked.push(q);
               globalPickedIds.add(q.id || '');
+              const sig = getQuestionSignature(q);
+              if (sig) globalPickedContents.add(sig);
               remaining--;
             }
           }
@@ -383,8 +441,11 @@ export async function generateDynamicExam(
       for (const q of shuffledSingles) {
         if (remaining <= 0) break;
         if (!globalPickedIds.has(q.id || '')) {
+          const sig = getQuestionSignature(q);
+          if (sig && globalPickedContents.has(sig)) continue; // Trùng nội dung → bỏ qua
           picked.push(q);
           globalPickedIds.add(q.id || '');
+          if (sig) globalPickedContents.add(sig);
           remaining--;
         }
       }
@@ -501,6 +562,8 @@ export async function generateAdvancedQuestions(
 
   const allResults: Question[] = [];
   const seenAdvancedIds = new Set<string>();
+  // ── CONTENT DEDUP cho Advanced (8+/9+) ──
+  const seenAdvancedContents = new Set<string>();
 
   // ── Query theo từng Part riêng biệt để đảm bảo tỷ lệ P1/P2/P3 ──
   // Phân bổ: P1 (đơn lẻ) chiếm nhiều nhất, P3 (số) ít hơn
@@ -542,7 +605,12 @@ export async function generateAdvancedQuestions(
       );
 
       if (isTopicAllowed && !isBlacklisted) {
+        // 4. CONTENT DEDUP: loại bỏ câu trùng nội dung với câu đã thêm
+        const sig = getQuestionSignature({ id: d.id, ...data } as Question);
+        if (sig && seenAdvancedContents.has(sig)) return;
+
         seenAdvancedIds.add(d.id);
+        if (sig) seenAdvancedContents.add(sig);
         allResults.push({ id: d.id, ...data });
       }
     });
