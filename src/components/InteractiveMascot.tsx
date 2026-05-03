@@ -129,6 +129,8 @@ const MascotMedia: React.FC<MascotMediaProps> = ({
     height: '100%',
     objectFit: 'contain',
     display: 'block',
+    // Đảm bảo nền trong suốt hiển thị đúng
+    background: 'transparent',
   };
 
   return (
@@ -408,6 +410,20 @@ export const InteractiveMascot: React.FC = () => {
           outline: 2px solid #00F0FF;
           outline-offset: 4px;
           border-radius: 12px;
+        }
+        /*
+         * Safari / iOS fallback: WebM VP9 alpha không được hỗ trợ trên Safari.
+         * mix-blend-mode: multiply loại bỏ nền trắng trên nền tối (dark theme).
+         * Chrome/Firefox/Edge/Android dùng alpha channel thật từ WebM VP9.
+         */
+        #interactive-mascot-body video {
+          mix-blend-mode: multiply;
+        }
+        /* Trên nền tối, multiply = transparent. Disable nếu nền sáng */
+        @supports (mix-blend-mode: normal) {
+          #interactive-mascot-body video {
+            mix-blend-mode: multiply;
+          }
         }
       `}</style>
     </div>

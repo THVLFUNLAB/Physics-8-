@@ -1,7 +1,12 @@
 /**
  * ═══════════════════════════════════════════════════════════════
  *  HỆ THỐNG RANK E-SPORTS — CHINH PHỤC 8.0+ VẬT LÝ
- *  10 Cấp độ Rank dựa trên điểm Sao tích lũy
+ *  13 Cấp độ Rank — Cập nhật v2.0 (Phương Án D)
+ *
+ *  Thay đổi v2.0:
+ *  - Thêm 3 hạng mới: Chinh Phục, Huyền Thoại, Siêu Việt
+ *  - Chia nhỏ khoảng cách 50K (Quán Quân → Bất Tử) thành milestone 20K
+ *  - Siêu Việt = Prestige tier dành cho người đạt đỉnh cao tuyệt đối
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -16,6 +21,7 @@ export interface RankDef {
   borderColor: string;    // Border accent
   icon: string;           // Emoji icon
   description: string;    // Mô tả rank
+  isPrestige?: boolean;   // Hạng Prestige đặc biệt
 }
 
 export const RANKS: RankDef[] = [
@@ -97,7 +103,7 @@ export const RANKS: RankDef[] = [
     bgColor: 'from-red-600/20 to-red-700/10',
     borderColor: 'border-red-500/40',
     icon: '🏆',
-    description: 'Nắm Trùm 8+',
+    description: 'Nắm trùm — Top 10% toàn hệ thống',
   },
   {
     id: 9,
@@ -107,17 +113,49 @@ export const RANKS: RankDef[] = [
     bgColor: 'from-amber-500/20 to-amber-400/10',
     borderColor: 'border-amber-400/40',
     icon: '👑',
-    description: 'Vô địch Vật Lý',
+    description: 'Vô địch Vật Lý — Top 5%',
   },
+  // ── v2.0: 3 hạng mới chia nhỏ khoảng cách 50K ──────────────
   {
     id: 10,
+    name: 'Chinh Phục',
+    minStars: 145000,
+    color: 'text-sky-300',
+    bgColor: 'from-sky-500/20 to-cyan-400/10',
+    borderColor: 'border-sky-400/50',
+    icon: '🚀',
+    description: 'Vươn tới đỉnh cao — Top 3%',
+  },
+  {
+    id: 11,
+    name: 'Huyền Thoại',
+    minStars: 162000,
+    color: 'text-violet-300',
+    bgColor: 'from-violet-600/20 to-purple-400/10',
+    borderColor: 'border-violet-400/50',
+    icon: '🌙',
+    description: 'Huyền thoại sống — Top 1%',
+  },
+  {
+    id: 12,
     name: 'Bất Tử',
     minStars: 175000,
     color: 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500',
     bgColor: 'from-amber-500/20 via-rose-500/20 to-purple-500/20',
     borderColor: 'border-amber-400/60',
     icon: '🌟',
-    description: 'Huyền thoại bất diệt',
+    description: 'Huyền thoại bất diệt — Đỉnh cao Vật Lý',
+  },
+  {
+    id: 13,
+    name: 'Siêu Việt',
+    minStars: 220000,
+    color: 'text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-violet-400 via-rose-300 to-amber-300',
+    bgColor: 'from-cyan-500/20 via-violet-500/20 to-amber-500/20',
+    borderColor: 'border-violet-300/70',
+    icon: '✨',
+    description: 'Prestige — Vượt giới hạn con người',
+    isPrestige: true,
   },
 ];
 

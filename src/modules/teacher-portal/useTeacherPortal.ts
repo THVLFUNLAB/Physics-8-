@@ -174,6 +174,9 @@ export function useTeacherPortal(user: UserProfile) {
       fetchExams();
       fetchMatrices();
     }
+    if (activeTab === 'personalized') {
+      fetchExams();
+    }
     if (activeTab === 'materials') {
       fetchMaterials();
     }

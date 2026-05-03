@@ -22,6 +22,7 @@ import {
 } from '../services/personalizedAssignmentService';
 import { toast } from '../../../components/Toast';
 import { db, collection, getDocs, query, where } from '../../../firebase';
+import { documentId } from 'firebase/firestore';
 
 type Portal = ReturnType<typeof useTeacherPortal>;
 interface Props { portal: Portal; user: UserProfile; }
@@ -47,7 +48,7 @@ async function fetchClassStudents(classId: string, studentIds: string[]): Promis
   const results: StudentOption[] = [];
   for (let i = 0; i < studentIds.length; i += BATCH) {
     const batch = studentIds.slice(i, i + BATCH);
-    const q = query(collection(db, 'users'), where('uid', 'in', batch));
+    const q = query(collection(db, 'users'), where(documentId(), 'in', batch));
     const snap = await getDocs(q);
     snap.docs.forEach(d => {
       const data = d.data();

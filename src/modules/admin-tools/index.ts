@@ -10,6 +10,7 @@ export { default as DuplicateReviewHub } from '@/src/components/DuplicateReviewH
 export { DuplicateReviewHubWrapper } from '@/src/components/DuplicateReviewHubWrapper';
 export { default as DatabaseMigrationTool } from '@/src/components/DatabaseMigrationTool';
 export { default as ScoreRecalibrationTool } from '@/src/components/ScoreRecalibrationTool';
+export { default as XPRecalibrationTool } from '@/src/components/XPRecalibrationTool';
 export { default as ReportHub } from '@/src/components/ReportHub';
 export { MacroAnalyticsDashboard } from '@/src/components/MacroAnalyticsDashboard';
 export { default as AICampaignManager } from '@/src/components/AICampaignManager';

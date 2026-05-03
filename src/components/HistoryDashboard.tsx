@@ -108,8 +108,12 @@ export const HistoryDashboard = ({
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  const avgScore = attempts.length > 0
-    ? (attempts.reduce((acc, a) => acc + (Number(a.score) || 0), 0) / attempts.length)
+  // Điểm TB = 10 bài gần nhất (phản ánh năng lực hiện tại chính xác hơn toàn bộ lịch sử)
+  const recentAttempts = [...attempts]
+    .sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0))
+    .slice(0, 10);
+  const avgScore = recentAttempts.length > 0
+    ? recentAttempts.reduce((acc, a) => acc + (Number(a.score) || 0), 0) / recentAttempts.length
     : 0;
 
   return (
@@ -131,8 +135,15 @@ export const HistoryDashboard = ({
           </div>
           {attempts.length > 0 && (
             <div className="bg-slate-800/50 border border-slate-700 px-6 py-4 rounded-2xl flex flex-col items-center">
-              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Điểm TB</span>
-              <span className="text-3xl font-black text-emerald-400">{avgScore.toFixed(1)}</span>
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">
+                Điểm TB
+                <span className="text-cyan-500 ml-1">(10 bài gần)​</span>
+              </span>
+              <span className={`text-3xl font-black ${
+                avgScore >= 8.0 ? 'text-amber-400' :
+                avgScore >= 5.0 ? 'text-emerald-400' :
+                'text-rose-400'
+              }`}>{avgScore.toFixed(1)}</span>
             </div>
           )}
         </div>

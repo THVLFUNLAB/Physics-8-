@@ -8,7 +8,7 @@ interface AppState {
   
   // Navigation
   activeView: SidebarTab;
-  adminTab: 'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore';
+  adminTab: 'Digitize' | 'Bank' | 'Matrix' | 'Generator' | 'SimLab' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'YCCD' | 'Migration' | 'AIChats' | 'RecalibScore' | 'XPRecalib';
   
   // Modals & Overlays
   showUpgradeModal: boolean;

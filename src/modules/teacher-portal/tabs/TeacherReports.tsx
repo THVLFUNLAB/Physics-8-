@@ -90,7 +90,7 @@ const TeacherReports: React.FC<Props> = ({ portal }) => {
     }
     setLoading(true);
     try {
-      const studentIds = (selectedClass as any).studentIds ?? [];
+      const studentIds = selectedClass.studentIds ?? [];
       const data = await generateClassReport(
         selectedClassId,
         selectedClass.name,

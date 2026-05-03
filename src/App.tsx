@@ -82,6 +82,7 @@ const DatabaseMigrationTool = lazy(() => import('./components/DatabaseMigrationT
 const AdminStatsDashboard   = lazy(() => import('./modules/admin-stats/AdminStatsDashboard'));
 const AdminMaterialApprovals = lazy(() => import('./modules/admin-tools/AdminMaterialApprovals'));
 const ScoreRecalibrationTool = lazy(() => import('./components/ScoreRecalibrationTool'));
+const XPRecalibrationTool = lazy(() => import('./components/XPRecalibrationTool'));
 const AdaptiveDashboard = lazy(() => import('./components/AdaptiveDashboard'));
 const ProjectorLeaderboard = lazy(() => import('./components/ProjectorLeaderboard'));
 const SimulationViewer: React.FC<{ simulation: Simulation, onClose: () => void }> = lazy(() => import('./components/SimulationLab').then(m => ({ default: (m as any).SimulationViewer || m.default }))) as any;
@@ -1550,7 +1551,27 @@ export default function App() {
               <div className="w-px h-8 bg-slate-800" />
               <div className="flex flex-col items-end">
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Điểm TB</span>
-                <span className="text-sm font-bold text-red-500">{(attempts.reduce((acc, a) => acc + a.score, 0) / (attempts.length || 1)).toFixed(1)}</span>
+                <span className={`text-sm font-bold ${
+                  (() => {
+                    const last10 = [...attempts]
+                      .sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0))
+                      .slice(0, 10);
+                    const avg = last10.length > 0
+                      ? last10.reduce((acc, a) => acc + a.score, 0) / last10.length
+                      : 0;
+                    return avg >= 8.0 ? 'text-amber-400' : avg >= 5.0 ? 'text-emerald-400' : 'text-rose-400';
+                  })()
+                }`}>
+                  {(() => {
+                    const last10 = [...attempts]
+                      .sort((a, b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0))
+                      .slice(0, 10);
+                    const avg = last10.length > 0
+                      ? last10.reduce((acc, a) => acc + a.score, 0) / last10.length
+                      : 0;
+                    return avg.toFixed(1);
+                  })()}
+                </span>
               </div>
             </div>
             <NotificationCenter notifications={user.notifications} onRead={markNotificationAsRead} />
@@ -1756,7 +1777,8 @@ export default function App() {
                 { id: 'Campaign', label: 'Tâm Thư AI', icon: Send },
                 { id: 'YCCD', label: 'YCCĐ', icon: Target },
                 { id: 'AIChats', label: 'Log Chat AI', icon: BrainCircuit },
-                { id: 'RecalibScore', label: 'Hi\u1ec7u Ch\u1ec9nh \u0110i\u1ec3m', icon: ShieldAlert },
+                { id: 'RecalibScore', label: 'Hiệu Chỉnh Điểm', icon: ShieldAlert },
+                { id: 'XPRecalib', label: 'Bù XP v2', icon: Star },
               ].map(tab => (
                 <button key={tab.id} onClick={() => setAdminTab(tab.id as any)} className={cn("flex-none whitespace-nowrap px-3 sm:px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider md:tracking-widest transition-all flex items-center justify-center gap-1.5 md:gap-2", adminTab === tab.id ? "bg-red-600 text-white shadow-lg shadow-red-600/20" : "text-slate-500 hover:text-slate-300")}>
                   <tab.icon className="w-4 h-4" />
@@ -1784,6 +1806,7 @@ export default function App() {
               {adminTab === 'YCCD' && <YCCDAutoTagger />}
               {adminTab === 'Migration' && <DatabaseMigrationTool />}
               {adminTab === 'RecalibScore' && <ScoreRecalibrationTool />}
+              {adminTab === 'XPRecalib' && <XPRecalibrationTool />}
               {adminTab === 'AIChats' && <AIChatLogsDashboard />}
               {adminTab === 'Approvals' && <AdminMaterialApprovals adminId={user.uid} />}
               {adminTab === 'Stats'   && <AdminStatsDashboard />}

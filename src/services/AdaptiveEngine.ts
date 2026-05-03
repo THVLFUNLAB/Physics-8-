@@ -2,13 +2,20 @@
  * ═══════════════════════════════════════════════════════════════════
  *  PHYSICS9+ AI ADAPTIVE ENGINE
  *  Sprint 1: calculateAdaptiveXP — Hardcore Gamification (PH3)
+ *  Update v2.0: Phương Án D — Công Bằng Hơn, Giữ Chân HS
  *
- *  Fixes:
+ *  Fixes gốc:
  *    CVE-1: Weight factor ngăn farm XP với đề ngắn
  *    CVE-2: Cân bằng đề ngắn/dài qua (numQuestions / 28)
  *    CVE-3: xpMultiplier phân biệt loại đề (STANDARD/REMEDIAL/...)
  *    CVE-4: isFirstSubmitToday guard chặn streak bonus spam
  *    CVE-5: Điều kiện bonusXP fixed từ > 8.0 → >= 8.0
+ *
+ *  v2.0 — Phương Án D:
+ *    FIX-1: RANK_FLOOR lỏng hơn (rank cao không còn chặn 8.0 cứng nhắc)
+ *    FIX-2: Effort XP tối thiểu — finalXP không bao giờ = 0 nữa
+ *    FIX-3: Streak bonus KHÔNG bị chặn bởi floor (cày đều = được thưởng)
+ *    FIX-4: RANK_FLOOR mở rộng cho 13 rank IDs (thêm Chinh Phục/Huyền Thoại/Siêu Việt)
  * ═══════════════════════════════════════════════════════════════════
  */
 
@@ -25,14 +32,21 @@ import type {
   CapabilityTier
 } from './AdaptiveEngine.types';
 
-// ─── Rank Floor Table ─────────────────────────────────────────────
-// Dưới điểm sàn này → FinalXP = 0 (không thể spam đề dưới ngưỡng)
+// ─── Rank Floor Table v2.0 ────────────────────────────────────────
+// Dưới điểm sàn → chỉ nhận Effort XP tối thiểu (không còn = 0 tuyệt đối)
+// Mức sàn v2.0 lỏng hơn đáng kể để không triệt tiêu động lực HS yếu
 
 export const RANK_FLOOR: Record<number, number> = {
-  1: 4.0, 2: 4.0, 3: 4.0,         // Đồng → Vàng Đoàn
-  4: 6.5, 5: 6.5, 6: 6.5,         // Bạch Kim → Tinh Anh
-  7: 8.0, 8: 8.0, 9: 8.0, 10: 8.0, // Cao Thủ → Bất Tử
+  1: 2.0, 2: 2.5, 3: 3.0,              // Đồng → Vàng Đoàn: rất dễ
+  4: 4.0, 5: 5.0, 6: 6.0,              // Bạch Kim → Tinh Anh
+  7: 6.5, 8: 7.0, 9: 7.5,              // Cao Thủ → Quán Quân
+  10: 7.5, 11: 8.0, 12: 8.0, 13: 8.5, // Chinh Phục → Siêu Việt
 };
+
+// ─── Effort XP ────────────────────────────────────────────────────
+// XP tối thiểu mỗi câu hoàn thành — LUÔN được nhận, kể cả dưới floor
+// Đảm bảo: "Không bao giờ về tay không sau khi nộp bài"
+const EFFORT_XP_PER_QUESTION = 3; // 27 câu → 81 XP tối thiểu, 8 câu → 24 XP
 
 // ─── XP Multiplier per Exam Type ─────────────────────────────────
 export const EXAM_TYPE_MULTIPLIER: Record<AdaptiveExamType, number> = {
@@ -77,36 +91,45 @@ export function calculateAdaptiveXP(
   currentStreak: number = 0,
 ): IXPBreakdown {
 
-  // ── 1. Rank Floor Check (CVE-2 partial, CVE-1 partial) ──────────
+  // ── 1. Rank Floor Check ──────────────────────────────────────────
   const rankFloor = RANK_FLOOR[rankId] ?? 4.0;
   const belowFloor = totalScore < rankFloor;
 
-  // ── 2. BaseXP theo tier điểm (Exponential Bonus spec) ───────────
+  // ── 2. Effort XP tối thiểu (v2.0 FIX-2) ────────────────────────
+  // Luôn nhận XP theo số câu hoàn thành — KHÔNG BAO GIỜ về 0
+  // Ý nghĩa: "Cố gắng bao nhiêu, thưởng bấy nhiêu" — công bằng tuyệt đối
+  const effortXP = Math.max(25, Math.round(numQuestions * EFFORT_XP_PER_QUESTION));
+
+  // ── 3. BaseXP theo tier điểm (Score-based, chỉ khi trên floor) ──
   // Hệ số tăng mạnh theo vùng điểm cao để incentivize xuất sắc
   let baseXP = 0;
   if (!belowFloor) {
-    if      (totalScore >= 9.0) baseXP = Math.round(totalScore * 100); // 9.0→900, 10→1000
-    else if (totalScore >= 8.0) baseXP = Math.round(totalScore * 40);  // 8.0→320, 8.9→356
-    else if (totalScore >= 7.0) baseXP = Math.round(totalScore * 20);  // 7.0→140, 7.9→158
-    else if (totalScore >= 5.0) baseXP = Math.round(totalScore * 10);  // 5.0→50,  6.9→69
-    else                        baseXP = Math.round(totalScore * 5);   // <5.0→max 24
+    if      (totalScore >= 9.5) baseXP = Math.round(totalScore * 120); // 9.5→1140, 10→1200
+    else if (totalScore >= 9.0) baseXP = Math.round(totalScore * 100); // 9.0→900
+    else if (totalScore >= 8.0) baseXP = Math.round(totalScore * 50);  // 8.0→400, 8.9→445
+    else if (totalScore >= 7.0) baseXP = Math.round(totalScore * 25);  // 7.0→175, 7.9→198
+    else if (totalScore >= 5.0) baseXP = Math.round(totalScore * 12);  // 5.0→60,  6.9→83
+    else                        baseXP = Math.round(totalScore * 6);   // <5.0→max 29
   }
 
-  // ── 3. Weight Factor — Cân bằng đề ngắn/dài (CVE-2 fix) ────────
+  // ── 4. Weight Factor — Cân bằng đề ngắn/dài (CVE-2 fix) ────────
   // FinalXP = BaseXP × (numQuestions / 28)
   // Đề 28 câu → ×1.0 | Đề 8 câu → ×0.286 | Đề 3 câu → ×0.107
   const weightFactor = Math.min(Math.max(numQuestions / 28, 0), 1.0);
 
-  // ── 4. Type Multiplier — Phân biệt loại đề (CVE-3 fix) ──────────
+  // ── 5. Type Multiplier — Phân biệt loại đề (CVE-3 fix) ──────────
   const typeMultiplier = EXAM_TYPE_MULTIPLIER[examType];
 
-  // ── 5. Final XP ─────────────────────────────────────────────────
-  const finalXP = belowFloor
-    ? 0
-    : Math.max(0, Math.round(baseXP * weightFactor * typeMultiplier));
+  // ── 6. Final XP — Effort XP là sàn tuyệt đối (v2.0 FIX-2) ─────
+  // Dưới floor: nhận Effort XP (cố gắng vẫn được thưởng)
+  // Trên floor: nhận max(effortXP, scoreXP) — không bao giờ tệ hơn effort
+  const scoreXP = Math.max(0, Math.round(baseXP * weightFactor * typeMultiplier));
+  const finalXP = belowFloor ? effortXP : Math.max(effortXP, scoreXP);
 
-  // ── 6. Streak Bonus — Chỉ lần đầu trong ngày (CVE-4 fix) ────────
-  const streakBonus = (isFirstSubmitToday && !belowFloor)
+  // ── 7. Streak Bonus — v2.0 FIX-3: KHÔNG chặn bởi floor ─────────
+  // Cày đều mỗi ngày → vẫn nhận streak bonus, bất kể điểm cao hay thấp
+  // Lý do: Streak thưởng sự kiên trì, không phải kết quả
+  const streakBonus = isFirstSubmitToday
     ? getStreakBonus(currentStreak)
     : 0;
 
@@ -252,7 +275,7 @@ function buildAdaptiveConfig(
 
   // Quyết định loại đề
   const hasCriticalWeakness = assessment.criticalTopics.length > 0;
-  const isEliteRank = rank.id >= 6; // Tinh Anh trở lên
+  const isEliteRank = rank.id >= 7; // v2.0: Cao Thủ trở lên (rank 7+) — điều chỉnh cho 13-rank system
 
   let examType: AdaptiveExamType;
   let xpMultiplier: number;
