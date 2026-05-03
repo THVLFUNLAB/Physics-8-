@@ -39,6 +39,7 @@ import { robotoBase64 } from './utils/robotoFont';
 import Sidebar from './components/Sidebar';
 import { NotificationCenter } from './components/NotificationCenter';
 import { AppFooter } from './layouts/AppFooter';
+import { OnboardingGuide } from './components/OnboardingGuide';
 
 // ── Common UI ──
 import { PrescriptionCard, SmartResourceCard } from './components/common';
@@ -1425,6 +1426,16 @@ export default function App() {
                   >
                     <ArrowRight className="w-5 h-5" />
                   </motion.button>
+
+                  {/* ── Onboarding Guide Trigger ── */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4, duration: 0.5 }}
+                    className="mt-5 flex justify-center"
+                  >
+                    <OnboardingGuide variant="landing" />
+                  </motion.div>
                 </motion.div>
               </div>
             </div>
