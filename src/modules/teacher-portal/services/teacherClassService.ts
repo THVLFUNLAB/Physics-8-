@@ -115,6 +115,7 @@ export async function assignExamToClass(params: {
   examTitle: string;
   classId: string;
   className: string;
+  availableFrom?: Date;
   deadline?: Date;
   allowReview: boolean;
   showLeaderboard: boolean;
@@ -122,7 +123,7 @@ export async function assignExamToClass(params: {
 }): Promise<string> {
   const {
     teacherId, examId, examTitle, classId, className,
-    deadline, allowReview, showLeaderboard, randomizeQuestions,
+    availableFrom, deadline, allowReview, showLeaderboard, randomizeQuestions,
   } = params;
 
   // Lấy số HS trong lớp tại thời điểm phát
@@ -139,7 +140,7 @@ export async function assignExamToClass(params: {
     className,
     status: 'active',
     assignedAt: Timestamp.now(),
-    availableFrom: Timestamp.now(),
+    availableFrom: availableFrom ? Timestamp.fromDate(availableFrom) : Timestamp.now(),
     deadline: deadline ? Timestamp.fromDate(deadline) : undefined,
     allowReview,
     showLeaderboard,
@@ -212,11 +213,10 @@ export async function incrementAssignmentSubmission(
  * Không lấy đề của Admin hay GV khác khi private.
  */
 export async function getTeacherExams(teacherId: string): Promise<Exam[]> {
-  // Đề do GV này tạo (mọi visibility)
+  // Đề do GV này tạo (mọi visibility) - Bỏ orderBy để tránh lỗi thiếu Index (ownerTeacherId + createdAt)
   const ownedQ = query(
     collection(db, 'exams'),
-    where('ownerTeacherId', '==', teacherId),
-    orderBy('createdAt', 'desc')
+    where('ownerTeacherId', '==', teacherId)
   );
 
   // Đề do Admin tạo và đã public (không có ownerTeacherId)
@@ -235,9 +235,17 @@ export async function getTeacherExams(teacherId: string): Promise<Exam[]> {
   const seenIds = new Set<string>();
   const results: Exam[] = [];
 
-  ownedSnap.docs.forEach(d => {
-    seenIds.add(d.id);
-    results.push({ id: d.id, ...d.data() } as Exam);
+  // Sort owned exams in memory
+  const ownedDocs = ownedSnap.docs.map(d => ({ id: d.id, ...d.data() } as Exam));
+  ownedDocs.sort((a, b) => {
+    const tA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+    const tB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+    return tB - tA;
+  });
+
+  ownedDocs.forEach(data => {
+    seenIds.add(data.id);
+    results.push(data);
   });
 
   publicSnap.docs.forEach(d => {

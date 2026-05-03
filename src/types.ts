@@ -365,6 +365,7 @@ export interface ClassRoom {
   name: string;          // "Lớp 12A1"
   teacherId: string;     // UID admin tạo lớp
   studentIds: string[];  // Danh sách UID học sinh đã join
+  grade?: number;        // Khối lớp (VD: 10, 11, 12)
   createdAt: any;
 }
 

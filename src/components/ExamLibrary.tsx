@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  db, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, getDoc, getDocs, Timestamp
+  db, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, getDoc, getDocs, Timestamp, auth
 } from '../firebase';
 import { Exam, Question } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,11 +17,12 @@ import MathRenderer from '../lib/MathRenderer';
 import {
   FolderOpen, Trash2, Eye, EyeOff, ChevronDown, ChevronUp,
   FileText, Clock, CheckCircle2, AlertTriangle, Search, X,
-  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw, Users, Link as LinkIcon
+  BookOpen, BrainCircuit, Zap, Filter, Pencil, Save, Printer, RefreshCw, Users, Link as LinkIcon, Send
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableExamView } from './PrintableExamView';
 import { ExamResultsModal } from './ExamResultsModal';
+import { AssignExamModal } from './AssignExamModal';
 
 // ── Exam type labels ──
 const TYPE_LABELS: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -48,6 +49,7 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
   const [editTitle, setEditTitle] = useState('');
   const [syncingId, setSyncingId] = useState<string | null>(null); // null | examId | '__all__'
   const [selectedExamResults, setSelectedExamResults] = useState<Exam | null>(null);
+  const [assignModalExam, setAssignModalExam] = useState<Exam | null>(null);
   
   // ── Print State ──
   const printRef = React.useRef<HTMLDivElement>(null);
@@ -576,6 +578,15 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
                         )}
                       </button>
 
+                      {/* Giao Nhiệm Vụ */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setAssignModalExam(exam); }}
+                        className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-600/10 rounded-lg transition-all"
+                        title="Giao nhiệm vụ cho Khối / Lớp"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+
                       {/* Sync from Bank */}
                       <button
                         onClick={() => handleSyncFromBank(exam)}
@@ -744,6 +755,15 @@ const ExamLibrary: React.FC<ExamLibraryProps> = ({ onCountChanged }) => {
         <ExamResultsModal 
            exam={selectedExamResults} 
            onClose={() => setSelectedExamResults(null)} 
+        />
+      )}
+
+      {/* Modal Giao Nhiệm Vụ */}
+      {assignModalExam && (
+        <AssignExamModal
+          exam={assignModalExam}
+          teacherId={auth.currentUser?.uid || ''}
+          onClose={() => setAssignModalExam(null)}
         />
       )}
     </div>

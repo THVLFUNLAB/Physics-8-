@@ -111,7 +111,13 @@ export async function getStudentAssignedExams(
       );
       const snap = await getDocs(q);
       snap.forEach(d => {
-        allAssignments.push({ id: d.id, ...d.data() } as TeacherExamAssignment);
+        const data = d.data() as TeacherExamAssignment;
+        // Kiểm tra availableFrom (nếu có) xem đã đến giờ giao chưa
+        const nowMs = Date.now();
+        const availableFromMs = data.availableFrom?.seconds ? data.availableFrom.seconds * 1000 : 0;
+        if (availableFromMs <= nowMs) {
+          allAssignments.push({ id: d.id, ...data });
+        }
       });
     } catch {}
   }
