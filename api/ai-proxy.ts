@@ -102,7 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Whitelist models được phép dùng
-  const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+  const ALLOWED_MODELS = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash'];
   if (!ALLOWED_MODELS.includes(model)) {
     return res.status(400).json({ error: `Model not allowed: ${model}` });
   }

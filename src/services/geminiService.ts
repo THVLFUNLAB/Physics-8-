@@ -9,8 +9,8 @@ import { proxyGenerateContent } from "./aiProxyClient";
 // MODEL CONFIGURATION
 // ============================================================
 const MODELS = {
-  DIGITIZE: "gemini-2.5-flash",
-  ANALYZE:  "gemini-2.5-flash",
+  DIGITIZE: "gemini-2.0-flash",
+  ANALYZE:  "gemini-2.0-flash",
 } as const;
 
 // ~20K chars ≈ 10-15 câu/chunk
