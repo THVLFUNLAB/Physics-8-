@@ -1,0 +1,448 @@
+/**
+ * teacher-portal.css — Scoped CSS cho Teacher Portal
+ * Emerald/Teal theme — phân biệt rõ với Admin (Red/Cyber)
+ * Import trong TeacherPortal.tsx (không import global)
+ */
+
+/* ── Design Tokens ──────────────────────────────────────────────────────────── */
+.tp-root {
+  --tp-primary:       #10b981;   /* emerald-500 */
+  --tp-primary-dark:  #059669;   /* emerald-600 */
+  --tp-secondary:     #06b6d4;   /* cyan-500 */
+  --tp-accent:        #34d399;   /* emerald-400 */
+  --tp-surface:       rgba(16, 185, 129, 0.06);
+  --tp-border:        rgba(16, 185, 129, 0.18);
+  --tp-border-hover:  rgba(16, 185, 129, 0.45);
+  --tp-text-muted:    #6b7280;   /* gray-500 */
+  --tp-glow:          0 0 24px rgba(16, 185, 129, 0.18);
+}
+
+/* ── Portal Shell ───────────────────────────────────────────────────────────── */
+.tp-root {
+  font-family: 'Inter', 'Outfit', sans-serif;
+  color: #f9fafb;
+  min-height: 100vh;
+}
+
+/* ── Header Banner ──────────────────────────────────────────────────────────── */
+.tp-header {
+  background: linear-gradient(135deg,
+    rgba(6, 78, 59, 0.85) 0%,
+    rgba(6, 95, 70, 0.70) 50%,
+    rgba(8, 51, 68, 0.80) 100%
+  );
+  border: 1px solid var(--tp-border);
+  border-radius: 1.25rem;
+  padding: 1.5rem 2rem;
+  margin-bottom: 1.75rem;
+  backdrop-filter: blur(16px);
+  box-shadow: var(--tp-glow);
+  position: relative;
+  overflow: hidden;
+}
+
+.tp-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top left, rgba(52, 211, 153, 0.12) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.tp-header-title {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #34d399 0%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 0.25rem;
+}
+
+.tp-header-subtitle {
+  font-size: 0.8125rem;
+  color: var(--tp-text-muted);
+  margin: 0;
+}
+
+/* ── Tab Navigation ─────────────────────────────────────────────────────────── */
+.tp-tabs {
+  display: flex;
+  gap: 0;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 1rem;
+  padding: 0.3rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 1.75rem;
+}
+
+.tp-tabs::-webkit-scrollbar { display: none; }
+
+.tp-tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: 0.65rem;
+  border: none;
+  background: transparent;
+  color: var(--tp-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.tp-tab:hover {
+  color: #e2e8f0;
+  background: rgba(255,255,255,0.06);
+}
+
+.tp-tab.active {
+  background: linear-gradient(135deg, var(--tp-primary-dark), #0891b2);
+  color: #ffffff;
+  box-shadow: 0 2px 12px rgba(16, 185, 129, 0.35);
+}
+
+.tp-tab svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Stats Grid ─────────────────────────────────────────────────────────────── */
+.tp-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.875rem;
+  margin-bottom: 1.75rem;
+}
+
+@media (min-width: 768px) {
+  .tp-stats-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.tp-stat-card {
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 1rem;
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  transition: all 0.25s ease;
+  min-height: 5rem;
+}
+
+.tp-stat-card:hover {
+  border-color: var(--tp-border-hover);
+  box-shadow: var(--tp-glow);
+  transform: translateY(-2px);
+}
+
+.tp-stat-icon {
+  padding: 0.55rem;
+  border-radius: 0.65rem;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--tp-accent);
+  flex-shrink: 0;
+}
+
+.tp-stat-icon svg { width: 1.25rem; height: 1.25rem; }
+
+.tp-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: var(--tp-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  margin: 0 0 0.2rem;
+}
+
+.tp-stat-value {
+  font-size: 1.375rem;
+  font-weight: 900;
+  color: #f1f5f9;
+  margin: 0;
+  line-height: 1;
+}
+
+/* ── Class Cards ────────────────────────────────────────────────────────────── */
+.tp-class-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.tp-class-card {
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  transition: all 0.25s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.tp-class-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--tp-primary), var(--tp-secondary));
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.tp-class-card:hover,
+.tp-class-card.selected {
+  border-color: var(--tp-border-hover);
+  box-shadow: var(--tp-glow);
+  transform: translateY(-2px);
+}
+
+.tp-class-card:hover::after,
+.tp-class-card.selected::after { opacity: 1; }
+
+.tp-class-name {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  margin: 0 0 0.5rem;
+}
+
+.tp-class-meta {
+  font-size: 0.75rem;
+  color: var(--tp-text-muted);
+  display: flex;
+  gap: 0.875rem;
+}
+
+.tp-class-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.375rem;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--tp-accent);
+}
+
+/* ── Table ──────────────────────────────────────────────────────────────────── */
+.tp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.tp-table th {
+  text-align: left;
+  padding: 0.6rem 0.875rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tp-text-muted);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.tp-table td {
+  padding: 0.75rem 0.875rem;
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.25);
+  vertical-align: middle;
+}
+
+.tp-table tr:hover td {
+  background: rgba(16, 185, 129, 0.04);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+.tp-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.25rem;
+  background: linear-gradient(135deg, var(--tp-primary-dark), #0891b2);
+  color: #fff;
+  border: none;
+  border-radius: 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.tp-btn-primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
+  transform: translateY(-1px);
+}
+
+.tp-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.875rem;
+  background: transparent;
+  color: var(--tp-text-muted);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tp-btn-ghost:hover {
+  color: #e2e8f0;
+  border-color: var(--tp-border-hover);
+  background: rgba(255,255,255,0.04);
+}
+
+/* ── Status Badges ──────────────────────────────────────────────────────────── */
+.tp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.tp-badge-active  { background: rgba(16,185,129,0.15); color: #34d399; }
+.tp-badge-closed  { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.tp-badge-draft   { background: rgba(234,179,8,0.15); color: #facc15; }
+.tp-badge-pending { background: rgba(249,115,22,0.15); color: #fb923c; }
+
+/* ── Progress Bar ───────────────────────────────────────────────────────────── */
+.tp-progress {
+  width: 100%;
+  height: 6px;
+  background: rgba(51, 65, 85, 0.5);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.tp-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--tp-primary), var(--tp-secondary));
+  border-radius: 9999px;
+  transition: width 0.5s ease;
+}
+
+/* ── Empty State ────────────────────────────────────────────────────────────── */
+.tp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  padding: 3.5rem 1rem;
+  color: var(--tp-text-muted);
+  text-align: center;
+}
+
+.tp-empty svg { width: 3rem; height: 3rem; opacity: 0.35; }
+.tp-empty-title { font-size: 0.9375rem; font-weight: 700; color: #94a3b8; margin: 0; }
+.tp-empty-desc  { font-size: 0.8125rem; margin: 0; max-width: 28ch; line-height: 1.5; }
+
+/* ── Section Header ─────────────────────────────────────────────────────────── */
+.tp-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.tp-section-title {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.tp-section-title svg { color: var(--tp-accent); width: 1.1rem; height: 1.1rem; }
+
+/* ── Material Card ──────────────────────────────────────────────────────────── */
+.tp-material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.875rem;
+}
+
+.tp-material-card {
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: 0.875rem;
+  padding: 1rem 1.125rem;
+  transition: all 0.2s ease;
+}
+
+.tp-material-card:hover {
+  border-color: var(--tp-border-hover);
+  transform: translateY(-1px);
+}
+
+.tp-material-type-icon {
+  font-size: 1.75rem;
+  margin-bottom: 0.5rem;
+  line-height: 1;
+}
+
+.tp-material-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0 0 0.375rem;
+  line-height: 1.3;
+}
+
+.tp-material-meta {
+  font-size: 0.6875rem;
+  color: var(--tp-text-muted);
+  margin: 0;
+}
+
+/* ── Loading Skeleton ───────────────────────────────────────────────────────── */
+.tp-skeleton {
+  background: linear-gradient(90deg,
+    rgba(51,65,85,0.4) 0%,
+    rgba(71,85,105,0.5) 50%,
+    rgba(51,65,85,0.4) 100%
+  );
+  background-size: 200% 100%;
+  animation: tp-shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+
+@keyframes tp-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .tp-header { padding: 1rem 1.25rem; }
+  .tp-header-title { font-size: 1.125rem; }
+  .tp-tab { padding: 0.5rem 0.75rem; font-size: 0.6875rem; }
+  .tp-stat-value { font-size: 1.125rem; }
+}
