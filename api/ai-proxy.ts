@@ -27,16 +27,37 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
+import fs from 'fs';
+import path from 'path';
+
 // ── Xác thực Firebase ID Token ─────────────────────────────────
 async function verifyFirebaseToken(idToken: string): Promise<string | null> {
   try {
-    // Dùng Firebase Auth REST API để verify (không cần firebase-admin)
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    if (!projectId) {
-      console.error('[ai-proxy] FIREBASE_PROJECT_ID not set');
+    // Thử đọc từ env
+    let projectId = process.env.FIREBASE_PROJECT_ID;
+    let apiKey = process.env.FIREBASE_WEB_API_KEY;
+
+    // Fallback đọc từ file firebase-applet-config.json
+    if (!projectId || !apiKey) {
+      try {
+        const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+        if (fs.existsSync(configPath)) {
+          const configRaw = fs.readFileSync(configPath, 'utf-8');
+          const config = JSON.parse(configRaw);
+          projectId = projectId || config.projectId;
+          apiKey = apiKey || config.apiKey;
+        }
+      } catch (e) {
+        console.error('[ai-proxy] Error reading firebase config file', e);
+      }
+    }
+
+    if (!projectId || !apiKey) {
+      console.error('[ai-proxy] FIREBASE_PROJECT_ID or FIREBASE_WEB_API_KEY not set');
       return null;
     }
-    const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_WEB_API_KEY}`;
+
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

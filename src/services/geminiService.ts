@@ -1520,7 +1520,14 @@ ${groundTruthSection}`;
     if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
       return 'Thầy đang xử lý quá nhiều yêu cầu cùng lúc! Em chờ khoảng 20 giây rồi hỏi lại nhé — Thầy sẽ trả lời ngay! ⏳';
     }
-    return 'Thầy đang gặp trục trặc kết nối. Em thử lại sau giây lát nhé!';
+    // Hiển thị một phần lỗi để dễ chẩn đoán
+    if (errMsg.includes('AI proxy error')) {
+      return `Lỗi từ máy chủ: ${errMsg}`;
+    }
+    if (errMsg.includes('Phiên đăng nhập')) {
+      return errMsg;
+    }
+    return `Thầy đang gặp trục trặc kết nối (${errMsg.substring(0, 50)}). Em thử lại sau giây lát nhé!`;
   }
 }
 
