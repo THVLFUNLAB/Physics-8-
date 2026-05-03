@@ -829,6 +829,7 @@ export default function App() {
 
     try {
       const attemptDocRef = await addDoc(collection(db, 'attempts'), attempt);
+      attempt.id = attemptDocRef.id; // Update local attempt ID with Firestore ID so it can be matched with realtime data
 
       // --- CHẠY NGẦM AI DIAGNOSIS ---
       if (incorrectRecords.length > 0 || skippedRecords.length > 0) {
@@ -1236,6 +1237,10 @@ export default function App() {
   // ═══════════════════════════════════════════════════════════════════════
   //  RENDER — PURE ROUTING LOGIC
   // ═══════════════════════════════════════════════════════════════════════
+  
+  // Lấy realtime attempt từ Firestore nếu có, để UI tự động update khi AI phân tích xong
+  const activeResult = results ? (attempts.find(a => a.id === results.id) || results) : null;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-fuchsia-500/30 flex flex-col md:flex-row relative">
       <ToastProvider />
@@ -1485,22 +1490,22 @@ export default function App() {
           /* ══════ EXAM / RESULTS VIEW ══════ */
           <div className="w-full">
             <AnimatePresence mode="wait">
-              {isReviewing && results ? (
-                <ReviewExam key="review" test={activeTest} answers={results.answers} onBack={() => { setIsReviewing(false); setActiveTest(null); setResults(null); }} />
-              ) : !results ? (
+              {isReviewing && activeResult ? (
+                <ReviewExam key="review" test={activeTest} answers={activeResult.answers} onBack={() => { setIsReviewing(false); setActiveTest(null); setResults(null); }} />
+              ) : !activeResult ? (
                 <ProExamExperience key="pro-exam" test={activeTest} answers={answers} onAnswer={handleAnswer} onSubmit={submitTest} onCancel={() => { clearExamSession(); setActiveTest(null); }} />
-              ) : results?.weaknessProfile ? (
+              ) : activeResult?.weaknessProfile ? (
                 <motion.div key="results" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-slate-900 border border-slate-800 rounded-3xl p-10 shadow-2xl max-w-5xl mx-auto">
                   <PersonalizedResultPanel
-                    profile={results.weaknessProfile}
-                    attempt={results}
+                    profile={activeResult.weaknessProfile}
+                    attempt={activeResult}
                     incorrectRecords={activeTest.questions.filter(q => {
-                      const studentAns = results.answers[q.id || ''];
+                      const studentAns = activeResult.answers[q.id || ''];
                       if (q.part === 1) return studentAns !== q.correctAnswer;
                       if (q.part === 2) return Array.from({ length: 4 }).some((_, i) => !Array.isArray(studentAns) || studentAns[i] !== (q.correctAnswer as boolean[])[i]);
                       if (q.part === 3) return Math.abs(parseFloat(studentAns || '0') - (q.correctAnswer as number)) >= 0.01;
                       return false;
-                    }).map(q => ({ question: q, studentAnswer: results.answers[q.id || ''], isCorrect: false }))}
+                    }).map(q => ({ question: q, studentAnswer: activeResult.answers[q.id || ''], isCorrect: false }))}
                     onRetry={() => { clearExamSession(); setActiveTest(null); }}
                     onFixWeaknesses={handleAdaptiveTestFix}
                     onReviewTheory={() => { }}
