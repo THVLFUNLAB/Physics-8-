@@ -422,19 +422,18 @@ export function clearQuestionPoolCache(): void {
 export async function getTeacherMaterials(
   teacherId: string
 ): Promise<LearningMaterial[]> {
-  // Học liệu của GV này (mọi visibility)
+  // FIX: Dùng simple query (không orderBy) để tránh yêu cầu composite index.
+  // Sort được thực hiện ở client-side sau khi fetch.
   const ownedQ = query(
     collection(db, 'learningMaterials'),
     where('ownerId', '==', teacherId),
-    orderBy('createdAt', 'desc')
+    limit(100)
   );
 
-  // Public materials đã duyệt (của Admin)
+  // Public materials đã duyệt (của Admin) — không cần orderBy composite
   const publicQ = query(
     collection(db, 'learningMaterials'),
     where('visibility', '==', 'public'),
-    where('approvalStatus', '==', 'approved'),
-    orderBy('createdAt', 'desc'),
     limit(50)
   );
 

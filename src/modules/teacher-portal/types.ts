@@ -16,7 +16,10 @@ export type TeacherTabId =
   | 'students'
   | 'analytics'
   | 'live-class'
-  | 'messages';
+  | 'messages'
+  | 'reports'           // Module 2: Báo cáo lớp học
+  | 'personalized'      // Module 3: Giao bài cá nhân hoá
+  | 'notifications';    // Module 1: Thông báo (upgrade messages tab)
 
 // ── ClassRoom mở rộng: kèm theo số HS thực tế (denormalized) ─────────────────
 export interface TeacherClassSummary extends ClassRoom {

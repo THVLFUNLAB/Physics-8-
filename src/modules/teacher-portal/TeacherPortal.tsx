@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   LayoutDashboard, Users, BookOpen, FolderOpen,
   BarChart3, MonitorPlay, MessageSquare, GraduationCap,
-  RefreshCw,
+  RefreshCw, FileBarChart2, Target, Bell,
 } from 'lucide-react';
 import type { UserProfile } from '../../types';
 import type { TeacherTabId } from './types';
@@ -18,17 +18,23 @@ const TeacherMaterials   = React.lazy(() => import('./tabs/TeacherMaterials'));
 const TeacherStudentList = React.lazy(() => import('./tabs/TeacherStudentList'));
 const TeacherAnalytics   = React.lazy(() => import('./tabs/TeacherAnalytics'));
 const TeacherMessages    = React.lazy(() => import('./tabs/TeacherMessages'));
+// ── NEW v2 modules (standalone, no existing file modified) ──
+const TeacherNotificationsV2    = React.lazy(() => import('./tabs/TeacherNotificationsV2'));
+const TeacherReports            = React.lazy(() => import('./tabs/TeacherReports'));
+const TeacherPersonalizedAssign = React.lazy(() => import('./tabs/TeacherPersonalizedAssign'));
 
 // ── Tab config ──────────────────────────────────────────────────────────────
 const TABS: { id: TeacherTabId; label: string; icon: React.FC<any> }[] = [
-  { id: 'overview',    label: 'Tổng quan',    icon: LayoutDashboard },
-  { id: 'classroom',   label: 'Lớp học',      icon: Users },
-  { id: 'exam-hub',    label: 'Tạo & Phát đề', icon: BookOpen },
-  { id: 'materials',   label: 'Học liệu',     icon: FolderOpen },
-  { id: 'students',    label: 'Học sinh',      icon: GraduationCap },
-  { id: 'analytics',   label: 'Phân tích',    icon: BarChart3 },
-  { id: 'live-class',  label: 'Phòng thi',    icon: MonitorPlay },
-  { id: 'messages',    label: 'Thông báo',    icon: MessageSquare },
+  { id: 'overview',      label: 'Tổng quan',    icon: LayoutDashboard },
+  { id: 'classroom',     label: 'Lớp học',      icon: Users },
+  { id: 'exam-hub',      label: 'Tạo & Phát đề', icon: BookOpen },
+  { id: 'materials',     label: 'Học liệu',     icon: FolderOpen },
+  { id: 'students',      label: 'Học sinh',      icon: GraduationCap },
+  { id: 'analytics',     label: 'Phân tích',    icon: BarChart3 },
+  { id: 'live-class',    label: 'Phòng thi',    icon: MonitorPlay },
+  { id: 'notifications', label: 'Thông báo',    icon: Bell },
+  { id: 'reports',       label: 'Báo cáo',       icon: FileBarChart2 },
+  { id: 'personalized',  label: 'Giao bài',      icon: Target },
 ];
 
 // ── Tab fallback spinner ──────────────────────────────────────────────────
@@ -144,6 +150,16 @@ const TeacherPortal: React.FC<TeacherPortalProps> = ({ user }) => {
             )}
             {activeTab === 'messages' && (
               <TeacherMessages portal={portal} user={user} />
+            )}
+            {/* ── NEW v2 modules ── */}
+            {activeTab === 'notifications' && (
+              <TeacherNotificationsV2 portal={portal} user={user} />
+            )}
+            {activeTab === 'reports' && (
+              <TeacherReports portal={portal} />
+            )}
+            {activeTab === 'personalized' && (
+              <TeacherPersonalizedAssign portal={portal} user={user} />
             )}
           </React.Suspense>
         </motion.div>
