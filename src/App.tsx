@@ -1524,35 +1524,37 @@ export default function App() {
 
     ) : (
     /* ══════ MAIN DASHBOARD VIEW ══════ */
-    <div className="space-y-12 relative z-10">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
-        <div className="space-y-1">
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
-            CHÀO MỪNG ĐẾN VỚI <span className="text-fuchsia-500 text-glow-neon">PHY9+</span>
-          </h2>
-          <p className="text-slate-500 font-medium flex items-center gap-2">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            Hệ thống đã kết nối. Chúc các chiến binh có một phiên huấn luyện hiệu quả!
-          </p>
-        </div>
-        <div className="hidden md:flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl">
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Huy hiệu</span>
-              <span className="text-sm font-bold text-white">{user.badges?.length || 0}</span>
-            </div>
-            <div className="w-px h-8 bg-slate-800" />
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Điểm TB</span>
-              <span className="text-sm font-bold text-red-500">{(attempts.reduce((acc, a) => acc + a.score, 0) / (attempts.length || 1)).toFixed(1)}</span>
-            </div>
+    <div className={`relative z-10 ${activeView === 'dashboard' ? '' : 'space-y-12'}`}>
+      {activeView !== 'dashboard' && (
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+          <div className="space-y-1">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
+              CHÀO MỪNG ĐẾN VỚI <span className="text-fuchsia-500 text-glow-neon">PHY9+</span>
+            </h2>
+            <p className="text-slate-500 font-medium flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              Hệ thống đã kết nối. Chúc các chiến binh có một phiên huấn luyện hiệu quả!
+            </p>
           </div>
-          <NotificationCenter notifications={user.notifications} onRead={markNotificationAsRead} />
-          <button onClick={signOut} className="p-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-red-600/10 hover:border-red-600/50 transition-all group">
-            <LogOut className="w-5 h-5 text-slate-500 group-hover:text-red-500" />
-          </button>
-        </div>
-      </header>
+          <div className="hidden md:flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-2 rounded-2xl">
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Huy hiệu</span>
+                <span className="text-sm font-bold text-white">{user.badges?.length || 0}</span>
+              </div>
+              <div className="w-px h-8 bg-slate-800" />
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Điểm TB</span>
+                <span className="text-sm font-bold text-red-500">{(attempts.reduce((acc, a) => acc + a.score, 0) / (attempts.length || 1)).toFixed(1)}</span>
+              </div>
+            </div>
+            <NotificationCenter notifications={user.notifications} onRead={markNotificationAsRead} />
+            <button onClick={signOut} className="p-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-red-600/10 hover:border-red-600/50 transition-all group">
+              <LogOut className="w-5 h-5 text-slate-500 group-hover:text-red-500" />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* ──── CONTENT ROUTING ──── */}
       {activeView === 'liveExam' && (
@@ -1609,7 +1611,7 @@ export default function App() {
 
       {activeView === 'dashboard' && (
         <LazyWrap>
-          <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
+          <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} onSignOut={signOut} />
         </LazyWrap>
       )}
 

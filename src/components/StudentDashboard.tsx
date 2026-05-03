@@ -36,7 +36,8 @@ import {
   BrainCircuit,
   Zap,
   Star,
-  Crown
+  Crown,
+  LogOut
 } from 'lucide-react';
 
 import { cn } from '../lib/utils';
@@ -269,9 +270,10 @@ interface DashboardProps {
   onStartPrescription?: (topic: string, examId?: string) => void;
   onStartExam?: (exam: Exam) => void;
   onDownloadPDF?: (exam: Exam) => void;
+  onSignOut?: () => void;
 }
 
-export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onStartExam, onDownloadPDF }: DashboardProps) => {
+export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onStartExam, onDownloadPDF, onSignOut }: DashboardProps) => {
   const defaultGrade = user?.className?.startsWith('12') ? '12' : user?.className?.startsWith('11') ? '11' : '10';
   const [activeGrade, setActiveGrade] = useState<'10' | '11' | '12'>(defaultGrade);
   const [expandedTopics, setExpandedTopics] = useState<string[]>([]);
@@ -610,26 +612,35 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
           </div>
         </div>
 
-        <div className="relative w-8 h-8 sm:w-10 sm:h-10 shrink-0 ml-2">
-          <motion.div 
-            animate={{ y: [0, -8, 0] }} 
-            transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-            className="absolute inset-0 flex items-center justify-center filter drop-shadow-[0_0_8px_rgba(0,240,255,0.6)]"
-          >
-            <picture>
-              <source srcSet="/thvl-bot.webp" type="image/webp" />
-              <img 
-                src="/thvl-bot.png" 
-                alt="Mascot" 
-                onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                className="w-10 h-10 object-contain drop-shadow-xl" 
-              />
-            </picture>
-            {/* Fallback Mascot Placeholder if image missing */}
-            <div className="absolute inset-0 w-8 h-8 m-auto bg-cyan-400 rounded-lg flex items-center justify-center font-bold text-[10px] text-slate-950 -z-10">
-               THVL
-            </div>
-          </motion.div>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {/* Notification & LogOut */}
+          <div className="flex items-center gap-1 sm:gap-2 mr-1 sm:mr-2">
+            <button onClick={onSignOut} className="p-1.5 sm:p-2 bg-slate-900 border border-slate-800 rounded-lg sm:rounded-xl hover:bg-red-600/10 hover:border-red-600/50 transition-all group">
+              <LogOut className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500 group-hover:text-red-500" />
+            </button>
+          </div>
+
+          <div className="relative w-8 h-8 sm:w-10 sm:h-10">
+            <motion.div 
+              animate={{ y: [0, -8, 0] }} 
+              transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+              className="absolute inset-0 flex items-center justify-center filter drop-shadow-[0_0_8px_rgba(0,240,255,0.6)]"
+            >
+              <picture>
+                <source srcSet="/thvl-bot.webp" type="image/webp" />
+                <img 
+                  src="/thvl-bot.png" 
+                  alt="Mascot" 
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                  className="w-10 h-10 object-contain drop-shadow-xl" 
+                />
+              </picture>
+              {/* Fallback Mascot Placeholder if image missing */}
+              <div className="absolute inset-0 w-8 h-8 m-auto bg-cyan-400 rounded-lg flex items-center justify-center font-bold text-[10px] text-slate-950 -z-10">
+                 THVL
+              </div>
+            </motion.div>
+          </div>
         </div>
       </motion.div>
 
@@ -648,7 +659,7 @@ export const StudentDashboard = ({ user, attempts = [], onStartPrescription, onS
             {/* [FIX] Hiện CountdownTimer cho tất cả khối, không chỉ khối 12
                  Khối 12 thêm label rõ ràng; khối 10/11 cũng được xem đếm ngược để tạo urgency */}
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-1.5">
-              <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT 2026
+              <Clock className="w-3 h-3" /> ĐẾM NGƯỢC KỲ THI THPT {activeGrade === '10' ? '2028' : activeGrade === '11' ? '2027' : '2026'}
             </p>
             <CountdownTimer />
             <MotivationalQuote />
