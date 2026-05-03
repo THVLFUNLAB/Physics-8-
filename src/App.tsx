@@ -97,6 +97,7 @@ const MindmapAdminPanel = lazy(() => import('./modules/mindmap/MindmapAdminPanel
 // ── Teacher Portal Module (Phase 2) ──
 const TeacherPortal = lazy(() => import('./modules/teacher-portal').then(m => ({ default: m.TeacherPortal })));
 import { incrementAssignmentSubmission } from './modules/teacher-portal/services/teacherClassService';
+const StudentMissionsView = lazy(() => import('./components/StudentMissionsView'));
 
 // ── Non-lazy (small component) ──
 import { ExamResultGamification } from './components/ExamResultGamification';
@@ -1556,7 +1557,17 @@ export default function App() {
         <LazyWrap><MindmapAdminPanel user={user} /></LazyWrap>
       )}
 
-      {(activeView === 'dashboard' || activeView === 'tasks') && (
+      {/* ══ NHIỆM VỤ — Dedicated missions page (teacher-assigned exams) ══ */}
+      {activeView === 'tasks' && user && (
+        <LazyWrap>
+          <StudentMissionsView
+            user={user}
+            onStartExam={(exam) => startTest(exam.title, exam.id)}
+          />
+        </LazyWrap>
+      )}
+
+      {activeView === 'dashboard' && (
         <LazyWrap>
           <StudentDashboard user={user} attempts={attempts} onStartPrescription={(topic, examId) => startTest(topic as string, examId as string)} onStartExam={(exam) => startTest(exam.title, exam.id)} onDownloadPDF={handleStudentDownloadPDF} />
         </LazyWrap>

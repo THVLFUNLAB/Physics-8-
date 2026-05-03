@@ -63,7 +63,38 @@ export async function getStudentAssignedExams(
     }
   } catch {}
 
+
+  if (classIds.length === 0) {
+    // REVERSE LOOKUP: Tìm lớp mà HS thuộc về qua class.studentIds
+    // (Trường hợp user doc không có classId/classIds field)
+    try {
+      const classQ = query(
+        collection(db, 'classes'),
+        where('studentIds', 'array-contains', studentId),
+      );
+      const classSnap = await getDocs(classQ);
+      classSnap.docs.forEach(d => {
+        if (!classIds.includes(d.id)) classIds.push(d.id);
+      });
+    } catch {}
+  }
+
+  // ALSO TRY reverse lookup to catch students in multiple classes
+  if (classIds.length > 0) {
+    try {
+      const classQ = query(
+        collection(db, 'classes'),
+        where('studentIds', 'array-contains', studentId),
+      );
+      const classSnap = await getDocs(classQ);
+      classSnap.docs.forEach(d => {
+        if (!classIds.includes(d.id)) classIds.push(d.id);
+      });
+    } catch {}
+  }
+
   if (classIds.length === 0) return [];
+
 
   // ── 2. Query assignments ──────────────────────────────────────
   // Firestore giới hạn `in` tối đa 30 giá trị
