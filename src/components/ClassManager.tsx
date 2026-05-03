@@ -73,10 +73,10 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
     return unsub;
   }, [user.uid]);
 
-  // ── Fetch exams — REAL-TIME (onSnapshot) ──
+  // ── Fetch exams — TỐI ƯU: Chỉ tải đề do giáo viên tạo ──
   useEffect(() => {
     const unsub = onSnapshot(
-      collection(db, 'exams'),
+      query(collection(db, 'exams'), where('createdBy', '==', user.uid)),
       (snap) => {
         setExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Exam))
           .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
@@ -84,20 +84,39 @@ const ClassManager: React.FC<ClassManagerProps> = ({ user }) => {
       }
     );
     return unsub;
-  }, []);
+  }, [user.uid]);
 
-  // ── Fetch class exams — REAL-TIME (onSnapshot) ──
+  // ── Fetch class exams — TỐI ƯU: Chỉ tải phòng thi thuộc các lớp của GV ──
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, 'classExams'),
-      (snap) => {
-        setClassExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassExam))
-          .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
-        );
-      }
-    );
-    return unsub;
-  }, []);
+    if (classes.length === 0) {
+      setClassExams([]);
+      return;
+    }
+
+    const classIds = classes.map(c => c.id).filter(Boolean) as string[];
+    const unsubs: (() => void)[] = [];
+    const allClassExamsMap = new Map<string, ClassExam>();
+
+    // Firestore 'in' query supports max 10 elements. Chunk the array.
+    for (let i = 0; i < classIds.length; i += 10) {
+      const chunk = classIds.slice(i, i + 10);
+      const unsub = onSnapshot(
+        query(collection(db, 'classExams'), where('classId', 'in', chunk)),
+        (snap) => {
+          snap.docs.forEach(d => {
+            allClassExamsMap.set(d.id, { id: d.id, ...d.data() } as ClassExam);
+          });
+          // Convert map to array and sort
+          setClassExams(Array.from(allClassExamsMap.values())
+            .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+          );
+        }
+      );
+      unsubs.push(unsub);
+    }
+
+    return () => unsubs.forEach(u => u());
+  }, [classes]);
 
   // ── Live dashboard: listen classAttempts for active exam ──
   useEffect(() => {

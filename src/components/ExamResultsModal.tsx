@@ -33,18 +33,12 @@ export const ExamResultsModal: React.FC<ExamResultsModalProps> = ({ exam, onClos
     if (!exam.id) return;
     setLoading(true);
     try {
-      // 1. Fetch toàn bộ học sinh (role === 'student')
-      const qUsers = query(collection(db, 'users'), where('role', '==', 'student'));
-      const snapUsers = await getDocs(qUsers);
-      const fetchedStudents = snapUsers.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
-      
-      // 2. Fetch toàn bộ attempt của exam này
-      // Note: attempt lưu testId = exam.id hoặc examId = exam.id tùy phiên bản. Query testId trước.
+      // 1. Fetch attempts của exam này trước
       const qAttempts1 = query(collection(db, 'attempts'), where('testId', '==', exam.id));
       const snapAttempts1 = await getDocs(qAttempts1);
       let fetchedAttempts = snapAttempts1.docs.map(d => ({ id: d.id, ...d.data() } as Attempt));
-      
-      // Nếu có dùng 'examId' ở một số bản cũ
+
+      // Fallback: một số phiên bản cũ lưu bằng 'examId'
       if (fetchedAttempts.length === 0) {
         const qAttempts2 = query(collection(db, 'attempts'), where('examId', '==', exam.id));
         const snapAttempts2 = await getDocs(qAttempts2);
@@ -52,9 +46,31 @@ export const ExamResultsModal: React.FC<ExamResultsModalProps> = ({ exam, onClos
           fetchedAttempts = snapAttempts2.docs.map(d => ({ id: d.id, ...d.data() } as Attempt));
         }
       }
-      
-      setStudents(fetchedStudents);
+
       setAttempts(fetchedAttempts);
+
+      // 2. [FIX] Chỉ fetch profile của những userId đã có attempts — không load toàn bộ students
+      const userIds = [...new Set(fetchedAttempts.map(a => a.userId).filter(Boolean))];
+      if (userIds.length === 0) {
+        setStudents([]);
+        return;
+      }
+
+      // Batch theo 10 (Firestore 'in' limit)
+      const allStudents: UserProfile[] = [];
+      for (let i = 0; i < userIds.length; i += 10) {
+        const chunk = userIds.slice(i, i + 10);
+        try {
+          const qUsers = query(
+            collection(db, 'users'),
+            where('__name__', 'in', chunk)
+          );
+          const snapUsers = await getDocs(qUsers);
+          snapUsers.forEach(d => allStudents.push({ uid: d.id, ...d.data() } as UserProfile));
+        } catch { /* bỏ qua lỗi từng batch */ }
+      }
+
+      setStudents(allStudents);
     } catch (error) {
       console.error('Lỗi khi fetch kết quả:', error);
       toast.error('Không thể tải danh sách kết quả. Vui lòng thử lại.');
@@ -67,12 +83,11 @@ export const ExamResultsModal: React.FC<ExamResultsModalProps> = ({ exam, onClos
     fetchResults();
   }, [exam.id]);
 
-  // Map dữ liệu học sinh với điểm số
+  // Vì bây giờ students chỉ load những người đã có attempt,
+  // "completed" = tất cả students trong danh sách (đã làm bài)
   const mappedResults = useMemo(() => {
     const completed: StudentResult[] = [];
-    const incomplete: StudentResult[] = [];
 
-    // Nhóm attempts theo userId
     const attemptMap = new Map<string, Attempt[]>();
     for (const a of attempts) {
       if (!attemptMap.has(a.userId)) {
@@ -84,9 +99,7 @@ export const ExamResultsModal: React.FC<ExamResultsModalProps> = ({ exam, onClos
     for (const st of students) {
       const userAttempts = attemptMap.get(st.uid);
       if (userAttempts && userAttempts.length > 0) {
-        // Tìm best score và last timestamp
         const bestScore = Math.max(...userAttempts.map(a => a.score || 0));
-        // Lấy attempt gần nhất
         const lastAttempt = userAttempts.sort((a, b) => {
            const tA = a.timestamp?.seconds || 0;
            const tB = b.timestamp?.seconds || 0;
@@ -102,30 +115,19 @@ export const ExamResultsModal: React.FC<ExamResultsModalProps> = ({ exam, onClos
           attemptsCount: userAttempts.length,
           lastAttemptTime: lastAttempt.timestamp
         });
-      } else {
-        incomplete.push({
-          userId: st.uid,
-          displayName: st.displayName || 'Học sinh chưa đặt tên',
-          email: st.email,
-          className: st.className,
-          attemptsCount: 0
-        });
       }
     }
     
-    // Sort completed by score (desc), then by name
     completed.sort((a, b) => {
       if ((b.bestScore || 0) !== (a.bestScore || 0)) {
         return (b.bestScore || 0) - (a.bestScore || 0);
       }
       return a.displayName.localeCompare(b.displayName);
     });
-    
-    // Sort incomplete by name
-    incomplete.sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-    return { completed, incomplete };
+    return { completed, incomplete: [] };
   }, [students, attempts]);
+
 
   const formatDate = (ts: any): string => {
     if (!ts) return '—';

@@ -39,7 +39,9 @@ export const DatabaseMigrationTool = () => {
   const [quotaResult, setQuotaResult] = useState<string>('');
   
   // Progress states
-  const [progress, setProgress] = useState<Record<string, { total: number; done: number; failed: number; status: 'waiting' | 'reading' | 'writing' | 'done' | 'error' }>({});
+  type CollectionProgress = { total: number; done: number; failed: number; status: 'waiting' | 'reading' | 'writing' | 'done' | 'error' };
+  const [progress, setProgress] = useState<Record<string, CollectionProgress>>({});
+
   
   // Logs
   const [logs, setLogs] = useState<string[]>([]);

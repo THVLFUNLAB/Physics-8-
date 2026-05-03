@@ -302,7 +302,8 @@ function buildAdaptiveConfig(
 // ── STEP 3: Lấy Questions từ Firestore theo config ──────────────────
 
 async function fetchQuestionsForConfig(
-  config: IAdaptiveTestConfig
+  config: IAdaptiveTestConfig,
+  targetGrade: number
 ): Promise<Question[]> {
   const allQuestions: Question[] = [];
   const levelDist = config.levelDistribution;
@@ -316,36 +317,50 @@ async function fetchQuestionsForConfig(
     'Vận dụng cao': Math.round(levelDist.VDC * total),
   };
 
-  // Lấy câu hỏi từ priority topics nếu có
+  // ── Lấy câu hỏi từ priority topics theo từng cấp độ ──
   for (const [level, count] of Object.entries(countByLevel)) {
     if (count === 0) continue;
 
     if (config.priorityTopics.length > 0) {
-      const snap = await getDocs(
-        query(
-          collection(db, 'questions'),
-          where('level', '==', level),
-          where('topic', 'in', config.priorityTopics.slice(0, 10)), // Firestore giới hạn IN 10 phần tử
-          where('status', '==', 'published'),
-          limit(count * 2) // Lấy dư để shuffle
-        )
-      );
-      snap.docs.forEach(d => allQuestions.push({ id: d.id, ...d.data() } as Question));
+      // Batch theo 10 (Firestore 'in' limit)
+      for (let i = 0; i < config.priorityTopics.length; i += 10) {
+        const topicBatch = config.priorityTopics.slice(i, i + 10);
+        try {
+          const snap = await getDocs(
+            query(
+              collection(db, 'questions'),
+              where('level', '==', level),
+              where('topic', 'in', topicBatch),
+              where('status', '==', 'published'),
+              limit(count * 2)
+            )
+          );
+          snap.docs.forEach(d => allQuestions.push({ id: d.id, ...d.data() } as Question));
+        } catch { /* Bỏ qua lỗi từng batch */ }
+      }
     }
   }
 
-  // Bổ sung thêm câu hỏi từ bất kỳ topic nào nếu thiếu (random từ db)
-  // Thực tế, ứng dụng thực sẽ có thuật toán bù đắp phức tạp hơn.
-  // Ở đây lấy tối đa 50 câu published bất kỳ để shuffle và bù đắp số lượng.
+  // [FIX] Fallback nếu thiếu câu — filter theo level + targetGrade để tránh bốc nhầm câu lớp khác
   if (allQuestions.length < total) {
-     const fallbackSnap = await getDocs(
-        query(
-          collection(db, 'questions'),
-          where('status', '==', 'published'),
-          limit(50)
-        )
-      );
-      fallbackSnap.docs.forEach(d => allQuestions.push({ id: d.id, ...d.data() } as Question));
+    const activeLevels = Object.entries(countByLevel)
+      .filter(([, c]) => c > 0)
+      .map(([lvl]) => lvl);
+
+    for (const level of activeLevels) {
+      try {
+        const fallbackSnap = await getDocs(
+          query(
+            collection(db, 'questions'),
+            where('status', '==', 'published'),
+            where('level', '==', level),
+            where('targetGrade', '==', targetGrade),
+            limit(30)
+          )
+        );
+        fallbackSnap.docs.forEach(d => allQuestions.push({ id: d.id, ...d.data() } as Question));
+      } catch { /* Bỏ qua lỗi từng level */ }
+    }
   }
 
   // Shuffle + deduplicate + cap tới total
@@ -355,7 +370,7 @@ async function fetchQuestionsForConfig(
     seen.add(q.id);
     return true;
   });
-  
+
   return unique.sort(() => Math.random() - 0.5).slice(0, total);
 }
 
@@ -380,7 +395,9 @@ export async function generateAdaptiveTest(
   const config = buildAdaptiveConfig(userId, user, assessment);
 
   // ── Fetch câu hỏi theo config ──
-  let questions = await fetchQuestionsForConfig(config);
+  const gradeNumber: number = user.grade
+    ?? parseInt(user.className?.match(/^\d+/)?.[0] || '12', 10);
+  let questions = await fetchQuestionsForConfig(config, gradeNumber);
   
   // Nếu DB trống hoặc không đủ câu hỏi, sinh câu hỏi dummy (cho mục đích demo/dev)
   if (questions.length === 0) {

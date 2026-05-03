@@ -35,16 +35,17 @@ import {
   Bot,
   Settings2,
   History,
+  FileCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { UserProfile } from '../types';
 
 export type SidebarTab =
   | 'dashboard' | 'tasks' | 'history' | 'liveExam' | 'adaptive' | 'mindmap' | 'simulations' // Student tabs
-  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD' | 'AIChats'; // Admin tabs
+  | 'StudentView' | 'Digitize' | 'Bank' | 'Generator' | 'Matrix' | 'SimLab' | 'MindmapAdmin' | 'Duplicates' | 'Sanitizer' | 'Reports' | 'Classroom' | 'Directory' | 'Library' | 'Tracking' | 'Campaign' | 'Migration' | 'YCCD' | 'AIChats' | 'Stats' | 'Approvals'; // Admin tabs
 
 export const STUDENT_TABS = ['dashboard', 'tasks', 'history', 'liveExam', 'adaptive', 'mindmap', 'simulations'] as const;
-export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD', 'AIChats'] as const;
+export const ADMIN_TABS = ['StudentView', 'Digitize', 'Bank', 'Generator', 'Matrix', 'SimLab', 'MindmapAdmin', 'Duplicates', 'Sanitizer', 'Reports', 'Classroom', 'Directory', 'Library', 'Tracking', 'Campaign', 'Migration', 'YCCD', 'AIChats', 'Stats', 'Approvals'] as const;
 
 // ── Admin Menu Groups Data Structure ──────────────────────────────────────────
 interface MenuItem {
@@ -68,6 +69,7 @@ const adminMenuGroups: MenuGroup[] = [
     icon: LayoutDashboard,
     color: 'cyan',
     items: [
+      { id: 'Stats',     label: 'Thống Kê Hệ Thống', icon: BarChart3 },
       { id: 'Tracking', label: 'Theo Dõi Tiến Độ', icon: BarChart3 },
       { id: 'Directory', label: 'Danh Bạ Học Viên', icon: Contact },
       { id: 'Classroom', label: 'Phòng Thi', icon: Users },
@@ -118,6 +120,7 @@ const adminMenuGroups: MenuGroup[] = [
       { id: 'Sanitizer', label: 'Bảo Trì Dữ Liệu', icon: ShieldAlert },
       { id: 'Duplicates', label: 'Duyệt Trùng', icon: ArrowLeftRight },
       { id: 'Reports', label: 'Duyệt Báo Lỗi', icon: Flag },
+      { id: 'Approvals', label: 'Duyệt Học Liệu', icon: ShieldAlert },
       { id: 'Migration', label: 'Chuyển Đổi Dữ Liệu', icon: Database },
     ],
   },
@@ -201,10 +204,16 @@ const studentMenu: MenuItem[] = [
   { id: 'simulations', label: 'Phòng Thí Nghiệm', icon: Beaker },
 ];
 
+// ── Teacher menu (flat list, emerald theme) ───────────────────────────────────────────────────
+const teacherMenu: MenuItem[] = [
+  { id: 'TeacherPortal' as SidebarTab, label: 'Cổng Giáo Viên', icon: GraduationCap },
+];
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export const Sidebar = ({
   user,
   isAdmin,
+  isTeacher,
   isCollapsed,
   setIsCollapsed,
   activeTab,
@@ -216,6 +225,7 @@ export const Sidebar = ({
 }: {
   user: UserProfile | null;
   isAdmin: boolean;
+  isTeacher?: boolean;
   isCollapsed: boolean;
   setIsCollapsed: (v: boolean) => void;
   activeTab: string;
@@ -431,6 +441,18 @@ export const Sidebar = ({
           )}
           {studentMenu.map(item => renderMenuItem(item, 'fuchsia', 'activeIndicator-student'))}
         </div>
+
+        {/* ── Teacher Section ── */}
+        {isTeacher && (
+          <div className="space-y-1">
+            {!isDesktopCollapsed && (
+              <p className="px-3 text-[10px] font-bold text-emerald-500/60 uppercase tracking-widest mb-3">
+                Cổng Giáo Viên
+              </p>
+            )}
+            {teacherMenu.map(item => renderMenuItem(item, 'emerald', 'activeIndicator-teacher'))}
+          </div>
+        )}
 
         {/* ── Admin Section with Accordion Groups ── */}
         {isAdmin && (

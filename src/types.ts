@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
-//  PHYSICS9+ — TYPE DEFINITIONS (v3.0)
+//  PHYSICS9+ — TYPE DEFINITIONS (v4.0)
 //  Nâng cấp Sprint: Module 1 (Auto-Email) + Module 2 (Dynamic Exam)
+//                  + Module 3 (Teacher Portal — Giao diện Giáo viên)
 // ═══════════════════════════════════════════════════════════════════
 
 // Topic mở rộng: AI tự nhận diện và gán chủ đề phù hợp
@@ -9,7 +10,8 @@
 export type Topic = string;
 export type QuestionLevel = 'Nhận biết' | 'Thông hiểu' | 'Vận dụng' | 'Vận dụng cao';
 export type Part = 1 | 2 | 3;
-export type Role = 'student' | 'admin' | 'assistant';
+// ── [MODULE 3] Thêm role 'teacher' — GV có portal riêng, ít quyền hơn admin ──
+export type Role = 'student' | 'teacher' | 'admin' | 'assistant';
 export type TargetGroup = 'Chống Sai Ngu' | 'Master Physics';
 
 // ── [MODULE 2] Nguồn gốc câu hỏi — dùng để tách Kho đề cố định & Đề sinh tự động ──
@@ -94,6 +96,9 @@ export interface UserProfile {
     lastAssessmentDate?: any;
   };
   failedQuestionIds?: string[];    // Bộ nhớ "Sai Ngu" định tuyến 70-30
+  // ── Teacher Portal: Lớp học ──────────────────────────────────────────
+  classId?: string;                // ID lớp HS đang theo học (joinable class)
+  classIds?: string[];             // Danh sách các classId (nếu HS join nhiều lớp)
 }
 
 export interface LoginLog {
@@ -174,6 +179,24 @@ export interface DynamicMatrixFormula {
   targetGrade: number;            // Khối lớp: 10 | 11 | 12
   targetCompetency: CompetencyTarget; // '6+' | '7+' | '8+' | '9+'
 
+  // ── [MODULE 3] Teacher Ownership (optional — backward compatible) ──
+  // undefined/false = Công thức hệ thống do Admin tạo (PRESET_MATRIX_FORMULAS)
+  // true = GV tự định nghĩa ma trận riêng
+  isTeacherFormula?: boolean;
+  ownerTeacherId?: string;        // UID GV tạo (chỉ có khi isTeacherFormula=true)
+  // Phân cấp hiển thị của ma trận:
+  //   'private' → chỉ GV đó thấy và dùng
+  //   'class'   → GV trong trường/phòng ban (future use)
+  //   'public'  → Toàn hệ thống thấy (Admin approve)
+  matrixVisibility?: 'private' | 'class' | 'public';
+  // Topic filter: GV muốn bốc câu từ topic cụ thể (client-side filter)
+  // VD: ['Dao động cơ', 'Sóng cơ'] → chỉ lấy câu thuộc 2 topic này
+  priorityTopicsByPart?: {
+    part1?: string[];             // Topic ưu tiên cho Phần 1
+    part2?: string[];             // Topic ưu tiên cho Phần 2
+    part3?: string[];             // Topic ưu tiên cho Phần 3
+  };
+
   // ── Cấu trúc 3 phần theo chuẩn THPT 2025 (Bộ GD&ĐT) ──
   structure2025: {
     /** Phần I: Trắc nghiệm nhiều lựa chọn (4 đáp án A/B/C/D) */
@@ -230,6 +253,17 @@ export interface Exam {
   // ── [MODULE 2] Liên kết với công thức ma trận ──
   matrixFormulaId?: string;  // Ref → dynamicMatrixFormulas collection (nếu là đề Dynamic)
   competencyTarget?: CompetencyTarget; // Mức năng lực đích (6+/7+/8+/9+)
+  // ── [MODULE 3] Teacher Portal — Ownership & Visibility ──────────────────
+  // Nếu ownerTeacherId = null/undefined → đề do Admin tạo (visible toàn hệ thống)
+  ownerTeacherId?: string;   // UID của GV sở hữu đề (undefined = Admin)
+  // Phân cấp hiển thị:
+  //   'private' → chỉ GV tạo thấy
+  //   'class'   → HS trong allowedClassIds thấy
+  //   'public'  → toàn hệ thống (Admin approve)
+  visibility?: 'private' | 'class' | 'public';
+  allowedClassIds?: string[]; // Ref → classes collection (dùng khi visibility='class')
+  approvedByAdmin?: boolean;  // Cờ Admin duyệt khi visibility='public'
+  durationMinutes?: number;   // Thời gian làm bài (phút) — dùng cho đề GV sinh
 }
 
 export interface WeaknessItem {
@@ -417,4 +451,98 @@ export interface CampaignMessage {
   isRead: boolean;           // false = chưa đọc, true = đã "Quyết tâm"
   campaignId: string;        // ID đợt phát động (group batch)
   createdAt: any;            // Timestamp server
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MODULE 3: TEACHER PORTAL — Types mới (thêm cuối file, không sửa cũ)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * LearningMaterial — Kho Học Liệu Số của Giáo Viên
+ * Firestore path: learningMaterials/{materialId}
+ *
+ * Quy định kỹ thuật (đã chốt):
+ *   - PDF/DOCX: Firebase Storage, tối đa 5MB → dùng storageUrl
+ *   - JPG/PNG:  Firebase Storage, tối đa 2MB  → dùng storageUrl
+ *   - Video:    BẮT BUỘC external link (YouTube, Drive) → dùng externalUrl
+ *   - Lab ảo:   External link (PhET, Javalab, etc.)    → dùng externalUrl
+ */
+export type MaterialType = 'pdf' | 'image' | 'video_link' | 'lab_link' | 'slide_link' | 'document_link';
+export type MaterialVisibility = 'private' | 'class' | 'public';
+export type MaterialApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface LearningMaterial {
+  id?: string;
+
+  // ── Thông tin cơ bản ──
+  title: string;                      // VD: "Bài giảng Dao động cơ - Tuần 3"
+  description?: string;               // Mô tả ngắn (hiển thị dưới card)
+  type: MaterialType;
+  topic?: string;                     // Liên kết Topic system (physicsTopics.ts)
+  targetGrade?: number;               // 10 | 11 | 12 | undefined = tất cả khối
+  tags?: string[];                    // VD: ['dao-dong-co', 'bai-giang', 'tuan-3']
+
+  // ── Nguồn tài liệu (chỉ dùng 1 trong 2) ──
+  storageUrl?: string;                // Firebase Storage URL (pdf, image)
+  storagePath?: string;               // Storage path để xóa file (VD: materials/uid/file.pdf)
+  externalUrl?: string;               // URL ngoài (YouTube, PhET, Drive, etc.)
+  fileSize?: number;                  // bytes — chỉ dùng khi có storageUrl
+  thumbnailUrl?: string;              // Ảnh preview (tùy chọn)
+
+  // ── Phân quyền (Data Isolation — 3 tầng) ──
+  visibility: MaterialVisibility;
+  ownerId: string;                    // UID GV tạo tài liệu
+  ownerRole: 'teacher' | 'admin';
+  // Danh sách lớp được xem khi visibility='class'
+  // Ref → classes collection
+  allowedClassIds?: string[];
+
+  // ── Admin Approval (chỉ áp dụng khi visibility='public') ──
+  approvalStatus?: MaterialApprovalStatus; // 'pending' khi GV xin public
+  approvedBy?: string;                // UID Admin duyệt
+  approvedAt?: any;                   // Timestamp duyệt
+  rejectionReason?: string;           // Lý do từ chối (nếu rejected)
+
+  // ── Metadata & Tracking ──
+  createdAt: any;                     // Firestore Timestamp
+  updatedAt?: any;
+  viewCount?: number;                 // Lượt xem (tăng dần)
+  downloadCount?: number;             // Lượt tải (chỉ pdf/image)
+}
+
+/**
+ * TeacherExamAssignment — GV Giao Đề Cho Lớp
+ * Firestore path: teacherExamAssignments/{assignmentId}
+ *
+ * Thay thế việc dùng ClassExam cho các bài kiểm tra thông thường.
+ * ClassExam vẫn dùng cho Live Class Exam (thi trực tiếp realtime).
+ */
+export type AssignmentStatus = 'draft' | 'active' | 'closed';
+
+export interface TeacherExamAssignment {
+  id?: string;
+
+  // ── Liên kết ──
+  teacherId: string;                  // UID GV phát đề
+  examId: string;                     // Ref → exams collection
+  classId: string;                    // Ref → classes collection
+  // Denormalized để hiển thị nhanh, không cần extra read
+  examTitle: string;
+  className?: string;
+
+  // ── Cấu hình phát đề ──
+  status: AssignmentStatus;
+  assignedAt: any;                    // Firestore Timestamp
+  availableFrom?: any;                // Mở từ lúc nào (null = ngay lập tức)
+  deadline?: any;                     // Hạn nộp bài (null = không giới hạn)
+
+  // ── Quyền HS sau khi nộp ──
+  allowReview: boolean;               // HS được xem lại bài + đáp án sau khi nộp
+  showLeaderboard: boolean;           // Hiển thị bảng điểm cho HS
+  randomizeQuestions?: boolean;       // Xáo câu hỏi khác nhau mỗi HS
+
+  // ── Thống kê realtime (denormalized, cập nhật khi HS nộp) ──
+  submittedCount?: number;            // Số HS đã nộp
+  totalStudents?: number;             // Tổng HS trong lớp tại thời điểm phát
+  averageScore?: number;              // Điểm TB của lớp (tính sau khi đủ 50% nộp)
 }

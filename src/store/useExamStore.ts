@@ -3,7 +3,7 @@ import { Topic, Question, Attempt } from '../types';
 
 interface ExamState {
   // ── State Cốt Lõi ──
-  activeTest: { topic: Topic; questions: Question[]; examId?: string } | null;
+  activeTest: { topic: Topic; questions: Question[]; examId?: string; adaptiveConfig?: any } | null;
   currentQuestionIndex: number;
   answers: Record<string, any>;
   results: Attempt | null;

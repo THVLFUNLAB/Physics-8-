@@ -4,6 +4,9 @@ import App from './App.tsx';
 import './index.css';
 
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const queryClient = new QueryClient();
 
 // Catch Vite chunk load errors globally
 window.addEventListener('vite:preloadError', (event) => {
@@ -79,8 +82,10 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </QueryClientProvider>
   </StrictMode>,
 );

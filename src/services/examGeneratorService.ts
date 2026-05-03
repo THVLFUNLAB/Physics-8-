@@ -39,6 +39,8 @@ import type {
   ExamSource,
 } from '../types';
 import { ensureClusterIntegrity } from '../utils/clusterIntegrity';
+import { getClusterOrder, isTempClusterId } from '../utils/clusterUtils';
+
 
 // ─── Constants ────────────────────────────────────────────────────
 const QUESTION_COLLECTION = 'questions';
@@ -176,12 +178,15 @@ async function fetchQuestionPool(
     });
   }
 
-  // ── Fallback cuối: lấy mà không filter targetGrade (nếu vẫn thiếu) ──
+  // ── Fallback cuối: vẫn GIỮ targetGrade — TUYỆT ĐỐI không bốc câu lớp khác ──
+  // Chỉ nới lỏng: bỏ filter examSource để tăng pool.
+  // targetGrade PHẢI luôn có để đảm bảo tính sư phạm.
   if (allResults.length < poolSize) {
     const broadQuery = query(
       collection(db, QUESTION_COLLECTION),
       where('part', '==', part),
       where('level', '==', level),
+      where('targetGrade', '==', targetGrade), // ✅ BẮT BUỘC — không bỏ filter này
       where('status', '==', 'published'),
       limit(MAX_POOL_FETCH)
     );
@@ -198,7 +203,36 @@ async function fetchQuestionPool(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  MAIN: GENERATE DYNAMIC EXAM
+//  HELPER: LẤY TOÀN BỘ ANH EM CỦA MỘT CLUSTER (cluster-aware picking)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * fetchDayDuCluster — Lấy toàn bộ câu thuộc clusterId, sort theo clusterOrder.
+ *
+ * Mục đích: Trước khi quyết định bốc chùm, ta cần biết chính xác
+ * số câu trong chùm để tính còn đủ quota không.
+ *
+ * Nếu chùm có 3 câu mà quota còn 2 → bỏ qua chùm này,
+ * không bao giờ bốc nửa chùm (tránh học sinh thiếu dữ kiện).
+ */
+async function fetchDayDuCluster(clusterId: string): Promise<Question[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, QUESTION_COLLECTION),
+        where('clusterId', '==', clusterId),
+        where('status', '==', 'published'),
+      )
+    );
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as Question))
+      .sort((a, b) => getClusterOrder(a) - getClusterOrder(b));
+  } catch (err) {
+    console.warn(`[ExamGenerator] Không lấy được siblings của cluster ${clusterId}:`, err);
+    return [];
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 
 /**
@@ -272,41 +306,99 @@ export async function generateDynamicExam(
     { partNum: 3, config: part3, targetArray: part3Questions },
   ];
 
+  // ── Theo dõi toàn cục: ID câu đã chọn (xuyên cả 3 Part × Level) ──
+  // Đảm bảo không có câu nào xuất hiện 2 lần, kể cả anh em chùm
+  const globalPickedIds = new Set<string>();
+
   for (const { partNum, config, targetArray } of partConfigs) {
     const levels = Object.entries(config.levels) as [QuestionLevel, number][];
 
     for (const [level, requiredCount] of levels) {
-      if (requiredCount <= 0) continue; // Bỏ qua nếu không cần câu nào
+      if (requiredCount <= 0) continue;
 
-      // ── Lấy pool câu hỏi ──
+      // ── Bước A: Lấy pool câu hỏi từ Firestore ──
       const pool = await fetchQuestionPool(
-        partNum,
-        level,
-        targetGrade,
-        useStrictSource ? allowedSources : null, // strict: filter nguồn; flexible: không filter
+        partNum, level, targetGrade,
+        useStrictSource ? allowedSources : null,
         includeUntaggedSource,
         requiredCount
       );
 
       if (pool.length === 0) {
-        warnings.push(
-          `⚠️ Part ${partNum} - ${level}: Kho trống, không có câu nào phù hợp!`
-        );
+        warnings.push(`⚠️ Part ${partNum} - ${level}: Kho trống!`);
         continue;
       }
 
-      if (pool.length < requiredCount) {
+      // ── Bước B: Phân loại pool — câu đơn vs câu chùm ──
+      const clusterIdsInPool = new Set<string>();
+      const singles: Question[] = [];
+
+      for (const q of pool) {
+        if (globalPickedIds.has(q.id || '')) continue; // Đã chọn ở vòng trước
+        if (q.clusterId && !isTempClusterId(q.clusterId)) {
+          clusterIdsInPool.add(q.clusterId);
+        } else {
+          singles.push(q);
+        }
+      }
+
+      // ── Bước C: Fetch đầy đủ anh em cho mỗi cluster phát hiện ──
+      // Cần biết cả nhóm để tính quota: chùm 3 câu mà chỉ còn 2 slot → skip
+      const fullClusterMap = new Map<string, Question[]>();
+
+      for (const cid of clusterIdsInPool) {
+        const allSiblings = await fetchDayDuCluster(cid);
+        // Chỉ giữ câu CHƯA được chọn (anh em ở part/level khác có thể đã bốc)
+        const available = allSiblings.filter(q => !globalPickedIds.has(q.id || ''));
+        if (available.length > 0) {
+          fullClusterMap.set(cid, available);
+        }
+      }
+
+      // ── Bước D: Bốc câu — Chùm trước, Đơn sau ──
+      const picked: Question[] = [];
+      let remaining = requiredCount;
+
+      // Shuffle danh sách các nhóm chùm (Fisher-Yates trên đại diện nhóm)
+      const shuffledClusterGroups = fisherYatesShuffle([...fullClusterMap.values()]);
+
+      for (const group of shuffledClusterGroups) {
+        if (remaining <= 0) break;
+        // NGUYÊN TẮC: chỉ bốc chùm khi TOÀN BỘ nhóm vừa khớp quota còn lại
+        // Không bao giờ bốc nửa chùm → học sinh không bị thiếu dữ kiện
+        if (group.length <= remaining) {
+          for (const q of group) {
+            if (!globalPickedIds.has(q.id || '')) {
+              picked.push(q);
+              globalPickedIds.add(q.id || '');
+              remaining--;
+            }
+          }
+        }
+        // Chùm quá lớn → thử chùm tiếp theo
+      }
+
+      // Fill slot còn lại bằng câu đơn (Fisher-Yates shuffle)
+      const shuffledSingles = fisherYatesShuffle(singles);
+      for (const q of shuffledSingles) {
+        if (remaining <= 0) break;
+        if (!globalPickedIds.has(q.id || '')) {
+          picked.push(q);
+          globalPickedIds.add(q.id || '');
+          remaining--;
+        }
+      }
+
+      if (picked.length < requiredCount) {
         warnings.push(
-          `⚠️ Part ${partNum} - ${level}: Yêu cầu ${requiredCount} câu nhưng kho chỉ có ${pool.length} câu.`
+          `⚠️ Part ${partNum} - ${level}: Yêu cầu ${requiredCount} câu nhưng chỉ bốc được ${picked.length} câu.`
         );
       }
 
-      // ── Shuffle pool theo Fisher-Yates → bốc đúng số lượng ──
-      const shuffledPool = fisherYatesShuffle(pool);
-      const picked = shuffledPool.slice(0, requiredCount);
       targetArray.push(...picked);
     }
   }
+
 
   // ── Bước 4: Ghép 3 phần, shuffle tổng thể lần cuối ─────────────
   // Thứ tự trong đề thi: Part 1 → Part 2 → Part 3 (giữ nguyên thứ tự phần)
@@ -408,48 +500,63 @@ export async function generateAdvancedQuestions(
   // nhưng đặt trong chương Từ trường (whitelist đã bao gồm)
 
   const allResults: Question[] = [];
-  
-  // Lưu ý Firestore: Không thể dùng 2 toán tử 'in' cùng lúc.
-  // Ta sẽ query bằng targetGrade + level, sau đó filter Whitelist/Blacklist ở Client.
-  const q = query(
-    collection(db, QUESTION_COLLECTION),
-    where('targetGrade', '==', 12),
-    where('level', 'in', levels),
-    where('status', '==', 'published')
-  );
+  const seenAdvancedIds = new Set<string>();
 
-  const snap = await getDocs(q);
-  
-  snap.forEach(d => {
-    const data = d.data() as Question;
-    
-    // 1. Kiểm tra Whitelist Topic
-    const isTopicAllowed = allowedTopics.includes(data.topic);
-    
-    // 2. Kiểm tra Blacklist trong Content hoặc Topic
-    const contentText = (data.content || '').toLowerCase();
-    const topicText = (data.topic || '').toLowerCase();
-    
-    const isBlacklisted = blacklistKeywords.some(kw => 
-      contentText.includes(kw.toLowerCase()) || 
-      topicText.includes(kw.toLowerCase())
+  // ── Query theo từng Part riêng biệt để đảm bảo tỷ lệ P1/P2/P3 ──
+  // Phân bổ: P1 (đơn lẻ) chiếm nhiều nhất, P3 (số) ít hơn
+  // Với đề 8+/9+: chỉ lấy câu thuộc targetGrade=12, KHÔNG lấy lớp khác
+  const partConfigs: Array<{ part: 1 | 2 | 3; quota: number }> = [
+    { part: 1, quota: Math.ceil(count * 0.5) },  // ~50% là câu đơn trắc nghiệm
+    { part: 2, quota: Math.ceil(count * 0.2) },  // ~20% là câu đúng/sai 4 ý
+    { part: 3, quota: Math.ceil(count * 0.3) },  // ~30% là câu số
+  ];
+
+  for (const { part, quota } of partConfigs) {
+    // Lưu ý Firestore: Không thể dùng 2 toán tử 'in' cùng lúc.
+    // Query theo grade + part + status, filter level + whitelist/blacklist ở Client.
+    const q = query(
+      collection(db, QUESTION_COLLECTION),
+      where('targetGrade', '==', 12), // ✅ BẮT BUỘC — KHÔNG bốc câu lớp 10/11
+      where('part', '==', part),
+      where('status', '==', 'published')
     );
 
-    if (isTopicAllowed && !isBlacklisted) {
-      allResults.push({ id: d.id, ...data });
-    }
-  });
+    const snap = await getDocs(q);
 
-  // Fisher-Yates shuffle để bốc ngẫu nhiên (chỉ chọn từ những câu khớp 100% Yêu cầu cần đạt)
+    snap.forEach(d => {
+      if (seenAdvancedIds.has(d.id)) return;
+      const data = d.data() as Question;
+
+      // 1. Kiểm tra level phù hợp (VD hoặc VDC cho 8+/9+)
+      if (!levels.includes(data.level as QuestionLevel)) return;
+
+      // 2. Kiểm tra Whitelist Topic
+      const isTopicAllowed = allowedTopics.includes(data.topic);
+
+      // 3. Kiểm tra Blacklist trong Content hoặc Topic
+      const contentText = (data.content || '').toLowerCase();
+      const topicText = (data.topic || '').toLowerCase();
+      const isBlacklisted = blacklistKeywords.some(kw =>
+        contentText.includes(kw.toLowerCase()) ||
+        topicText.includes(kw.toLowerCase())
+      );
+
+      if (isTopicAllowed && !isBlacklisted) {
+        seenAdvancedIds.add(d.id);
+        allResults.push({ id: d.id, ...data });
+      }
+    });
+  }
+
+  // Fisher-Yates shuffle để bốc ngẫu nhiên
   const shuffled = fisherYatesShuffle(allResults);
-  
-  // Trích xuất đúng số lượng yêu cầu (chỉ 5 - 10 câu tinh hoa)
+
+  // Trích xuất đúng số lượng yêu cầu
   const initialSelection = shuffled.slice(0, count);
 
-  // Đảm bảo tính toàn vẹn của câu chùm (kéo thêm anh em + sharedContext nếu bốc trúng)
-  // Đề có thể lố lên 7-10 câu nhưng luôn tuân thủ nguyên tắc "Chùm là chùm"
+  // Đảm bảo tính toàn vẹn của câu chùm
   const finalQuestions = await ensureClusterIntegrity(initialSelection, db);
-  
+
   return finalQuestions;
 }
 

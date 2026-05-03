@@ -391,6 +391,82 @@ export async function consumePdfDownloadAttempts(userId: string, examId: string 
   }
 }
 
+/**
+ * Trừ lượt tổng quát — dùng cho mọi hành động có chi phí tùy chỉnh.
+ * - Mô phỏng số (Kho học liệu): cost = 2
+ * - Tham gia phòng thi LiveClass: cost = 1
+ * - Virtual Lab (phet): cost = 2
+ *
+ * Admin và VIP được miễn trừ lượt.
+ * @throws "EXCEEDED_LIMIT" khi không đủ lượt
+ */
+export async function consumeAttempts(
+  userId: string,
+  cost: number,
+  action: string = 'activity'
+): Promise<boolean> {
+  if (!userId || userId === 'guest') return true;
+
+  const userRef = doc(db, 'users', userId);
+  let userDoc;
+  try {
+    userDoc = await getDoc(userRef);
+  } catch (netErr: any) {
+    const errCode = netErr?.code || '';
+    if (errCode === 'permission-denied') {
+      throw new Error('EXCEEDED_LIMIT');
+    }
+    // Lỗi mạng → graceful allow
+    console.warn('[consumeAttempts] Lỗi mạng, cho phép hoạt động:', netErr);
+    return true;
+  }
+
+  if (!userDoc || !userDoc.exists()) return true;
+
+  const data = userDoc.data();
+
+  // Admin bypass
+  if (data.role === 'admin') return true;
+
+  // VIP bypass — chỉ log totalAttempts
+  if (data.tier === 'vip' || data.isUnlimited) {
+    try {
+      await originalSetDoc(userRef, { totalAttempts: increment(cost) }, { merge: true });
+    } catch { /* silent */ }
+    return true;
+  }
+
+  const used = data.usedAttempts || 0;
+  const max  = data.maxAttempts  || 20;
+
+  if (used + cost > max) {
+    throw new Error('EXCEEDED_LIMIT');
+  }
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(userRef, { usedAttempts: increment(cost), totalAttempts: increment(cost) }, { merge: true });
+
+    const logRef = doc(collection(db, 'usage_logs'));
+    batch.set(logRef, {
+      userId,
+      action,
+      cost,
+      timestamp: serverTimestamp(),
+    });
+
+    await batch.commit();
+    return true;
+  } catch (writeErr: any) {
+    const errCode = writeErr?.code || '';
+    if (errCode === 'permission-denied') {
+      throw new Error('EXCEEDED_LIMIT');
+    }
+    console.warn('[consumeAttempts] Lỗi ghi batch (mạng), vẫn cho phép:', writeErr);
+    return true;
+  }
+}
+
 export { 
   collection, doc, getDoc, getDocs, getDocsFromServer, getDocFromServer, deleteDoc, query, where, onSnapshot, Timestamp, onAuthStateChanged, writeBatch, serverTimestamp, arrayUnion, arrayRemove, orderBy, limit, getCountFromServer, startAfter, getDocFromCache, runTransaction
 };

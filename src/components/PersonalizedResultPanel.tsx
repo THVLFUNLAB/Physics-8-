@@ -107,7 +107,7 @@ export const PersonalizedResultPanel: React.FC<Props> = ({
           
           <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl mb-6">
             <p className="text-sm text-purple-100 leading-relaxed italic">
-              "{profile.behavioralNote}"
+              &ldquo;{profile.behavioralNote}&rdquo;
             </p>
           </div>
           

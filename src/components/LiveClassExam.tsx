@@ -73,6 +73,17 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   // ── Team Battle ──────────────────────────────────────────────────────────
   const [myTeamId, setMyTeamId] = useState<'A' | 'B' | null>(null);
 
+  // Refs for performance & cleanup
+  const syncTimeoutRef = useRef<NodeJS.Timeout>();
+  const rankingUnsubRef = useRef<() => void>();
+
+  useEffect(() => {
+    return () => {
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+      if (rankingUnsubRef.current) rankingUnsubRef.current();
+    };
+  }, []);
+
   // Use a ref for answers to avoid stale closures in auto-submit
   const answersRef = useRef<Record<string, any>>(answers);
   useEffect(() => {
@@ -422,14 +433,17 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
       // ── R4 Layer 1: Lưu vault NGAY LẬP TỨC (đồng bộ, không thể fail) ──
       saveToVault(updated);
 
-      // ── Sync to Firestore (fire-and-forget, có thể fail khi offline) ──
+      // ── Sync to Firestore (Debounced để giảm tải Write dưới đẩy) ──
       if (attemptId) {
-        const totalAnswered = Object.values(updated).filter(v => v !== undefined && v !== null && v !== '').length;
-        updateDoc(doc(db, 'classAttempts', attemptId), {
-          answers: updated,
-          totalAnswered,
-          lastPing: Timestamp.now(),
-        }).catch(e => console.warn('Answer sync failed (vault đã backup):', e));
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => {
+          const totalAnswered = Object.values(updated).filter(v => v !== undefined && v !== null && v !== '').length;
+          updateDoc(doc(db, 'classAttempts', attemptId), {
+            answers: updated,
+            totalAnswered,
+            lastPing: Timestamp.now(),
+          }).catch(e => console.warn('Answer sync failed (vault đã backup):', e));
+        }, 3000); // Batch sau 3 giây ngừng type/click
       }
 
       return updated;
@@ -533,7 +547,9 @@ const LiveClassExam: React.FC<LiveClassExamProps> = ({ user }) => {
   };
 
   const fetchRanking = (classExamId: string) => {
-    onSnapshot(
+    if (rankingUnsubRef.current) rankingUnsubRef.current();
+    
+    rankingUnsubRef.current = onSnapshot(
       query(collection(db, 'classAttempts'), where('classExamId', '==', classExamId)),
       (snap) => {
         const all = snap.docs
