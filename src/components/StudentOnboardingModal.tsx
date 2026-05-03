@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, doc, updateDoc, setDoc } from '../firebase';
 import { UserProfile } from '../types';
 import { toast } from './Toast';
-import { User, ShieldAlert, CheckCircle2, ChevronDown, GraduationCap } from 'lucide-react';
+import { User, ShieldAlert, CheckCircle2, ChevronDown, GraduationCap, Users } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
 // ── Free Trial Class IDs (map từ biến môi trường hoặc fallback hàrdcode) ──
@@ -29,21 +29,22 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
   const [isOpen, setIsOpen] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [className, setClassName] = useState('');
+  const [role, setRole] = useState<'student' | 'teacher' | 'assistant'>('student');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    // Only show if className is missing, empty
-    if (!user.className || user.className.trim() === '') {
+    // Only show if user is a student and className is missing
+    if (user.role === 'student' && (!user.className || user.className.trim() === '')) {
       setDisplayName(user.displayName || '');
       setIsOpen(true);
     } else {
       setIsOpen(false);
     }
-  }, [user.className, user.displayName]);
+  }, [user.className, user.displayName, user.role]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!className) {
+    if (role === 'student' && !className) {
       toast.error('Vui lòng chọn lớp của em!');
       return;
     }
@@ -54,39 +55,49 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
 
     setIsSubmitting(true);
     try {
-      // 1. Cập nhật profile user (giữ nguyên, không đụng field quota)
-      await updateDoc(doc(db, 'users', user.uid), {
-        displayName: displayName.trim(),
-        className: className,
-      });
+      if (role === 'student') {
+        // 1. Cập nhật profile user
+        await updateDoc(doc(db, 'users', user.uid), {
+          displayName: displayName.trim(),
+          className: className,
+          role: 'student',
+        });
 
-      // 2. Tự động ghi danh vào lớp Free Trial tương ứng với khối
-      const grade = getGradeFromClass(className);
-      if (grade) {
-        const freeClassId = FREE_CLASS_MAP[grade];
-        const memberDocId = `${freeClassId}_${user.uid}`;
-        try {
-          await setDoc(
-            doc(db, 'class_members', memberDocId),
-            {
-              classId:     freeClassId,
-              userId:      user.uid,
-              displayName: displayName.trim(),
-              email:       user.email || '',
-              grade,
-              className,
-              joinedAt:    Timestamp.now(),
-              source:      'onboarding_auto',
-            },
-            { merge: true } // idempotent — an toàn khi réresh
-          );
-        } catch (memberErr) {
-          // Non-blocking: lỗi ghi danh không chặn flow đăng ký
-          console.warn('[Onboarding] Không ghi được class_members:', memberErr);
+        // 2. Tự động ghi danh vào lớp Free Trial tương ứng với khối
+        const grade = getGradeFromClass(className);
+        if (grade) {
+          const freeClassId = FREE_CLASS_MAP[grade];
+          const memberDocId = `${freeClassId}_${user.uid}`;
+          try {
+            await setDoc(
+              doc(db, 'class_members', memberDocId),
+              {
+                classId:     freeClassId,
+                userId:      user.uid,
+                displayName: displayName.trim(),
+                email:       user.email || '',
+                grade,
+                className,
+                joinedAt:    Timestamp.now(),
+                source:      'onboarding_auto',
+              },
+              { merge: true }
+            );
+          } catch (memberErr) {
+            console.warn('[Onboarding] Không ghi được class_members:', memberErr);
+          }
         }
+        toast.success('Chào mừng em đến với hệ thống! Đã xếp em vào lớp học thử nghiệm.');
+      } else {
+        // 3. Xử lý cho Trợ giảng hoặc Giáo viên
+        await updateDoc(doc(db, 'users', user.uid), {
+          displayName: displayName.trim(),
+          role: role,
+          className: '', // Không cần lớp
+        });
+        toast.success(`Đã cập nhật thông tin thành công với vai trò ${role === 'teacher' ? 'Giáo viên/Admin' : 'Trợ giảng'}!`);
       }
 
-      toast.success('Chào mừng em đến với hệ thống! Đã xếp em vào lớp học thử nghiệm.');
       setIsOpen(false);
     } catch (err: any) {
       console.error(err);
@@ -120,6 +131,25 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+            {/* Role Selection */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Users className="w-4 h-4" /> Bạn là ai?
+              </label>
+              <div className="relative">
+                <select
+                  value={role}
+                  onChange={e => setRole(e.target.value as any)}
+                  className="w-full bg-slate-950/50 border border-slate-700 text-white rounded-xl px-4 py-3 appearance-none focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer font-bold transition-all"
+                >
+                  <option value="student">Học sinh</option>
+                  <option value="assistant">Trợ giảng</option>
+                  <option value="teacher">Giáo viên / Admin</option>
+                </select>
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 pointer-events-none" />
+              </div>
+            </div>
+
             {/* Name Input */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -127,7 +157,7 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
               </label>
               <input
                 type="text"
-                placeholder="Nhập đầy đủ Họ Tên thật của em..."
+                placeholder="Nhập đầy đủ Họ Tên thật..."
                 value={displayName}
                 onChange={e => setDisplayName(e.target.value)}
                 className="w-full bg-slate-950/50 border border-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-medium"
@@ -135,43 +165,45 @@ export const StudentOnboardingModal: React.FC<StudentOnboardingModalProps> = ({ 
             </div>
 
             {/* Class Selection */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <GraduationCap className="w-4 h-4" /> Lớp (Khối)
-              </label>
-              <div className="relative">
-                <select
-                  value={className}
-                  onChange={e => setClassName(e.target.value)}
-                  className="w-full bg-slate-950/50 border border-slate-700 text-white rounded-xl px-4 py-3 appearance-none focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer font-bold transition-all"
-                >
-                  <option value="" disabled>--- Vui lòng Chọn Lớp ---</option>
-                  <optgroup label="TRẠM VỀ ĐÍCH (ĐẠI HỌC) - Khối 12" className="bg-slate-900 text-red-400 font-bold">
-                    <option value="12L1" className="text-white">12L1</option>
-                    <option value="12L2" className="text-white">12L2</option>
-                    <option value="12L3" className="text-white">12L3</option>
-                    <option value="12L4" className="text-white">12L4</option>
-                  </optgroup>
-                  <optgroup label="TRẠM BỨT PHÁ - Khối 11" className="bg-slate-900 text-amber-500 font-bold">
-                    <option value="11L1" className="text-white">11L1</option>
-                    <option value="11L2" className="text-white">11L2</option>
-                    <option value="11L3" className="text-white">11L3</option>
-                    <option value="11L4" className="text-white">11L4</option>
-                  </optgroup>
-                  <optgroup label="TRẠM KHÔNG GIAN - Khối 10" className="bg-slate-900 text-cyan-400 font-bold">
-                    <option value="10L1" className="text-white">10L1</option>
-                    <option value="10L2" className="text-white">10L2</option>
-                    <option value="10L3" className="text-white">10L3</option>
-                    <option value="10L4" className="text-white">10L4</option>
-                  </optgroup>
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 pointer-events-none" />
+            {role === 'student' && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <GraduationCap className="w-4 h-4" /> Lớp (Khối)
+                </label>
+                <div className="relative">
+                  <select
+                    value={className}
+                    onChange={e => setClassName(e.target.value)}
+                    className="w-full bg-slate-950/50 border border-slate-700 text-white rounded-xl px-4 py-3 appearance-none focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer font-bold transition-all"
+                  >
+                    <option value="" disabled>--- Vui lòng Chọn Lớp ---</option>
+                    <optgroup label="TRẠM VỀ ĐÍCH (ĐẠI HỌC) - Khối 12" className="bg-slate-900 text-red-400 font-bold">
+                      <option value="12L1" className="text-white">12L1</option>
+                      <option value="12L2" className="text-white">12L2</option>
+                      <option value="12L3" className="text-white">12L3</option>
+                      <option value="12L4" className="text-white">12L4</option>
+                    </optgroup>
+                    <optgroup label="TRẠM BỨT PHÁ - Khối 11" className="bg-slate-900 text-amber-500 font-bold">
+                      <option value="11L1" className="text-white">11L1</option>
+                      <option value="11L2" className="text-white">11L2</option>
+                      <option value="11L3" className="text-white">11L3</option>
+                      <option value="11L4" className="text-white">11L4</option>
+                    </optgroup>
+                    <optgroup label="TRẠM KHÔNG GIAN - Khối 10" className="bg-slate-900 text-cyan-400 font-bold">
+                      <option value="10L1" className="text-white">10L1</option>
+                      <option value="10L2" className="text-white">10L2</option>
+                      <option value="10L3" className="text-white">10L3</option>
+                      <option value="10L4" className="text-white">10L4</option>
+                    </optgroup>
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 pointer-events-none" />
+                </div>
               </div>
-            </div>
+            )}
 
             <button
               type="submit"
-              disabled={isSubmitting || !className || !displayName.trim()}
+              disabled={isSubmitting || (role === 'student' && !className) || !displayName.trim()}
               className="w-full mt-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black py-4 rounded-xl shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-sm"
             >
               {isSubmitting ? (

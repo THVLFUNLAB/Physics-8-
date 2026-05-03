@@ -11,7 +11,7 @@ import { cn } from './lib/utils';
 import MathRenderer from './lib/MathRenderer';
 import {
   auth, db, collection, doc, addDoc, getDocs, getDoc,
-  setDoc, updateDoc, onSnapshot, query, where, Timestamp,
+  setDoc, updateDoc, onSnapshot, query, where, Timestamp, limit,
   signInWithGoogle, signOut, startExamAttempt, consumePdfDownloadAttempts, consumeAttempts
 } from './firebase';
 import { useAuthStore } from './store/useAuthStore';
@@ -1022,7 +1022,7 @@ export default function App() {
             qQuery = query(qRef, where('topic', '==', item.topic), limit(20));
           }
           const snapshot = await getDocs(qQuery);
-          qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
+          qs = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Question)).filter(q => q.status === 'published');
         } catch (err: any) {
           // [HOTFIX] Bắt lỗi Index Required (failed-precondition)
           if (err?.code === 'failed-precondition' || (err?.message && err.message.includes('index'))) {
@@ -1033,7 +1033,7 @@ export default function App() {
             // Fallback tải một lượng nhỏ nếu chưa có index
             const fallbackQuery = query(qRef, where('topic', '==', item.topic), limit(50));
             const snapshot = await getDocs(fallbackQuery);
-            qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question)).filter(q => q.status === 'published');
+            qs = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Question)).filter(q => q.status === 'published');
             if (item.levels && item.levels.length > 0) {
                qs = qs.filter(q => item.levels.includes(q.level));
             }
@@ -1792,6 +1792,7 @@ export default function App() {
         {printingExam && <PrintableExamView ref={printRef} exam={printingExam} />}
       </div>
 
+      {authUser && <StudentOnboardingModal user={authUser} />}
       </main>
       </div>
     </div>
